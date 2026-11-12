@@ -1,0 +1,44 @@
+# Secrets and local config
+.env
+.env.*
+!.env.example
+
+# Runtime data (SQLite, instrument cache, recordings)
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Python / uv
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+*.egg-info/
+build/
+dist/
+.coverage
+htmlcov/
+
+# Node / frontend
+node_modules/
+frontend/dist/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+playwright-report/
+test-results/
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Claude Code local settings
+.claude/settings.local.json
