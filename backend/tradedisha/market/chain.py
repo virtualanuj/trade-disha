@@ -40,6 +40,8 @@ class LegState:
     volume: int | None = None
     last_ts: int | None = None
     buildup: BuildUp = "none"
+    oi_delta_min: int = 0  # OI change over the last closed minute
+    ltp_delta_min: float = 0.0
 
     def apply(self, t: Tick) -> None:
         self.ltp = t.ltp
@@ -83,6 +85,8 @@ class LegState:
             self.oi_prev_min if self.oi_prev_min is not None else (self.oi or 0)
         )
         self.buildup = classify_buildup(d_price, d_oi)
+        self.oi_delta_min = int(d_oi)
+        self.ltp_delta_min = float(d_price)
         self.ltp_prev_min = self.ltp
         self.oi_prev_min = self.oi
 
@@ -111,6 +115,10 @@ class ChainSnapshotMinute:
     atm: float
     pcr: float | None
     max_pain: float | None
+    spot: float | None = None
+    atm_ce_ltp: float | None = None
+    atm_pe_ltp: float | None = None
+    atm_iv: float | None = None  # mean of ATM CE and PE IV
 
 
 @dataclass
@@ -180,7 +188,18 @@ class ChainState:
         for row in self.rows.values():
             row.ce.close_minute()
             row.pe.close_minute()
-        snap = ChainSnapshotMinute(minute_ts, self.atm, self.pcr(), self.max_pain())
+        atm_row = self.rows.get(self.atm)
+        ivs = [v for v in ((atm_row.ce.iv, atm_row.pe.iv) if atm_row else ()) if v is not None]
+        snap = ChainSnapshotMinute(
+            minute_ts,
+            self.atm,
+            self.pcr(),
+            self.max_pain(),
+            spot=self.spot,
+            atm_ce_ltp=atm_row.ce.ltp if atm_row else None,
+            atm_pe_ltp=atm_row.pe.ltp if atm_row else None,
+            atm_iv=sum(ivs) / len(ivs) if ivs else None,
+        )
         self.history.append(snap)
         return snap
 

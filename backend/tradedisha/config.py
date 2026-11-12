@@ -28,6 +28,7 @@ class Settings(BaseSettings):
 
     db_path: Path = REPO_ROOT / "data" / "tradedisha.sqlite"
     holidays_file: Path = REPO_ROOT / "config" / "nse-holidays.txt"
+    params_path: Path = REPO_ROOT / "config" / "params.toml"
 
     indices: list[str] = ["NIFTY", "BANKNIFTY"]
     market_open: time = time(9, 15)

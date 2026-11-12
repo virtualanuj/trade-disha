@@ -71,6 +71,9 @@ export class MarketSocket {
           frame.payload.instruments,
           frame.payload.prices,
           frame.payload.chains,
+          frame.payload.candles,
+          frame.payload.bias,
+          frame.payload.parameters,
         )
         break
       case 'tick':
@@ -82,6 +85,15 @@ export class MarketSocket {
         break
       case 'chain':
         s.applyChain(frame.payload)
+        break
+      case 'candle':
+        s.applyCandle(frame.payload.index, frame.payload.role, frame.payload.candle)
+        break
+      case 'bias':
+        s.applyBias(frame.payload.bias, frame.payload.overlay)
+        break
+      case 'parameters':
+        s.applyParameters(frame.payload, frame.payload.effective_from_minute_ts)
         break
       case 'pong':
         break

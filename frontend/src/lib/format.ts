@@ -49,3 +49,10 @@ export function fmtSigned(v: number | null | undefined, digits = 1): string {
   const s = v.toFixed(digits)
   return v > 0 ? `+${s}` : s
 }
+
+/** Text colour for a bias label. */
+export function labelColour(label: 'Bullish' | 'Neutral' | 'Bearish' | undefined): string {
+  if (label === 'Bullish') return 'text-bull'
+  if (label === 'Bearish') return 'text-bear'
+  return 'text-neutral'
+}

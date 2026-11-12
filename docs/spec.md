@@ -745,7 +745,11 @@ wall-clock fallback when ticks are sparse; the detection delay is reported separ
   sums) rather than recomputed over the window.
 - WS push is throttled per channel (§12.2) on the leading edge and coalesced: a dirty
   index is pushed as soon as its minimum gap has elapsed and the latest state wins, so a
-  slow client never builds a backlog. A client that falls behind by > 2 s is
+  slow client never builds a backlog. Candle, bias and parameter frames bypass the throttle
+  and go out on the next pusher pass.
+- Indicators recompute over the candle window (<= 400 bars) at each minute close rather
+  than carrying incremental state; measured cost is microseconds and the functions stay
+  pure. Revisit only if the instrument count grows by orders of magnitude. A client that falls behind by > 2 s is
   disconnected and reconnects to a fresh `hello`.
 - Event-loop lag is sampled every 100 ms; if p95 lag exceeds 20 ms for a minute, a
   `feed_events` warning is written and shown in the dev overlay.

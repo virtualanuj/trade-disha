@@ -1,4 +1,5 @@
-"""WebSocket push: `hello` snapshot on connect, then throttled `tick`, `chain` and `health` frames.
+"""WebSocket push: `hello` snapshot on connect, then `tick`, `chain`, `candle`, `bias`,
+`health` and `parameters` frames.
 
 Every frame carries t_src (exchange ts of the newest data in it), t_in (backend ingest of
 that data) and t_out (send time) so the browser can compute per-hop latency.
@@ -13,13 +14,22 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from tradedisha.api.analysis import (
+    bias_out,
+    candle_out,
+    candles_response,
+    overlay_out,
+    parameters_out,
+)
 from tradedisha.api.chain import chain_out
 from tradedisha.api.health import build_health
 from tradedisha.api.instruments import resolved_out
 from tradedisha.app_state import AppState
 from tradedisha.clock import epoch_ms_now
-from tradedisha.events import FeedHealthChanged, WindowChanged
+from tradedisha.engine.bias_engine import BiasComputed
+from tradedisha.events import FeedHealthChanged, ParametersChanged, WindowChanged
 from tradedisha.feed.bus import StampedTick
+from tradedisha.market.candles import Candle
 from tradedisha.market.chain import ChainState
 
 log = logging.getLogger(__name__)
@@ -37,10 +47,14 @@ class WsHub:
         self._dirty: dict[str, int] = {}  # index -> t_in of newest price tick since last push
         self._chain_dirty: dict[str, int] = {}  # index -> t_in of newest option tick
         self._health_dirty = False
+        self._immediate: list[str] = []  # frames to send on the next pusher pass
         self._task: asyncio.Task[None] | None = None
         state.session.tick_bus.subscribe(self._on_tick)
+        state.session.candle_listeners.append(self._on_candle)
+        state.session.bias_listeners.append(self._on_bias)
         state.events.subscribe(FeedHealthChanged, self._on_health)
         state.events.subscribe(WindowChanged, self._on_window)
+        state.events.subscribe(ParametersChanged, self._on_params)
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -67,11 +81,34 @@ class WsHub:
                     self._chain_dirty[idx] = st.t_in
                     return
 
-    def _on_window(self, ev: WindowChanged) -> None:
-        self._chain_dirty[ev.index] = epoch_ms_now()
+    def _on_candle(self, c: Candle) -> None:
+        index = self._index_for(c.key)
+        if index is None:
+            return
+        r = self._state.session.resolved[index]
+        role = "spot" if c.key == r.spot.instrument_key else "fut"
+        payload = {"index": index, "role": role, "candle": candle_out(c).model_dump()}
+        self._immediate.append(self._frame("candle", payload, t_src=c.minute_ts, t_in=None))
+
+    def _on_bias(self, b: BiasComputed) -> None:
+        payload = {
+            "bias": bias_out(b).model_dump(),
+            "overlay": overlay_out(b.overlays).model_dump(),
+        }
+        self._immediate.append(self._frame("bias", payload, t_src=b.minute_ts, t_in=None))
 
     def _on_health(self, _: FeedHealthChanged) -> None:
         self._health_dirty = True
+
+    def _on_window(self, ev: WindowChanged) -> None:
+        self._chain_dirty[ev.index] = epoch_ms_now()
+
+    def _on_params(self, ev: ParametersChanged) -> None:
+        payload = {
+            **parameters_out(self._state).model_dump(mode="json"),
+            "effective_from_minute_ts": ev.effective_from_minute_ts,
+        }
+        self._immediate.append(self._frame("parameters", payload, t_src=None, t_in=None))
 
     def _index_for(self, key: str) -> str | None:
         for r in self._state.session.resolved.values():
@@ -106,19 +143,24 @@ class WsHub:
             "fut_ts": p.ts.get(fk),
         }
 
+    def _chains(self) -> dict[str, ChainState]:
+        mgr = self._state.session.chains
+        return dict(mgr.chains) if mgr else {}
+
     def hello(self) -> str:
         s = self._state
+        engine = s.session.bias
+        latest = list(engine.latest.values()) if engine else []
         payload = {
             "health": build_health(s).model_dump(),
             "instruments": [resolved_out(r).model_dump() for r in s.session.resolved.values()],
             "prices": [self._prices_payload(i) for i in s.session.resolved],
             "chains": [chain_out(c).model_dump() for c in self._chains().values()],
+            "candles": [candles_response(s, i, 400).model_dump() for i in s.session.resolved],
+            "bias": [bias_out(b).model_dump() for b in latest],
+            "parameters": parameters_out(s).model_dump(mode="json"),
         }
         return self._frame("hello", payload, t_src=None, t_in=None)
-
-    def _chains(self) -> dict[str, ChainState]:
-        mgr = self._state.session.chains
-        return dict(mgr.chains) if mgr else {}
 
     def _broadcast(self, frame: str) -> None:
         for q in list(self._clients):
@@ -129,9 +171,7 @@ class WsHub:
             q.put_nowait(frame)
 
     async def _pusher(self) -> None:
-        """Leading-edge throttle: push an index as soon as it is dirty, but at most
-        `ws_tick_hz` times per second per index. Polls at a quarter of the interval so a
-        fresh tick is on the wire within ~interval/4."""
+        """Leading-edge throttle per channel; immediate frames go out on the next pass."""
         interval_ms = 1000.0 / self._state.settings.ws_tick_hz
         chain_interval_ms = 1000.0 / self._state.settings.ws_chain_hz
         last_push: dict[str, float] = {}
@@ -141,9 +181,14 @@ class WsHub:
             if not self._clients:
                 self._dirty.clear()
                 self._chain_dirty.clear()
+                self._immediate.clear()
                 self._health_dirty = False
                 continue
             now = epoch_ms_now()
+            if self._immediate:
+                frames, self._immediate = self._immediate, []
+                for f in frames:
+                    self._broadcast(f)
             for index in list(self._dirty):
                 if now - last_push.get(index, 0.0) < interval_ms:
                     continue

@@ -1,0 +1,66 @@
+# TradeDisha tunable parameters. Edit, then click "Reload config" in the app.
+# Changes apply from the next minute close. An invalid file is rejected and the previous
+# values stay in force. Unknown keys are errors, so typos surface immediately.
+#
+# Units: percentages are percent (30 = 30 %), times are IST "HH:MM", durations are
+# minutes unless the key says seconds, prices are rupees, index moves are index points.
+
+[weights]                      # share of the bias each evidence group carries; must sum to 1
+trend = 0.40
+oi = 0.35
+premium = 0.25
+expiry_oi_weight_factor = 0.5  # on expiry day the OI weight is multiplied by this
+
+[bias]
+entry_threshold = 0.50         # |bias| at which a signal fires
+neutral_band = 0.20            # |bias| below this is labelled Neutral
+rearm_hysteresis = 0.0         # 0 = off; >0 requires |bias| to dip below threshold-h before same-direction re-fire
+
+[trend]
+ema_fast = 9
+ema_slow = 21
+ema_k = 8.0                    # tanh steepness on EMA separation (% of slow EMA)
+vwap_full_pct = 0.3            # distance from VWAP (%) that counts as full strength
+supertrend_period = 10
+supertrend_mult = 3.0
+supertrend_ramp_bars = 3       # bars after a flip until the supertrend vote is full strength
+
+[oi]
+pcr_strike_range = 5           # strikes each side of ATM used for PCR
+pcr_centre = 1.0               # PCR considered neutral
+pcr_full_dev = 0.5             # PCR distance from centre that counts as full strength
+oi_change_strike_range = 2     # strikes each side of ATM for the build-up vote
+maxpain_drift_minutes = 15
+maxpain_full_steps = 2.0       # max-pain drift (in strike steps) that counts as full strength
+
+[premium]
+premium_roc_minutes = 5
+premium_roc_full_spread = 20.0 # CE minus PE rate-of-change spread (%) for full strength
+iv_change_minutes = 15
+iv_full_change = 2.0           # IV change (percentage points) for full strength
+confirmation_minutes = 5
+divergence_score = -0.5        # vote when premiums disagree with the spot move
+
+[signal]
+signal_ttl_seconds = 300
+target_pct = 30.0
+stop_pct = -15.0
+last_signal_time = "15:00"
+last_signal_time_expiry = "13:00"
+
+[signal.expiry_points.NIFTY]
+target = 40
+stop = 20
+
+[signal.expiry_points.BANKNIFTY]
+target = 100
+stop = 50
+
+[chain]
+strike_window = 10
+recenter_strikes = 2
+
+[paper]
+square_off_time = "15:15"
+cost_per_trade = 60.0          # rupees per round trip per lot
+lots = 1

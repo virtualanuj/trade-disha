@@ -11,6 +11,7 @@ from tradedisha.config import Settings
 from tradedisha.events import EventBus
 from tradedisha.market.session import FeedSession
 from tradedisha.metrics.latency import LatencyTracker
+from tradedisha.parameters import ParameterService
 
 
 @dataclass
@@ -22,3 +23,4 @@ class AppState:
     latency: LatencyTracker
     auth: AuthService
     session: FeedSession
+    params: ParameterService

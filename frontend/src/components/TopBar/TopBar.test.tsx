@@ -43,7 +43,7 @@ describe('TopBar', () => {
     expect(screen.getByTestId('feed-pill')).toHaveTextContent(
       /Feed: connected \(synthetic\)\s*400ms/,
     )
-    expect(screen.getByText('Login: not needed')).toBeInTheDocument()
+    expect(screen.getByText('No login needed')).toBeInTheDocument()
   })
 
   it('reports a dropped backend socket', () => {

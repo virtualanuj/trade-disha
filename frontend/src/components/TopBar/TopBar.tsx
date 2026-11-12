@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import type { HealthResponse } from '../../api/types'
 import { fmtAge, fmtIstTime, tickAgeColour } from '../../lib/format'
 import type { WsState } from '../../state/store'
@@ -12,6 +14,7 @@ interface Props {
   onToggleTheme: () => void
   debug: boolean
   onToggleDebug: () => void
+  configControl?: ReactNode
 }
 
 const MARKET_LABEL: Record<HealthResponse['market_status'], string> = {
@@ -72,7 +75,7 @@ function FeedPill({
 function AuthPill({ health }: { health: HealthResponse | null }) {
   const auth = health?.auth
   if (auth === 'not_required') {
-    return <span className="text-fg-muted">Login: not needed</span>
+    return <span className="text-fg-muted">No login needed</span>
   }
   if (auth === 'valid') {
     return <span className="text-bull">Login: valid</span>
@@ -93,15 +96,17 @@ function AuthPill({ health }: { health: HealthResponse | null }) {
 }
 
 export function TopBar(props: Props) {
-  const { health, ws, now, lastTickTs, theme, onToggleTheme, debug, onToggleDebug } = props
+  const { health, ws, now, lastTickTs, theme, onToggleTheme, debug, onToggleDebug, configControl } =
+    props
   return (
-    <header className="flex h-11 items-center gap-6 border-b border-border bg-bg-elev px-4">
+    <header className="flex h-11 items-center gap-4 border-b border-border bg-bg-elev px-4 text-xs whitespace-nowrap">
       <span className="font-semibold tracking-wide">TradeDisha</span>
       <MarketPill health={health} now={now} />
       <FeedPill health={health} ws={ws} now={now} lastTickTs={lastTickTs} />
       <AuthPill health={health} />
       {health?.replay_day ? <span className="text-accent">Replay: {health.replay_day}</span> : null}
       <span className="ml-auto" />
+      {configControl}
       <button
         type="button"
         onClick={onToggleDebug}

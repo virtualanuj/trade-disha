@@ -14,7 +14,7 @@ def ms(day: date, h: int, m: int, s: int = 0) -> int:
 
 def test_migrations_apply_once() -> None:
     conn = connect(":memory:")
-    assert schema_version(conn) == 2
+    assert schema_version(conn) == 3
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {
         "ticks",

@@ -1,4 +1,4 @@
-"""Owns the provider, the subscription set, the chain manager and the tick fan-out."""
+"""Owns the provider, subscriptions, candles, chains, the bias engine and tick fan-out."""
 
 from __future__ import annotations
 
@@ -6,11 +6,13 @@ import asyncio
 import contextlib
 import logging
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 
 from tradedisha.clock import DrivenClock, MarketClock, epoch_ms_now
 from tradedisha.config import Settings
+from tradedisha.engine.bias_engine import BiasComputed, BiasEngine
 from tradedisha.events import EventBus, FeedHealthChanged
 from tradedisha.feed.bus import StampedTick, TickBus
 from tradedisha.feed.provider import FeedHealth, MarketDataProvider, Tick
@@ -19,8 +21,10 @@ from tradedisha.feed.synthetic import SyntheticProvider, SyntheticUniverse
 from tradedisha.instruments.models import Instrument, ResolvedIndex
 from tradedisha.instruments.resolve import resolve_index
 from tradedisha.instruments.synthetic_master import SPEC, build_synthetic_master
+from tradedisha.market.candles import Candle, CandleBuilder, CandleStore
 from tradedisha.market.chain_manager import ChainManager, SubscriptionChange
 from tradedisha.metrics.latency import LatencyTracker
+from tradedisha.parameters.model import ParameterSet
 from tradedisha.store.ticks import FeedEventLog, TickStore
 
 log = logging.getLogger(__name__)
@@ -49,27 +53,35 @@ class FeedSession:
         *,
         bus: EventBus,
         latency: LatencyTracker,
+        params: Callable[[], ParameterSet],
         driven_clock: DrivenClock | None = None,
     ) -> None:
         self.settings = settings
         self.clock = clock
         self.events = bus
         self.latency = latency
+        self.params = params
         self.tick_bus = TickBus()
         self.tick_store = TickStore(conn)
         self.feed_log = FeedEventLog(conn)
         self.prices = LatestPrices()
         self.master: list[Instrument] = []
         self.resolved: dict[str, ResolvedIndex] = {}
+        self.candles = CandleBuilder()
+        self.candle_store = CandleStore(conn)
         self.chains: ChainManager | None = None
+        self.bias: BiasEngine | None = None
         self.provider: MarketDataProvider | None = None
         self.replay_day: date | None = None
+        self.candle_listeners: list[Callable[[Candle], None]] = []
+        self.bias_listeners: list[Callable[[BiasComputed], None]] = []
         self._driven_clock = driven_clock
         self._conn = conn
         self._tasks: list[asyncio.Task[None]] = []
         self._last_health: FeedHealth | None = None
         self._sub_changes: asyncio.Queue[SubscriptionChange] = asyncio.Queue()
         self.tick_bus.subscribe(self._on_tick)
+        self.candles.on_close(self._on_candle_close)
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -92,6 +104,14 @@ class FeedSession:
             on_subscription_change=self._sub_changes.put_nowait,
         )
         self.tick_bus.subscribe(self.chains.on_tick)
+        self.bias = BiasEngine(
+            candles=self.candles,
+            chains=self.chains.chains,
+            resolved=self.resolved,
+            params=self.params,
+            conn=self._conn,
+            on_bias=self._on_bias,
+        )
         self.provider = self._build_provider()
         await self.provider.connect()
         keys = [k for r in self.resolved.values() for k in r.all_keys]
@@ -155,10 +175,29 @@ class FeedSession:
         await self._publish_health()
 
     def _on_tick(self, st: StampedTick) -> None:
-        self.prices.update(st.tick)
+        t = st.tick
+        self.prices.update(t)
         if self.settings.feed_provider != "replay":
-            self.tick_store.add(st.tick)
-            self.latency.record("src_to_in", st.t_in - st.tick.ts, at_ms=st.t_in)
+            self.tick_store.add(t)
+            self.latency.record("src_to_in", st.t_in - t.ts, at_ms=st.t_in)
+        if t.key in self._candle_keys():
+            self.candles.apply(t)
+
+    def _candle_keys(self) -> set[str]:
+        keys: set[str] = set()
+        for r in self.resolved.values():
+            keys.add(r.spot.instrument_key)
+            keys.add(r.future.instrument_key)
+        return keys
+
+    def _on_candle_close(self, c: Candle) -> None:
+        self.candle_store.write(c)
+        for fn in self.candle_listeners:
+            fn(c)
+
+    def _on_bias(self, b: BiasComputed) -> None:
+        for fn in self.bias_listeners:
+            fn(b)
 
     async def _apply_subscription_changes(self) -> None:
         while True:
@@ -180,6 +219,7 @@ class FeedSession:
         while True:
             await asyncio.sleep(0.5)
             self.tick_store.flush()
+            self.candles.flush_stale(self.clock.now_ms())
             await self._publish_health()
             minute = epoch_ms_now() // 60_000
             if minute != last_minute:

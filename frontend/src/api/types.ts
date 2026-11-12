@@ -85,6 +85,9 @@ export interface HelloFrame extends FrameBase {
     instruments: ResolvedIndexOut[]
     prices: IndexPrices[]
     chains: ChainOut[]
+    candles: CandlesResponse[]
+    bias: BiasOut[]
+    parameters: ParametersOut
   }
 }
 
@@ -103,7 +106,15 @@ export interface PongFrame extends FrameBase {
   payload: null
 }
 
-export type Frame = HelloFrame | TickFrame | HealthFrame | PongFrame | ChainFrame
+export type Frame =
+  | HelloFrame
+  | TickFrame
+  | HealthFrame
+  | PongFrame
+  | ChainFrame
+  | CandleFrame
+  | BiasFrame
+  | ParametersFrame
 
 export type BuildUp =
   'long_buildup' | 'short_buildup' | 'short_covering' | 'long_unwinding' | 'none'
@@ -143,4 +154,74 @@ export interface ChainOut {
 export interface ChainFrame extends FrameBase {
   type: 'chain'
   payload: ChainOut
+}
+
+export interface CandleOut {
+  t: number
+  o: number
+  h: number
+  l: number
+  c: number
+  v: number
+  synthetic: boolean
+}
+
+export interface OverlayOut {
+  t: number
+  ema_fast: number | null
+  ema_slow: number | null
+  vwap: number | null
+  supertrend: number | null
+  supertrend_dir: number
+}
+
+export interface CandlesResponse {
+  index: string
+  spot_key: string
+  candles: CandleOut[]
+  overlays: OverlayOut[]
+}
+
+export interface IndicatorOut {
+  name: string
+  group: 'trend' | 'oi' | 'premium'
+  score: number
+  note: string
+  quality: 'ok' | 'warming' | 'partial'
+  value: Record<string, number>
+  weight: number
+  contribution: number
+}
+
+export interface BiasOut {
+  index: string
+  minute_ts: number
+  bias: number
+  label: 'Bullish' | 'Neutral' | 'Bearish'
+  strength: number
+  is_expiry_day: boolean
+  group_scores: Record<string, number>
+  group_weights: Record<string, number>
+  indicators: IndicatorOut[]
+}
+
+export interface ParametersOut {
+  loaded_at: number
+  path: string
+  params: Record<string, Record<string, unknown>>
+}
+
+export interface CandleFrame extends FrameBase {
+  type: 'candle'
+  payload: { index: string; role: 'spot' | 'fut'; candle: CandleOut }
+}
+
+export interface BiasFrame extends FrameBase {
+  type: 'bias'
+  payload: { bias: BiasOut; overlay: OverlayOut }
+}
+
+export interface ParametersFrame extends FrameBase {
+  type: 'parameters'
+  payload: ParametersOut & { effective_from_minute_ts: number }
 }

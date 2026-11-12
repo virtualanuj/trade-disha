@@ -33,7 +33,13 @@ class WindowChanged:
     strikes: tuple[float, ...]
 
 
-Event = FeedHealthChanged | AuthChanged | WindowChanged
+@dataclass(frozen=True)
+class ParametersChanged:
+    loaded_at: int
+    effective_from_minute_ts: int
+
+
+Event = FeedHealthChanged | AuthChanged | WindowChanged | ParametersChanged
 E = TypeVar("E", bound=Event)
 Handler = Callable[[Any], Awaitable[None] | None]
 

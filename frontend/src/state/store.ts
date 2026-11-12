@@ -1,6 +1,24 @@
 import { create } from 'zustand'
 
-import type { ChainOut, HealthResponse, IndexPrices, ResolvedIndexOut } from '../api/types'
+import type {
+  BiasOut,
+  CandleOut,
+  CandlesResponse,
+  ChainOut,
+  HealthResponse,
+  IndexPrices,
+  OverlayOut,
+  ParametersOut,
+  ResolvedIndexOut,
+} from '../api/types'
+
+const MAX_CANDLES = 400
+
+function pushCapped<T extends { t: number }>(list: T[], item: T): T[] {
+  const last = list[list.length - 1]
+  const next = last && last.t === item.t ? [...list.slice(0, -1), item] : [...list, item]
+  return next.length > MAX_CANDLES ? next.slice(next.length - MAX_CANDLES) : next
+}
 
 export type WsState = 'connecting' | 'open' | 'closed'
 
@@ -12,13 +30,29 @@ interface MarketStore {
   /** wall-clock ms when the latest tick frame for each index arrived */
   lastFrameAt: Record<string, number>
   chains: Record<string, ChainOut>
+  candles: Record<string, CandleOut[]>
+  overlays: Record<string, OverlayOut[]>
+  bias: Record<string, BiasOut>
+  parameters: ParametersOut | null
+  parametersEffectiveFrom: number | null
   selectedIndex: string
 
   setWs: (s: WsState) => void
-  applyHello: (h: HealthResponse, i: ResolvedIndexOut[], p: IndexPrices[], c: ChainOut[]) => void
+  applyHello: (
+    h: HealthResponse,
+    i: ResolvedIndexOut[],
+    p: IndexPrices[],
+    c: ChainOut[],
+    candles: CandlesResponse[],
+    bias: BiasOut[],
+    parameters: ParametersOut,
+  ) => void
   applyTick: (p: IndexPrices, recvAt: number) => void
   applyHealth: (h: HealthResponse) => void
   applyChain: (c: ChainOut) => void
+  applyCandle: (index: string, role: 'spot' | 'fut', c: CandleOut) => void
+  applyBias: (b: BiasOut, o: OverlayOut) => void
+  applyParameters: (p: ParametersOut, effectiveFrom: number | null) => void
   selectIndex: (index: string) => void
 }
 
@@ -29,12 +63,17 @@ export const useMarketStore = create<MarketStore>((set) => ({
   prices: {},
   lastFrameAt: {},
   chains: {},
+  candles: {},
+  overlays: {},
+  bias: {},
+  parameters: null,
+  parametersEffectiveFrom: null,
   selectedIndex: 'NIFTY',
 
   setWs: (ws) => {
     set({ ws })
   },
-  applyHello: (health, instruments, prices, chains) => {
+  applyHello: (health, instruments, prices, chains, candles, bias, parameters) => {
     const byIndex: Record<string, IndexPrices> = {}
     for (const p of prices) {
       byIndex[p.index] = p
@@ -43,11 +82,25 @@ export const useMarketStore = create<MarketStore>((set) => ({
     for (const c of chains) {
       chainsByIndex[c.index] = c
     }
+    const candlesByIndex: Record<string, CandleOut[]> = {}
+    const overlaysByIndex: Record<string, OverlayOut[]> = {}
+    for (const c of candles) {
+      candlesByIndex[c.index] = c.candles
+      overlaysByIndex[c.index] = c.overlays
+    }
+    const biasByIndex: Record<string, BiasOut> = {}
+    for (const b of bias) {
+      biasByIndex[b.index] = b
+    }
     set((s) => ({
       health,
       instruments,
       prices: byIndex,
       chains: chainsByIndex,
+      candles: candlesByIndex,
+      overlays: overlaysByIndex,
+      bias: biasByIndex,
+      parameters,
       selectedIndex: instruments.some((i) => i.index === s.selectedIndex)
         ? s.selectedIndex
         : (instruments[0]?.index ?? s.selectedIndex),
@@ -64,6 +117,19 @@ export const useMarketStore = create<MarketStore>((set) => ({
   },
   applyChain: (c) => {
     set((s) => ({ chains: { ...s.chains, [c.index]: c } }))
+  },
+  applyCandle: (index, role, c) => {
+    if (role !== 'spot') return
+    set((s) => ({ candles: { ...s.candles, [index]: pushCapped(s.candles[index] ?? [], c) } }))
+  },
+  applyBias: (b, o) => {
+    set((s) => ({
+      bias: { ...s.bias, [b.index]: b },
+      overlays: { ...s.overlays, [b.index]: pushCapped(s.overlays[b.index] ?? [], o) },
+    }))
+  },
+  applyParameters: (parameters, parametersEffectiveFrom) => {
+    set({ parameters, parametersEffectiveFrom })
   },
   selectIndex: (selectedIndex) => {
     set({ selectedIndex })

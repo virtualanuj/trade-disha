@@ -1,6 +1,7 @@
 """REST contracts for Milestone 1."""
 
 import time
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -58,3 +59,35 @@ def test_chain_endpoint_returns_window(client: TestClient) -> None:
     assert body["pcr"] is not None
     assert body["max_pain"] in [r["strike"] for r in body["rows"]]
     assert client.get("/api/chain/FOO").status_code == 404
+
+
+def test_parameters_endpoint_and_reload(client: TestClient, tmp_path: Path) -> None:
+    body = client.get("/api/parameters").json()
+    assert body["params"]["weights"]["trend"] == 0.4
+    assert body["path"].endswith("params.toml")
+
+    state = client.app.state.td  # type: ignore[attr-defined]
+    bad = tmp_path / "bad.toml"
+    bad.write_text("[weights]\ntrend = 0.9\noi = 0.9\npremium = 0.9\n")
+    state.params.path = bad
+    r = client.post("/api/parameters/reload")
+    assert r.status_code == 422
+    assert r.json()["detail"][0]["field"] == "weights"
+    assert state.params.params.weights.trend == 0.4  # previous set kept
+
+    good = tmp_path / "good.toml"
+    good.write_text("[weights]\ntrend = 0.5\noi = 0.3\npremium = 0.2\n")
+    state.params.path = good
+    r = client.post("/api/parameters/reload")
+    assert r.status_code == 200
+    assert r.json()["params"]["weights"]["trend"] == 0.5
+
+
+def test_candles_and_bias_endpoints_shape(client: TestClient) -> None:
+    body = client.get("/api/candles/NIFTY?minutes=10").json()
+    assert body["index"] == "NIFTY"
+    assert body["spot_key"] == "NSE_INDEX|Nifty 50"
+    assert isinstance(body["candles"], list)
+    assert client.get("/api/bias/NIFTY").json() is None  # no minute closed yet
+    assert client.get("/api/bias/NIFTY/history").json() == []
+    assert client.get("/api/candles/FOO").status_code == 404

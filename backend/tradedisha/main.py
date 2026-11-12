@@ -12,6 +12,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from tradedisha.api.analysis import router as analysis_router
 from tradedisha.api.chain import router as chain_router
 from tradedisha.api.health import router as health_router
 from tradedisha.api.instruments import router as instruments_router
@@ -25,6 +26,7 @@ from tradedisha.config import Settings, load_settings
 from tradedisha.events import EventBus
 from tradedisha.market.session import FeedSession
 from tradedisha.metrics.latency import LatencyTracker, sample_loop_lag
+from tradedisha.parameters import ParameterService
 from tradedisha.store.db import connect
 
 log = logging.getLogger(__name__)
@@ -47,7 +49,17 @@ def build_state(settings: Settings) -> AppState:
     conn = connect(settings.db_path)
     events = EventBus()
     latency = LatencyTracker()
-    session = FeedSession(settings, conn, clock, bus=events, latency=latency, driven_clock=driven)
+    params = ParameterService(settings.params_path)
+    params.load()  # invalid file -> refuse to start, with the field errors in the traceback
+    session = FeedSession(
+        settings,
+        conn,
+        clock,
+        bus=events,
+        latency=latency,
+        params=lambda: params.params,
+        driven_clock=driven,
+    )
     auth = AuthService(required=settings.feed_provider == "upstox")
     return AppState(
         settings=settings,
@@ -57,6 +69,7 @@ def build_state(settings: Settings) -> AppState:
         latency=latency,
         auth=auth,
         session=session,
+        params=params,
     )
 
 
@@ -94,6 +107,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router, prefix="/api")
     app.include_router(instruments_router, prefix="/api")
     app.include_router(chain_router, prefix="/api")
+    app.include_router(analysis_router, prefix="/api")
     app.include_router(metrics_router, prefix="/api")
     app.include_router(ws_router)
     return app

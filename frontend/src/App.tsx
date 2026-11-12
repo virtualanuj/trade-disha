@@ -1,14 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { MarketSocket } from './api/ws'
+import { BiasMeter } from './components/BiasMeter/BiasMeter'
+import { ConfigControl } from './components/ConfigControl/ConfigControl'
 import { DebugOverlay } from './components/DebugOverlay/DebugOverlay'
+import { EvidenceTable } from './components/EvidenceTable/EvidenceTable'
 import { IndexTabs } from './components/IndexTabs/IndexTabs'
 import { IndexTiles } from './components/IndexTiles/IndexTiles'
 import { OptionChain } from './components/OptionChain/OptionChain'
+import { PriceChart } from './components/PriceChart/PriceChart'
 import { TopBar } from './components/TopBar/TopBar'
 import { useNow } from './lib/useNow'
 import { useMarketStore } from './state/store'
 import { useTheme } from './theme/useTheme'
+
+const EMPTY: never[] = []
 
 function useDebugFlag(): [boolean, () => void] {
   const [debug, setDebug] = useState(() => new URLSearchParams(location.search).has('debug'))
@@ -32,6 +38,12 @@ export default function App() {
   const chains = useMarketStore((s) => s.chains)
   const selected = useMarketStore((s) => s.selectedIndex)
   const selectIndex = useMarketStore((s) => s.selectIndex)
+  const candles = useMarketStore((s) => s.candles[s.selectedIndex]) ?? EMPTY
+  const overlays = useMarketStore((s) => s.overlays[s.selectedIndex]) ?? EMPTY
+  const bias = useMarketStore((s) => s.bias[s.selectedIndex])
+  const parameters = useMarketStore((s) => s.parameters)
+  const parametersEffectiveFrom = useMarketStore((s) => s.parametersEffectiveFrom)
+  const applyParameters = useMarketStore((s) => s.applyParameters)
 
   useEffect(() => {
     const socket = new MarketSocket()
@@ -67,18 +79,25 @@ export default function App() {
         onToggleTheme={toggleTheme}
         debug={debug}
         onToggleDebug={toggleDebug}
+        configControl={
+          <ConfigControl
+            parameters={parameters}
+            effectiveFrom={parametersEffectiveFrom}
+            onReloaded={applyParameters}
+          />
+        }
       />
       <main className="flex min-h-0 flex-1">
-        <section className="flex min-w-0 flex-1 flex-col gap-4 p-4">
+        <section className="flex min-w-0 flex-1 flex-col gap-3 overflow-auto p-4">
           <IndexTabs
             indices={instruments.map((i) => i.index)}
             selected={selected}
             onSelect={selectIndex}
           />
           <IndexTiles instruments={selectedInstruments} prices={prices} />
-          <p className="text-fg-muted">
-            Milestone 2: option chain. Chart, market view and signals follow in Milestones 3 and 4.
-          </p>
+          <BiasMeter bias={bias} />
+          <PriceChart candles={candles} overlays={overlays} theme={theme} />
+          <EvidenceTable bias={bias} />
         </section>
         <aside className="flex w-[640px] shrink-0 flex-col border-l border-border bg-bg-elev p-4">
           <OptionChain chain={chains[selected]} />

@@ -9,12 +9,12 @@ order.
 
 ## Status
 
-Milestones 0 to 2 complete on synthetic data: provider interface with synthetic and replay
-feeds, instrument resolution, tick recording, WebSocket push with latency stamps, and a
-dashboard with index tabs, live prices and a live option chain panel (PCR, max pain, OI
-change heat, build-up classes, ATM highlight) that re-centres as the index moves. The
-Upstox adapter and its OAuth login are deferred until broker credentials exist.
-See [docs/plan.md](docs/plan.md) for what comes next.
+Milestones 0 to 3 complete on synthetic data: provider interface with synthetic and replay
+feeds, instrument resolution, tick recording, WebSocket push with latency stamps, a live
+option chain panel, 1-minute candles with EMA/VWAP/supertrend overlays, nine indicators
+combined into a per-minute bias with a visible evidence breakdown, and a tunable
+`config/params.toml` with live reload. The Upstox adapter and its OAuth login are deferred
+until broker credentials exist. See [docs/plan.md](docs/plan.md) for what comes next.
 
 ## Documents
 
@@ -62,6 +62,13 @@ Set `TRADEDISHA_FEED_PROVIDER` in `.env`:
 | `upstox` | Not implemented yet; needs an Upstox account. |
 
 Trading holidays are read from `config/nse-holidays.txt`.
+
+### Tuning the signal
+
+Every parameter that shapes the bias lives in `config/params.toml`, commented. Edit it and
+click **Reload config** in the top bar: a valid file applies from the next minute close; an
+invalid one is rejected with the failing fields and the previous values stay in force. The
+**Config** button opens a read-only view of the active values.
 
 ## Check
 

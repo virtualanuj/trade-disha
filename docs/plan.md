@@ -146,6 +146,16 @@ the next minute.
 **Review point:** look at a few days of bias history against what actually happened and
 adjust weights in the config file before building signals on top.
 
+**Status (2026-11-12):** built and demoed on the synthetic provider. Candle builder with
+gap fill and stale flush, `candles_1m` and `bias_minutes` persisted, nine indicators as
+pure functions with unit and property tests, aggregator with expiry-day reweighting,
+`config/params.toml` with validation and `POST /api/parameters/reload`, chart with
+overlays, bias meter and evidence table. Two deliberate deviations from the spec: the bias
+is computed on every minute close regardless of market status (signal firing is what
+market hours gate, in Milestone 4), and indicators recompute over the stored candle window
+(at most 400 bars) rather than incrementally, which measures in microseconds and keeps
+them pure. Late-start candle backfill belongs to the Upstox adapter.
+
 ---
 
 ## Milestone 4 — Signals
