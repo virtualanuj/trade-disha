@@ -107,6 +107,15 @@ download, and the Upstox websocket adapter. These slot in behind the existing
 **Risk retired:** whether Upstox delivers IV on the feed. If not, decide between local
 Black-Scholes IV or dropping IV indicators from v1.
 
+**Status (2026-11-12):** built and demoed on the synthetic provider, which supplies IV
+and OI per option. Chain state with PCR, OI change (since open and since previous minute),
+max pain and build-up classification; per-minute persistence to `chain_minutes`;
+re-centring with live subscribe/unsubscribe; `/api/chain/{index}` and `chain` WS frames;
+the panel with index tabs. **Still open for Upstox:** whether IV/delta arrive on the real
+feed (the Black-Scholes fallback in spec §7.3 stays planned) and opening-OI backfill from
+the option-chain REST snapshot; until then OI change is measured from the first tick seen,
+which equals market open when the app starts before 09:15.
+
 ---
 
 ## Milestone 3 — Candles, chart, and market view

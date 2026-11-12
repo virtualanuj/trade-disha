@@ -1,4 +1,4 @@
-"""WebSocket push: `hello` snapshot on connect, then throttled `tick` and `health` frames.
+"""WebSocket push: `hello` snapshot on connect, then throttled `tick`, `chain` and `health` frames.
 
 Every frame carries t_src (exchange ts of the newest data in it), t_in (backend ingest of
 that data) and t_out (send time) so the browser can compute per-hop latency.
@@ -13,12 +13,14 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from tradedisha.api.chain import chain_out
 from tradedisha.api.health import build_health
 from tradedisha.api.instruments import resolved_out
 from tradedisha.app_state import AppState
 from tradedisha.clock import epoch_ms_now
-from tradedisha.events import FeedHealthChanged
+from tradedisha.events import FeedHealthChanged, WindowChanged
 from tradedisha.feed.bus import StampedTick
+from tradedisha.market.chain import ChainState
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -32,11 +34,13 @@ class WsHub:
     def __init__(self, state: AppState) -> None:
         self._state = state
         self._clients: set[asyncio.Queue[str]] = set()
-        self._dirty: dict[str, int] = {}  # index -> t_in of newest tick since last push
+        self._dirty: dict[str, int] = {}  # index -> t_in of newest price tick since last push
+        self._chain_dirty: dict[str, int] = {}  # index -> t_in of newest option tick
         self._health_dirty = False
         self._task: asyncio.Task[None] | None = None
         state.session.tick_bus.subscribe(self._on_tick)
         state.events.subscribe(FeedHealthChanged, self._on_health)
+        state.events.subscribe(WindowChanged, self._on_window)
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -55,6 +59,16 @@ class WsHub:
         index = self._index_for(st.tick.key)
         if index is not None:
             self._dirty[index] = st.t_in
+            return
+        mgr = self._state.session.chains
+        if mgr is not None:
+            for idx, chain in mgr.chains.items():
+                if st.tick.key in chain.key_set:
+                    self._chain_dirty[idx] = st.t_in
+                    return
+
+    def _on_window(self, ev: WindowChanged) -> None:
+        self._chain_dirty[ev.index] = epoch_ms_now()
 
     def _on_health(self, _: FeedHealthChanged) -> None:
         self._health_dirty = True
@@ -98,8 +112,13 @@ class WsHub:
             "health": build_health(s).model_dump(),
             "instruments": [resolved_out(r).model_dump() for r in s.session.resolved.values()],
             "prices": [self._prices_payload(i) for i in s.session.resolved],
+            "chains": [chain_out(c).model_dump() for c in self._chains().values()],
         }
         return self._frame("hello", payload, t_src=None, t_in=None)
+
+    def _chains(self) -> dict[str, ChainState]:
+        mgr = self._state.session.chains
+        return dict(mgr.chains) if mgr else {}
 
     def _broadcast(self, frame: str) -> None:
         for q in list(self._clients):
@@ -114,11 +133,14 @@ class WsHub:
         `ws_tick_hz` times per second per index. Polls at a quarter of the interval so a
         fresh tick is on the wire within ~interval/4."""
         interval_ms = 1000.0 / self._state.settings.ws_tick_hz
+        chain_interval_ms = 1000.0 / self._state.settings.ws_chain_hz
         last_push: dict[str, float] = {}
+        last_chain_push: dict[str, float] = {}
         while True:
             await asyncio.sleep(interval_ms / 4000)
             if not self._clients:
                 self._dirty.clear()
+                self._chain_dirty.clear()
                 self._health_dirty = False
                 continue
             now = epoch_ms_now()
@@ -132,6 +154,15 @@ class WsHub:
                 frame = self._frame("tick", payload, t_src=max(stamps, default=None), t_in=t_in)
                 self._broadcast(frame)
                 self._state.latency.record("in_to_out", epoch_ms_now() - t_in)
+            mgr = self._state.session.chains
+            for index in list(self._chain_dirty):
+                if mgr is None or now - last_chain_push.get(index, 0.0) < chain_interval_ms:
+                    continue
+                t_in = self._chain_dirty.pop(index)
+                last_chain_push[index] = now
+                chain = mgr.chains[index]
+                payload = chain_out(chain).model_dump()
+                self._broadcast(self._frame("chain", payload, t_src=chain.updated_ts, t_in=t_in))
             if self._health_dirty:
                 self._health_dirty = False
                 payload = build_health(self._state).model_dump()

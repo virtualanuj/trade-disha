@@ -80,3 +80,35 @@ class IndexPrices(BaseModel):
     spot_ts: int | None
     fut_ltp: float | None
     fut_ts: int | None
+
+
+class LegOut(BaseModel):
+    ltp: float | None
+    chg_pct: float | None
+    oi: int | None
+    oi_chg_open: int | None
+    oi_chg_min: int | None
+    iv: float | None
+    buildup: str
+
+
+class ChainRowOut(BaseModel):
+    strike: float
+    ce: LegOut
+    pe: LegOut
+
+
+class ChainOut(BaseModel):
+    index: str
+    expiry: str
+    step: float
+    atm: float
+    spot: float | None
+    pcr: float | None
+    max_pain: float | None
+    total_ce_oi: int
+    total_pe_oi: int
+    oi_baseline: str
+    max_abs_oi_chg: int
+    updated_ts: int | None
+    rows: list[ChainRowOut]

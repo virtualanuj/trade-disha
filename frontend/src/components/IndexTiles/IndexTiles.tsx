@@ -27,7 +27,7 @@ function Price({ label, value, ts }: { label: string; value: number | null; ts: 
   return (
     <div className="flex min-w-0 flex-col">
       <span className="truncate text-xs uppercase tracking-wide text-fg-muted">{label}</span>
-      <span className={`font-mono text-xl transition-colors duration-150 ${cls}`}>
+      <span className={`font-mono text-lg transition-colors duration-150 ${cls}`}>
         {fmtPrice(value)}
       </span>
       <span className="font-mono text-xs text-fg-muted">{ts ? fmtIstTime(ts) : '—'}</span>
@@ -51,7 +51,7 @@ const Tile = memo(function Tile({ meta, prices }: TileProps) {
           {meta.strike_step} · lot {meta.lot_size}
         </span>
       </div>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-3">
         <Price label="Spot" value={prices?.spot_ltp ?? null} ts={prices?.spot_ts ?? null} />
         <Price
           label={`Fut ${meta.future.expiry ?? ''}`}
@@ -60,8 +60,10 @@ const Tile = memo(function Tile({ meta, prices }: TileProps) {
         />
         <div className="flex min-w-0 flex-col">
           <span className="text-xs uppercase tracking-wide text-fg-muted">ATM</span>
-          <span className="font-mono text-xl">{meta.atm}</span>
-          <span className="truncate text-xs text-fg-muted">{meta.strikes.length} strikes</span>
+          <span className="font-mono text-lg">{meta.atm}</span>
+          <span className="truncate text-xs text-fg-muted">
+            {meta.strikes.length} {meta.strikes.length === 1 ? 'strike' : 'strikes'}
+          </span>
         </div>
       </div>
     </div>
@@ -79,7 +81,7 @@ export function IndexTiles({
     return <p className="text-fg-muted">Waiting for instruments…</p>
   }
   return (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div className={instruments.length > 1 ? 'grid gap-4 md:grid-cols-2' : 'grid gap-4'}>
       {instruments.map((m) => (
         <Tile key={m.index} meta={m} prices={prices[m.index]} />
       ))}

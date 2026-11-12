@@ -12,6 +12,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from tradedisha.api.chain import router as chain_router
 from tradedisha.api.health import router as health_router
 from tradedisha.api.instruments import router as instruments_router
 from tradedisha.api.metrics import router as metrics_router
@@ -92,6 +93,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.include_router(health_router, prefix="/api")
     app.include_router(instruments_router, prefix="/api")
+    app.include_router(chain_router, prefix="/api")
     app.include_router(metrics_router, prefix="/api")
     app.include_router(ws_router)
     return app

@@ -9,10 +9,10 @@ order.
 
 ## Status
 
-Milestone 1 complete on synthetic data: a market-data provider interface with synthetic
-and replay implementations, instrument resolution (spot, futures, nearest expiry, ATM ± 10
-strikes), tick recording to SQLite, WebSocket push with per-hop latency stamps, and a
-dashboard top bar with market status, feed health, tick age and live index prices. The
+Milestones 0 to 2 complete on synthetic data: provider interface with synthetic and replay
+feeds, instrument resolution, tick recording, WebSocket push with latency stamps, and a
+dashboard with index tabs, live prices and a live option chain panel (PCR, max pain, OI
+change heat, build-up classes, ATM highlight) that re-centres as the index moves. The
 Upstox adapter and its OAuth login are deferred until broker credentials exist.
 See [docs/plan.md](docs/plan.md) for what comes next.
 
@@ -57,7 +57,7 @@ Set `TRADEDISHA_FEED_PROVIDER` in `.env`:
 
 | Value | What it does |
 |---|---|
-| `synthetic` (default) | Random-walk prices for both indices, ticking regardless of market hours. Ticks are recorded to SQLite. |
+| `synthetic` (default) | Random-walk prices for both indices, ticking regardless of market hours. Ticks are recorded to SQLite. `TRADEDISHA_SYNTHETIC_TREND_PER_TICK=0.02` adds an upward drift (in strike steps per spot tick) to exercise re-centring. |
 | `replay` | Replays a recorded day from SQLite, driving the app clock from tick timestamps. `TRADEDISHA_REPLAY_DATE=YYYY-MM-DD` picks the day (default: latest); `TRADEDISHA_REPLAY_SPEED=0` runs as fast as possible. |
 | `upstox` | Not implemented yet; needs an Upstox account. |
 

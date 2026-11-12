@@ -1,4 +1,4 @@
-"""Owns the provider, the subscription set, and the tick fan-out for one process."""
+"""Owns the provider, the subscription set, the chain manager and the tick fan-out."""
 
 from __future__ import annotations
 
@@ -15,10 +15,11 @@ from tradedisha.events import EventBus, FeedHealthChanged
 from tradedisha.feed.bus import StampedTick, TickBus
 from tradedisha.feed.provider import FeedHealth, MarketDataProvider, Tick
 from tradedisha.feed.replay import ReplayProvider
-from tradedisha.feed.synthetic import SyntheticProvider
-from tradedisha.instruments.models import ResolvedIndex
+from tradedisha.feed.synthetic import SyntheticProvider, SyntheticUniverse
+from tradedisha.instruments.models import Instrument, ResolvedIndex
 from tradedisha.instruments.resolve import resolve_index
 from tradedisha.instruments.synthetic_master import SPEC, build_synthetic_master
+from tradedisha.market.chain_manager import ChainManager, SubscriptionChange
 from tradedisha.metrics.latency import LatencyTracker
 from tradedisha.store.ticks import FeedEventLog, TickStore
 
@@ -38,7 +39,7 @@ class LatestPrices:
 
 
 class FeedSession:
-    """Start → resolve instruments → connect provider → subscribe → pump ticks → stop."""
+    """Start -> resolve instruments -> connect provider -> subscribe -> pump ticks -> stop."""
 
     def __init__(
         self,
@@ -58,25 +59,39 @@ class FeedSession:
         self.tick_store = TickStore(conn)
         self.feed_log = FeedEventLog(conn)
         self.prices = LatestPrices()
+        self.master: list[Instrument] = []
         self.resolved: dict[str, ResolvedIndex] = {}
+        self.chains: ChainManager | None = None
         self.provider: MarketDataProvider | None = None
         self.replay_day: date | None = None
         self._driven_clock = driven_clock
         self._conn = conn
         self._tasks: list[asyncio.Task[None]] = []
         self._last_health: FeedHealth | None = None
+        self._sub_changes: asyncio.Queue[SubscriptionChange] = asyncio.Queue()
         self.tick_bus.subscribe(self._on_tick)
 
     # -- lifecycle ---------------------------------------------------------
 
     async def start(self) -> None:
         today = self.clock.today()
-        master = build_synthetic_master(today)
+        self.master = build_synthetic_master(today)
         for index in self.settings.indices:
             base = float(SPEC[index]["base"])
             self.resolved[index] = resolve_index(
-                master, index, today, base, strike_window=self.settings.strike_window
+                self.master, index, today, base, strike_window=self.settings.strike_window
             )
+        self.chains = ChainManager(
+            master=self.master,
+            resolved=self.resolved,
+            today=today,
+            strike_window=self.settings.strike_window,
+            recenter_strikes=self.settings.recenter_strikes,
+            conn=self._conn,
+            events=self.events,
+            on_subscription_change=self._sub_changes.put_nowait,
+        )
+        self.tick_bus.subscribe(self.chains.on_tick)
         self.provider = self._build_provider()
         await self.provider.connect()
         keys = [k for r in self.resolved.values() for k in r.all_keys]
@@ -87,6 +102,7 @@ class FeedSession:
         self._tasks = [
             asyncio.create_task(self._pump(), name="feed-pump"),
             asyncio.create_task(self._housekeeping(), name="feed-housekeeping"),
+            asyncio.create_task(self._apply_subscription_changes(), name="feed-resubscribe"),
         ]
 
     async def stop(self) -> None:
@@ -107,11 +123,15 @@ class FeedSession:
     def _build_provider(self) -> MarketDataProvider:
         s = self.settings
         if s.feed_provider == "synthetic":
+            universes = [
+                SyntheticUniverse.from_master(self.master, r) for r in self.resolved.values()
+            ]
             return SyntheticProvider(
-                list(self.resolved.values()),
+                universes,
                 ticks_per_second=s.synthetic_ticks_per_second,
                 seed=s.synthetic_seed,
                 clock_ms=self.clock.now_ms,
+                trend_per_tick=s.synthetic_trend_per_tick,
             )
         if s.feed_provider == "replay":
             days = self.tick_store.recorded_days()
@@ -140,6 +160,21 @@ class FeedSession:
             self.tick_store.add(st.tick)
             self.latency.record("src_to_in", st.t_in - st.tick.ts, at_ms=st.t_in)
 
+    async def _apply_subscription_changes(self) -> None:
+        while True:
+            change = await self._sub_changes.get()
+            if self.provider is None:
+                continue
+            if change.add:
+                await self.provider.subscribe(change.add)
+            if change.remove:
+                await self.provider.unsubscribe(change.remove)
+            self.feed_log.write(
+                epoch_ms_now(),
+                "recentre",
+                f"{change.index} +{len(change.add)} -{len(change.remove)}",
+            )
+
     async def _housekeeping(self) -> None:
         last_minute = None
         while True:
@@ -155,11 +190,11 @@ class FeedSession:
         if self.provider is None:
             return
         h = self.provider.health()
-        changed = self._last_health is None or (
-            h.state,
-            h.subscribed,
-            h.reconnects,
-        ) != (self._last_health.state, self._last_health.subscribed, self._last_health.reconnects)
+        changed = self._last_health is None or (h.state, h.subscribed, h.reconnects) != (
+            self._last_health.state,
+            self._last_health.subscribed,
+            self._last_health.reconnects,
+        )
         if changed:
             self._last_health = h
             await self.events.publish(

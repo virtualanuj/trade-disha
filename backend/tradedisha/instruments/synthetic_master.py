@@ -55,7 +55,7 @@ def _symbol(name: str, expiry: date, strike: float | None, kind: str) -> str:
 def build_synthetic_master(
     today: date,
     *,
-    strikes_each_side: int = 30,
+    strikes_each_side: int = 80,
     weekly_weekday: int = TUESDAY,
 ) -> list[Instrument]:
     """Spot, three monthly futures, and option chains for both indices."""

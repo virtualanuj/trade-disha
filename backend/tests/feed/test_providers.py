@@ -5,7 +5,7 @@ from datetime import date, datetime
 from tradedisha.clock import IST, DrivenClock, ist_to_ms
 from tradedisha.feed.provider import Tick
 from tradedisha.feed.replay import ReplayProvider
-from tradedisha.feed.synthetic import SyntheticProvider
+from tradedisha.feed.synthetic import SyntheticProvider, SyntheticUniverse
 from tradedisha.instruments.resolve import resolve_index
 from tradedisha.instruments.synthetic_master import build_synthetic_master
 from tradedisha.store.db import connect
@@ -22,10 +22,14 @@ def _resolved() -> list:  # type: ignore[type-arg]
     ]
 
 
+def _universes() -> list[SyntheticUniverse]:
+    return [SyntheticUniverse.from_resolved(r) for r in _resolved()]
+
+
 async def test_synthetic_emits_only_subscribed_keys_with_plausible_prices() -> None:
     resolved = _resolved()
     nifty = resolved[0]
-    p = SyntheticProvider(resolved, ticks_per_second=2000, seed=1)
+    p = SyntheticProvider(_universes(), ticks_per_second=2000, seed=1)
     await p.connect()
     await p.subscribe([nifty.spot.instrument_key, nifty.future.instrument_key])
     assert p.health().state == "connected"
@@ -50,7 +54,7 @@ async def test_synthetic_emits_only_subscribed_keys_with_plausible_prices() -> N
 async def test_synthetic_option_ticks_carry_oi_and_iv() -> None:
     resolved = _resolved()
     nifty = resolved[0]
-    p = SyntheticProvider(resolved, ticks_per_second=2000, seed=2)
+    p = SyntheticProvider(_universes(), ticks_per_second=2000, seed=2)
     await p.connect()
     await p.subscribe(nifty.option_keys)
     first: Tick | None = None
@@ -102,7 +106,7 @@ async def test_replay_filters_to_subscribed_keys() -> None:
 
 
 async def test_synthetic_health_reports_last_tick() -> None:
-    p = SyntheticProvider(_resolved(), ticks_per_second=2000, seed=3)
+    p = SyntheticProvider(_universes(), ticks_per_second=2000, seed=3)
     await p.connect()
     await p.subscribe(["NSE_INDEX|Nifty 50"])
     assert p.health().last_tick_ts is None

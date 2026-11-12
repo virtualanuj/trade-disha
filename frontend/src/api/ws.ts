@@ -66,7 +66,12 @@ export class MarketSocket {
     const s = useMarketStore.getState()
     switch (frame.type) {
       case 'hello':
-        s.applyHello(frame.payload.health, frame.payload.instruments, frame.payload.prices)
+        s.applyHello(
+          frame.payload.health,
+          frame.payload.instruments,
+          frame.payload.prices,
+          frame.payload.chains,
+        )
         break
       case 'tick':
         clientLatency.recordFrame(frame.t_out, recvAt)
@@ -74,6 +79,9 @@ export class MarketSocket {
         break
       case 'health':
         s.applyHealth(frame.payload)
+        break
+      case 'chain':
+        s.applyChain(frame.payload)
         break
       case 'pong':
         break

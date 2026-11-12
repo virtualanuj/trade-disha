@@ -84,6 +84,7 @@ export interface HelloFrame extends FrameBase {
     health: HealthResponse
     instruments: ResolvedIndexOut[]
     prices: IndexPrices[]
+    chains: ChainOut[]
   }
 }
 
@@ -102,4 +103,44 @@ export interface PongFrame extends FrameBase {
   payload: null
 }
 
-export type Frame = HelloFrame | TickFrame | HealthFrame | PongFrame
+export type Frame = HelloFrame | TickFrame | HealthFrame | PongFrame | ChainFrame
+
+export type BuildUp =
+  'long_buildup' | 'short_buildup' | 'short_covering' | 'long_unwinding' | 'none'
+
+export interface LegOut {
+  ltp: number | null
+  chg_pct: number | null
+  oi: number | null
+  oi_chg_open: number | null
+  oi_chg_min: number | null
+  iv: number | null
+  buildup: BuildUp
+}
+
+export interface ChainRowOut {
+  strike: number
+  ce: LegOut
+  pe: LegOut
+}
+
+export interface ChainOut {
+  index: string
+  expiry: string
+  step: number
+  atm: number
+  spot: number | null
+  pcr: number | null
+  max_pain: number | null
+  total_ce_oi: number
+  total_pe_oi: number
+  oi_baseline: 'session_open' | 'partial'
+  max_abs_oi_chg: number
+  updated_ts: number | null
+  rows: ChainRowOut[]
+}
+
+export interface ChainFrame extends FrameBase {
+  type: 'chain'
+  payload: ChainOut
+}

@@ -44,3 +44,17 @@ def test_ticks_are_recorded_to_sqlite(client: TestClient) -> None:
     time.sleep(0.7)  # housekeeping flushes every 0.5 s
     state = client.app.state.td  # type: ignore[attr-defined]
     assert state.session.tick_store.count() > 0
+
+
+def test_chain_endpoint_returns_window(client: TestClient) -> None:
+    time.sleep(0.3)
+    body = client.get("/api/chain/nifty").json()
+
+    assert body["index"] == "NIFTY"
+    assert body["step"] == 50
+    assert len(body["rows"]) == 5
+    assert body["rows"][2]["strike"] == body["atm"]
+    assert body["total_ce_oi"] > 0
+    assert body["pcr"] is not None
+    assert body["max_pain"] in [r["strike"] for r in body["rows"]]
+    assert client.get("/api/chain/FOO").status_code == 404

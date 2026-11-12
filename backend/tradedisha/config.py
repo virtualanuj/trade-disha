@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     # Synthetic feed
     synthetic_ticks_per_second: float = 2.0
     synthetic_seed: int | None = None
+    synthetic_trend_per_tick: float = 0.0  # in strike-steps per spot tick; 0 = mean-reverting
 
     # Replay feed
     replay_date: str | None = None  # YYYY-MM-DD; defaults to latest recorded day
@@ -53,6 +54,7 @@ class Settings(BaseSettings):
 
     # WebSocket push
     ws_tick_hz: float = 20.0  # max tick frames per second per index (50 ms gap)
+    ws_chain_hz: float = 2.0  # max chain frames per second per index
 
 
 def load_settings() -> Settings:

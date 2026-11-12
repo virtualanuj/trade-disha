@@ -584,7 +584,7 @@ Server → client JSON frames `{type, ts, payload}`:
 |---|---|---|
 | `hello` | on connect | full snapshot: health, instruments, chain per index, latest candles, bias, active signals, open trades |
 | `tick` | leading-edge throttle, max 20/s per index | `{index, spot_ltp, spot_ts, fut_ltp, fut_ts}` |
-| `chain` | throttled to 2/s per index | changed `StrikeRow`s + derived values |
+| `chain` | leading-edge throttle, max 2/s per index | full window (21 rows) + derived values; small enough that diffs are not worth it |
 | `candle` | per minute | closed candle + indicator series point |
 | `bias` | per minute | bias + breakdown |
 | `signal` | on change | full `Signal` |

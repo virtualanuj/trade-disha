@@ -32,3 +32,20 @@ export function tickAgeColour(ageMs: number | null): string {
   if (ageMs < 10_000) return 'text-warn'
   return 'text-bear'
 }
+
+const compact = new Intl.NumberFormat('en-IN', { notation: 'compact', maximumFractionDigits: 1 })
+
+/** Open interest in lakh/crore-style compact form: 12.3L, 1.2Cr. */
+export function fmtOi(v: number | null | undefined): string {
+  if (v == null) return '—'
+  const a = Math.abs(v)
+  if (a >= 1e7) return `${(v / 1e7).toFixed(2)}Cr`
+  if (a >= 1e5) return `${(v / 1e5).toFixed(1)}L`
+  return compact.format(v)
+}
+
+export function fmtSigned(v: number | null | undefined, digits = 1): string {
+  if (v == null) return '—'
+  const s = v.toFixed(digits)
+  return v > 0 ? `+${s}` : s
+}

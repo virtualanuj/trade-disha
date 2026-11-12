@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-import type { HealthResponse, IndexPrices, ResolvedIndexOut } from '../api/types'
+import type { ChainOut, HealthResponse, IndexPrices, ResolvedIndexOut } from '../api/types'
 
 export type WsState = 'connecting' | 'open' | 'closed'
 
@@ -11,11 +11,15 @@ interface MarketStore {
   prices: Record<string, IndexPrices>
   /** wall-clock ms when the latest tick frame for each index arrived */
   lastFrameAt: Record<string, number>
+  chains: Record<string, ChainOut>
+  selectedIndex: string
 
   setWs: (s: WsState) => void
-  applyHello: (h: HealthResponse, i: ResolvedIndexOut[], p: IndexPrices[]) => void
+  applyHello: (h: HealthResponse, i: ResolvedIndexOut[], p: IndexPrices[], c: ChainOut[]) => void
   applyTick: (p: IndexPrices, recvAt: number) => void
   applyHealth: (h: HealthResponse) => void
+  applyChain: (c: ChainOut) => void
+  selectIndex: (index: string) => void
 }
 
 export const useMarketStore = create<MarketStore>((set) => ({
@@ -24,16 +28,30 @@ export const useMarketStore = create<MarketStore>((set) => ({
   instruments: [],
   prices: {},
   lastFrameAt: {},
+  chains: {},
+  selectedIndex: 'NIFTY',
 
   setWs: (ws) => {
     set({ ws })
   },
-  applyHello: (health, instruments, prices) => {
+  applyHello: (health, instruments, prices, chains) => {
     const byIndex: Record<string, IndexPrices> = {}
     for (const p of prices) {
       byIndex[p.index] = p
     }
-    set({ health, instruments, prices: byIndex })
+    const chainsByIndex: Record<string, ChainOut> = {}
+    for (const c of chains) {
+      chainsByIndex[c.index] = c
+    }
+    set((s) => ({
+      health,
+      instruments,
+      prices: byIndex,
+      chains: chainsByIndex,
+      selectedIndex: instruments.some((i) => i.index === s.selectedIndex)
+        ? s.selectedIndex
+        : (instruments[0]?.index ?? s.selectedIndex),
+    }))
   },
   applyTick: (p, recvAt) => {
     set((s) => ({
@@ -43,5 +61,11 @@ export const useMarketStore = create<MarketStore>((set) => ({
   },
   applyHealth: (health) => {
     set({ health })
+  },
+  applyChain: (c) => {
+    set((s) => ({ chains: { ...s.chains, [c.index]: c } }))
+  },
+  selectIndex: (selectedIndex) => {
+    set({ selectedIndex })
   },
 }))
