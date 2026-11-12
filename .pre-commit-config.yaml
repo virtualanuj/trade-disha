@@ -1,0 +1,27 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: bash -c 'cd backend && uv run ruff check --fix "$@"' --
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: ruff-format
+        name: ruff format
+        entry: bash -c 'cd backend && uv run ruff format "$@"' --
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: mypy
+        name: mypy
+        entry: bash -c 'cd backend && uv run mypy'
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: frontend-lint
+        name: eslint + prettier + tsc
+        entry: bash -c 'cd frontend && npm run typecheck && npm run lint && npm run format:check'
+        language: system
+        files: ^frontend/
+        pass_filenames: false
