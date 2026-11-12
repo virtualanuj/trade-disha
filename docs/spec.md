@@ -583,7 +583,7 @@ Server → client JSON frames `{type, ts, payload}`:
 | type | cadence | payload |
 |---|---|---|
 | `hello` | on connect | full snapshot: health, instruments, chain per index, latest candles, bias, active signals, open trades |
-| `tick` | throttled to 4/s per index | `{index, spot_ltp, fut_ltp}` |
+| `tick` | leading-edge throttle, max 20/s per index | `{index, spot_ltp, spot_ts, fut_ltp, fut_ts}` |
 | `chain` | throttled to 2/s per index | changed `StrikeRow`s + derived values |
 | `candle` | per minute | closed candle + indicator series point |
 | `bias` | per minute | bias + breakdown |
@@ -720,7 +720,7 @@ chain panel collapses behind a toggle.
 |---|---|
 | Exchange timestamp → backend ingest (network + Upstox) | not under our control; reported |
 | Ingest → tick bus fan-out complete | 2 ms |
-| Ingest → WS frame sent | 50 ms (throttle window dominates) |
+| Ingest → WS frame sent | 50 ms (leading-edge throttle at 20 Hz, polled every 12 ms, so a fresh tick leaves within ~12 ms and a coalesced one within 50 ms) |
 | WS sent → client store updated | 20 ms |
 | Store updated → painted | one animation frame (≤ 16 ms) |
 | **Ingest → painted, total** | **< 250 ms** |
@@ -743,8 +743,9 @@ wall-clock fallback when ticks are sparse; the detection delay is reported separ
   O(window).
 - Chain derived values are incremental per tick (update one row's contribution to the
   sums) rather than recomputed over the window.
-- WS push is throttled per channel (§12.2) and coalesced: the latest state wins within a
-  window, so a slow client never builds a backlog. A client that falls behind by > 2 s is
+- WS push is throttled per channel (§12.2) on the leading edge and coalesced: a dirty
+  index is pushed as soon as its minimum gap has elapsed and the latest state wins, so a
+  slow client never builds a backlog. A client that falls behind by > 2 s is
   disconnected and reconnects to a fresh `hello`.
 - Event-loop lag is sampled every 100 ms; if p95 lag exceeds 20 ms for a minute, a
   `feed_events` warning is written and shown in the dev overlay.

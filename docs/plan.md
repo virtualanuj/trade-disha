@@ -81,6 +81,13 @@ latency overlay under 250 ms p95. After hours, replay the recorded session and s
 **Risk retired:** Upstox websocket format, rate limits, and subscription limits are
 confirmed against reality.
 
+**Status (2026-11-12):** built and demoed on the synthetic provider. Provider interface,
+synthetic and replay feeds, instrument resolution against a generated master, tick
+recording, WebSocket push, latency instrumentation and the top bar are done. **Deferred
+until an Upstox account exists:** the OAuth login flow, the real instrument-master
+download, and the Upstox websocket adapter. These slot in behind the existing
+`MarketDataProvider` interface and `AuthService` without touching the rest.
+
 ---
 
 ## Milestone 2 — Option chain panel

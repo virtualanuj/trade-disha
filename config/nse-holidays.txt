@@ -1,0 +1,7 @@
+# NSE trading holidays, one YYYY-MM-DD per line. Maintain each year from the NSE circular.
+# Weekends are handled automatically. Dates below are the fixed national holidays for 2026;
+# add the festival dates when NSE publishes them.
+2026-01-26  # Republic Day
+2026-08-15  # Independence Day
+2026-10-02  # Gandhi Jayanti
+2026-12-25  # Christmas

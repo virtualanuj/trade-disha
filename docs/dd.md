@@ -198,7 +198,7 @@ each group. Where TradeDisha gives a term a specific meaning or value, that is s
 | **Static settings** | Values that need a restart and are not about the algorithm (credentials, paths, indices, market hours). From `.env`. Distinct from the parameter set. |
 | **Store (frontend)** | A client-side state container (Zustand) holding live data per index; updated from websocket frames and rendered once per animation frame. |
 | **TanStack Query / Virtual** | React libraries for server-state fetching/caching and for rendering only the visible rows of a long table. |
-| **Throttle window** | The minimum interval between pushes on one websocket channel (for example 250 ms for ticks, 500 ms for chain). |
+| **Throttle (leading-edge)** | The minimum gap between pushes on one websocket channel per index (50 ms for ticks, 500 ms for chain). The first update after a quiet gap goes out immediately; later ones wait for the gap, and only the latest state is sent. |
 | **Tick bus** | The asyncio queue structure that fans each tick out to consumers. |
 | **Tick store** | The component that batches ticks into the `ticks` table. |
 | **uv** | The Python package and environment manager used for the backend. No pip, poetry, or conda. |

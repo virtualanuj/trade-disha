@@ -1,37 +1,68 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
-import { fetchHealth } from './api/client'
-import { TopBar, type BackendState } from './components/TopBar/TopBar'
+import { MarketSocket } from './api/ws'
+import { DebugOverlay } from './components/DebugOverlay/DebugOverlay'
+import { IndexTiles } from './components/IndexTiles/IndexTiles'
+import { TopBar } from './components/TopBar/TopBar'
+import { useNow } from './lib/useNow'
+import { useMarketStore } from './state/store'
 import { useTheme } from './theme/useTheme'
+
+function useDebugFlag(): [boolean, () => void] {
+  const [debug, setDebug] = useState(() => new URLSearchParams(location.search).has('debug'))
+  return [
+    debug,
+    () => {
+      setDebug((d) => !d)
+    },
+  ]
+}
 
 export default function App() {
   const [theme, toggleTheme] = useTheme()
-  const [backend, setBackend] = useState<BackendState>({ kind: 'checking' })
+  const [debug, toggleDebug] = useDebugFlag()
+  const now = useNow(500)
+
+  const ws = useMarketStore((s) => s.ws)
+  const health = useMarketStore((s) => s.health)
+  const instruments = useMarketStore((s) => s.instruments)
+  const prices = useMarketStore((s) => s.prices)
 
   useEffect(() => {
-    const ctrl = new AbortController()
-    fetchHealth(ctrl.signal)
-      .then((h) => {
-        setBackend({ kind: 'up', version: h.version, milestone: h.milestone })
-      })
-      .catch((e: unknown) => {
-        if (!ctrl.signal.aborted) {
-          setBackend({ kind: 'down', error: e instanceof Error ? e.message : String(e) })
-        }
-      })
+    const socket = new MarketSocket()
+    socket.start()
     return () => {
-      ctrl.abort()
+      socket.stop()
     }
   }, [])
 
+  const lastTickTs = useMemo(() => {
+    let latest: number | null = null
+    for (const p of Object.values(prices)) {
+      for (const ts of [p.spot_ts, p.fut_ts]) {
+        if (ts != null && (latest == null || ts > latest)) latest = ts
+      }
+    }
+    return latest
+  }, [prices])
+
   return (
     <div className="flex h-full flex-col">
-      <TopBar backend={backend} theme={theme} onToggleTheme={toggleTheme} />
+      <TopBar
+        health={health}
+        ws={ws}
+        now={now}
+        lastTickTs={lastTickTs}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        debug={debug}
+        onToggleDebug={toggleDebug}
+      />
       <main className="flex flex-1">
         <section className="flex flex-1 flex-col gap-4 p-4">
-          <h1 className="text-lg font-semibold">Dashboard</h1>
+          <IndexTiles instruments={instruments} prices={prices} />
           <p className="text-fg-muted">
-            Milestone 0 skeleton. Market view, chart, signals and evidence will appear here.
+            Milestone 1: live feed. Chart, market view and signals follow in Milestones 3 and 4.
           </p>
         </section>
         <aside className="w-[420px] border-l border-border bg-bg-elev p-4">
@@ -39,6 +70,7 @@ export default function App() {
           <p className="mt-2 text-fg-muted">Arrives in Milestone 2.</p>
         </aside>
       </main>
+      {debug ? <DebugOverlay /> : null}
     </div>
   )
 }

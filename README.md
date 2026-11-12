@@ -9,9 +9,12 @@ order.
 
 ## Status
 
-Milestone 0 complete: backend and frontend skeletons run and talk to each other, with the
-full lint, type and test toolchain in place. See [docs/plan.md](docs/plan.md) for what
-comes next.
+Milestone 1 complete on synthetic data: a market-data provider interface with synthetic
+and replay implementations, instrument resolution (spot, futures, nearest expiry, ATM ± 10
+strikes), tick recording to SQLite, WebSocket push with per-hop latency stamps, and a
+dashboard top bar with market status, feed health, tick age and live index prices. The
+Upstox adapter and its OAuth login are deferred until broker credentials exist.
+See [docs/plan.md](docs/plan.md) for what comes next.
 
 ## Documents
 
@@ -45,7 +48,20 @@ make backend               # FastAPI on http://127.0.0.1:8000 (reload on change)
 make frontend              # Vite on http://localhost:5173 (proxies /api to the backend)
 ```
 
-Open http://localhost:5173. The top bar shows the backend status and a theme toggle.
+Open http://localhost:5173. Add `?debug=1` (or press **Latency**) for the per-hop latency
+overlay.
+
+### Feed modes
+
+Set `TRADEDISHA_FEED_PROVIDER` in `.env`:
+
+| Value | What it does |
+|---|---|
+| `synthetic` (default) | Random-walk prices for both indices, ticking regardless of market hours. Ticks are recorded to SQLite. |
+| `replay` | Replays a recorded day from SQLite, driving the app clock from tick timestamps. `TRADEDISHA_REPLAY_DATE=YYYY-MM-DD` picks the day (default: latest); `TRADEDISHA_REPLAY_SPEED=0` runs as fast as possible. |
+| `upstox` | Not implemented yet; needs an Upstox account. |
+
+Trading holidays are read from `config/nse-holidays.txt`.
 
 ## Check
 
@@ -61,7 +77,7 @@ gates on each commit.
 ```
 backend/    Python package `tradedisha`, tests
 frontend/   React app
-config/     tunable signal parameters (from Milestone 3)
+config/     NSE holiday list; tunable signal parameters from Milestone 3
 docs/       intent, plan, spec, data dictionary
 scripts/    check.sh
 ```
