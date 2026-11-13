@@ -24,12 +24,14 @@ from tradedisha.api.analysis import (
 from tradedisha.api.chain import chain_out
 from tradedisha.api.health import build_health
 from tradedisha.api.instruments import resolved_out
+from tradedisha.api.paper import open_trades, today_trades, trade_out
 from tradedisha.api.signals import active_signals, gates, signal_out, today_signals
 from tradedisha.app_state import AppState
 from tradedisha.clock import epoch_ms_now
 from tradedisha.engine.bias_engine import BiasComputed
+from tradedisha.engine.paper import PaperTrade
 from tradedisha.engine.signals import Signal
-from tradedisha.events import FeedHealthChanged, ParametersChanged, WindowChanged
+from tradedisha.events import AuthChanged, FeedHealthChanged, ParametersChanged, WindowChanged
 from tradedisha.feed.bus import StampedTick
 from tradedisha.market.candles import Candle
 from tradedisha.market.chain import ChainState
@@ -38,6 +40,7 @@ log = logging.getLogger(__name__)
 router = APIRouter()
 
 SLOW_CLIENT_LIMIT = 64  # queued frames before we drop the client
+OPEN_TRADES_PUSH_MS = 1000
 
 
 class WsHub:
@@ -55,7 +58,9 @@ class WsHub:
         state.session.candle_listeners.append(self._on_candle)
         state.session.bias_listeners.append(self._on_bias)
         state.session.signal_listeners.append(self._on_signal)
+        state.session.trade_listeners.append(self._on_trade)
         state.events.subscribe(FeedHealthChanged, self._on_health)
+        state.events.subscribe(AuthChanged, self._on_health)
         state.events.subscribe(WindowChanged, self._on_window)
         state.events.subscribe(ParametersChanged, self._on_params)
 
@@ -108,7 +113,11 @@ class WsHub:
         }
         self._immediate.append(self._frame("signal", payload, t_src=s.status_ts, t_in=None))
 
-    def _on_health(self, _: FeedHealthChanged) -> None:
+    def _on_trade(self, t: PaperTrade) -> None:
+        payload = {"trades": [trade_out(self._state, t).model_dump()]}
+        self._immediate.append(self._frame("paper_trade", payload, t_src=None, t_in=None))
+
+    def _on_health(self, _: FeedHealthChanged | AuthChanged) -> None:
         self._health_dirty = True
 
     def _on_window(self, ev: WindowChanged) -> None:
@@ -173,6 +182,7 @@ class WsHub:
             "signals_active": [x.model_dump() for x in active_signals(s)],
             "signals_today": [x.model_dump() for x in today_signals(s)],
             "gates": [g.model_dump() for g in gates(s)],
+            "paper_trades": [t.model_dump() for t in today_trades(s)],
         }
         return self._frame("hello", payload, t_src=None, t_in=None)
 
@@ -190,6 +200,7 @@ class WsHub:
         chain_interval_ms = 1000.0 / self._state.settings.ws_chain_hz
         last_push: dict[str, float] = {}
         last_chain_push: dict[str, float] = {}
+        last_trades_push = 0.0
         while True:
             await asyncio.sleep(interval_ms / 4000)
             if not self._clients:
@@ -222,6 +233,12 @@ class WsHub:
                 chain = mgr.chains[index]
                 payload = chain_out(chain).model_dump()
                 self._broadcast(self._frame("chain", payload, t_src=chain.updated_ts, t_in=t_in))
+            if now - last_trades_push >= OPEN_TRADES_PUSH_MS:
+                last_trades_push = now
+                live = open_trades(self._state)
+                if live:  # live P&L of open trades, once a second
+                    payload = {"trades": [t.model_dump() for t in live]}
+                    self._broadcast(self._frame("paper_trade", payload, t_src=None, t_in=None))
             if self._health_dirty:
                 self._health_dirty = False
                 payload = build_health(self._state).model_dump()

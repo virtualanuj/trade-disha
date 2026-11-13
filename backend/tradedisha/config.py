@@ -8,6 +8,7 @@ from datetime import time
 from pathlib import Path
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -26,6 +27,9 @@ class Settings(BaseSettings):
     bind_port: int = 8000
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
+    frontend_url: str = "http://localhost:5173"  # where the Upstox login returns the browser
+
+    data_dir: Path = REPO_ROOT / "data"  # instrument-master cache
     db_path: Path = REPO_ROOT / "data" / "tradedisha.sqlite"
     holidays_file: Path = REPO_ROOT / "config" / "nse-holidays.txt"
     params_path: Path = REPO_ROOT / "config" / "params.toml"
@@ -60,6 +64,14 @@ class Settings(BaseSettings):
     # WebSocket push
     ws_tick_hz: float = 20.0  # max tick frames per second per index (50 ms gap)
     ws_chain_hz: float = 2.0  # max chain frames per second per index
+
+    @field_validator("db_path", "data_dir", mode="after")
+    @classmethod
+    def _relative_to_repo(cls, v: Path) -> Path:
+        """`data/live.sqlite` in .env means the repo's data folder, wherever we start from."""
+        if str(v) == ":memory:" or v.is_absolute():
+            return v
+        return REPO_ROOT / v
 
 
 def load_settings() -> Settings:

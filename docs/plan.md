@@ -210,6 +210,16 @@ worth real money?"
 **Demo:** full loop on a live session: signal fires, click Paper trade, watch it to exit,
 see it in the journal.
 
+**Status (2026-11-13):** built. `PaperTradeManager` opens only from `POST /api/paper-trades`
+(the Paper trade button), at the current LTP, and closes on target, stop, square-off or
+manual close, recording fill quality (`live`, `after_gap`, `stale`). Trades left open by a
+restart are picked up again (as a gap); trades left open overnight are squared off `stale`
+at the last recorded price on the next start. Cost per trade is fixed at entry. The
+dashboard shows open trades with live P&L and the bias-reversed flag; the Journal page
+lists trades with filters and summary cards. Unit tests cover every exit path; the
+end-to-end run is manual. **Not built:** paper-trade entry/exit markers on the price chart
+and click-through from a journal row to the signal's evidence.
+
 **This completes the first version as described in intent.md.**
 
 ---

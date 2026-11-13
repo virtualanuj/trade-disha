@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { openPaperTrade } from './api/client'
+import type { SignalOut } from './api/types'
 import { MarketSocket } from './api/ws'
 import { BiasMeter } from './components/BiasMeter/BiasMeter'
 import { ConfigControl } from './components/ConfigControl/ConfigControl'
@@ -7,6 +9,8 @@ import { DebugOverlay } from './components/DebugOverlay/DebugOverlay'
 import { EvidenceTable } from './components/EvidenceTable/EvidenceTable'
 import { IndexTabs } from './components/IndexTabs/IndexTabs'
 import { IndexTiles } from './components/IndexTiles/IndexTiles'
+import { Journal } from './components/Journal/Journal'
+import { OpenTrades } from './components/OpenTrades/OpenTrades'
 import { OptionChain } from './components/OptionChain/OptionChain'
 import { PriceChart } from './components/PriceChart/PriceChart'
 import { SignalCard } from './components/SignalCard/SignalCard'
@@ -28,7 +32,34 @@ function useDebugFlag(): [boolean, () => void] {
   ]
 }
 
+type View = 'dashboard' | 'journal'
+
+function viewFromHash(): View {
+  return location.hash === '#journal' ? 'journal' : 'dashboard'
+}
+
+/** The page shown, kept in the URL hash so reload and the back button work. */
+function useView(): [View, () => void] {
+  const [view, setView] = useState<View>(viewFromHash)
+  useEffect(() => {
+    const sync = () => {
+      setView(viewFromHash())
+    }
+    window.addEventListener('hashchange', sync)
+    return () => {
+      window.removeEventListener('hashchange', sync)
+    }
+  }, [])
+  return [
+    view,
+    () => {
+      location.hash = view === 'journal' ? '' : 'journal'
+    },
+  ]
+}
+
 export default function App() {
+  const [view, toggleView] = useView()
   const [theme, toggleTheme] = useTheme()
   const [debug, toggleDebug] = useDebugFlag()
   const now = useNow(500)
@@ -49,6 +80,26 @@ export default function App() {
   const parameters = useMarketStore((s) => s.parameters)
   const parametersEffectiveFrom = useMarketStore((s) => s.parametersEffectiveFrom)
   const applyParameters = useMarketStore((s) => s.applyParameters)
+  const trades = useMarketStore((s) => s.trades)
+  const applyTrades = useMarketStore((s) => s.applyTrades)
+
+  const openTrades = useMemo(() => trades.filter((t) => t.status === 'open'), [trades])
+  const openOnIndex = useMemo(
+    () => openTrades.filter((t) => t.index === selected),
+    [openTrades, selected],
+  )
+  /** changes whenever a trade opens or closes, so the journal refetches */
+  const journalRevision = useMemo(
+    () => trades.reduce((n, t) => n + (t.status === 'closed' ? 2 : 1), 0),
+    [trades],
+  )
+  const feedLive = ws === 'open' && health?.feed.state === 'connected'
+  const paperTrade = useCallback(
+    async (s: SignalOut) => {
+      applyTrades([await openPaperTrade(s.id)])
+    },
+    [applyTrades],
+  )
 
   useEffect(() => {
     const socket = new MarketSocket()
@@ -89,6 +140,9 @@ export default function App() {
         onToggleTheme={toggleTheme}
         debug={debug}
         onToggleDebug={toggleDebug}
+        view={view}
+        onToggleView={toggleView}
+        openTradeCount={openTrades.length}
         configControl={
           <ConfigControl
             parameters={parameters}
@@ -98,30 +152,44 @@ export default function App() {
         }
       />
       <main className="flex min-h-0 flex-1">
-        <section className="flex min-w-0 flex-1 flex-col gap-3 overflow-auto p-4">
-          <IndexTabs
-            indices={instruments.map((i) => i.index)}
-            selected={selected}
-            onSelect={selectIndex}
-          />
-          <IndexTiles instruments={selectedInstruments} prices={prices} />
-          <div className="grid gap-3 lg:grid-cols-2">
-            <BiasMeter bias={bias} />
-            <SignalCard signal={signal} gate={gate} now={now} />
-          </div>
-          <PriceChart
-            candles={candles}
-            overlays={overlays}
-            signals={markers}
-            dataKey={selected}
-            theme={theme}
-          />
-          <EvidenceTable bias={bias} />
-          <SignalHistory signals={signalHistory} index={selected} />
-        </section>
-        <aside className="flex w-[640px] shrink-0 flex-col border-l border-border bg-bg-elev p-4">
-          <OptionChain chain={chains[selected]} />
-        </aside>
+        {view === 'journal' ? (
+          <Journal indices={instruments.map((i) => i.index)} revision={journalRevision} />
+        ) : (
+          <>
+            <section className="flex min-w-0 flex-1 flex-col gap-3 overflow-auto p-4">
+              <IndexTabs
+                indices={instruments.map((i) => i.index)}
+                selected={selected}
+                onSelect={selectIndex}
+              />
+              <IndexTiles instruments={selectedInstruments} prices={prices} />
+              <div className="grid gap-3 lg:grid-cols-2">
+                <BiasMeter bias={bias} />
+                <SignalCard
+                  signal={signal}
+                  gate={gate}
+                  now={now}
+                  openTrades={openOnIndex}
+                  blocked={feedLive ? undefined : 'Feed not live: no price to trade at'}
+                  onPaperTrade={paperTrade}
+                />
+              </div>
+              <OpenTrades trades={openOnIndex} now={now} canClose={feedLive} />
+              <PriceChart
+                candles={candles}
+                overlays={overlays}
+                signals={markers}
+                dataKey={selected}
+                theme={theme}
+              />
+              <EvidenceTable bias={bias} />
+              <SignalHistory signals={signalHistory} index={selected} />
+            </section>
+            <aside className="flex w-[640px] shrink-0 flex-col border-l border-border bg-bg-elev p-4">
+              <OptionChain chain={chains[selected]} />
+            </aside>
+          </>
+        )}
       </main>
       {debug ? <DebugOverlay /> : null}
     </div>

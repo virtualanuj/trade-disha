@@ -91,6 +91,7 @@ export interface HelloFrame extends FrameBase {
     signals_active: SignalOut[]
     signals_today: SignalOut[]
     gates: GateOut[]
+    paper_trades: PaperTradeOut[]
   }
 }
 
@@ -119,6 +120,7 @@ export type Frame =
   | BiasFrame
   | ParametersFrame
   | SignalFrame
+  | PaperTradeFrame
 
 export type BuildUp =
   'long_buildup' | 'short_buildup' | 'short_covering' | 'long_unwinding' | 'none'
@@ -272,4 +274,68 @@ export interface GateOut {
 export interface SignalFrame extends FrameBase {
   type: 'signal'
   payload: { signal: SignalOut; gates: GateOut[] }
+}
+
+export type ExitReason = 'TARGET' | 'STOP' | 'SQUARE_OFF' | 'MANUAL'
+export type FillQuality = 'live' | 'after_gap' | 'stale'
+
+export interface PaperTradeOut {
+  id: string
+  signal_id: string
+  index: string
+  instrument_key: string
+  trading_symbol: string
+  direction: SignalDirection
+  strike: number
+  expiry: string
+  lots: number
+  qty: number
+  signal_entry: number
+  entry_price: number
+  entry_ts: number
+  /** fill minus the signal's entry price */
+  slippage: number
+  target_price: number
+  stop_price: number
+  /** round-trip cost for the whole trade */
+  cost: number
+  status: 'open' | 'closed'
+  exit_price: number | null
+  exit_ts: number | null
+  exit_reason: ExitReason | null
+  exit_fill_quality: FillQuality | null
+  exit_price_age_ms: number | null
+  gross: number | null
+  net: number | null
+  warning: 'bias_reversed' | null
+  /** live view while open */
+  ltp: number | null
+  ltp_ts: number | null
+  live_gross: number | null
+  live_net: number | null
+}
+
+export interface PaperTradeFrame extends FrameBase {
+  type: 'paper_trade'
+  payload: { trades: PaperTradeOut[] }
+}
+
+export interface JournalStatsOut {
+  /** "overall" or an index name */
+  scope: string
+  trades: number
+  hits: number
+  hit_rate: number | null
+  avg_win: number | null
+  avg_loss: number | null
+  net_total: number
+  gross_total: number
+  avg_duration_s: number | null
+  by_reason: Partial<Record<ExitReason, number>>
+  non_live_fills: number
+}
+
+export interface JournalOut {
+  stats: JournalStatsOut[]
+  open_trades: number
 }

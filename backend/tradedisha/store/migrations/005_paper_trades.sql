@@ -1,0 +1,30 @@
+CREATE TABLE IF NOT EXISTS paper_trades (
+    id                TEXT    PRIMARY KEY,
+    signal_id         TEXT    NOT NULL,
+    idx               TEXT    NOT NULL,
+    instrument_key    TEXT    NOT NULL,
+    trading_symbol    TEXT    NOT NULL,
+    direction         TEXT    NOT NULL,
+    strike            REAL    NOT NULL,
+    expiry            TEXT    NOT NULL,
+    lots              INTEGER NOT NULL,
+    qty               INTEGER NOT NULL,
+    signal_entry      REAL    NOT NULL,
+    entry_price       REAL    NOT NULL,
+    entry_ts          INTEGER NOT NULL,
+    slippage          REAL    NOT NULL,
+    target_price      REAL    NOT NULL,
+    stop_price        REAL    NOT NULL,
+    cost              REAL    NOT NULL,
+    status            TEXT    NOT NULL,
+    exit_price        REAL,
+    exit_ts           INTEGER,
+    exit_reason       TEXT,
+    exit_fill_quality TEXT,
+    exit_price_age_ms INTEGER,
+    gross             REAL,
+    net               REAL,
+    warning           TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_paper_trades_entry ON paper_trades (entry_ts);
+CREATE INDEX IF NOT EXISTS ix_paper_trades_status ON paper_trades (status);

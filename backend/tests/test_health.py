@@ -98,3 +98,13 @@ def test_signals_endpoints_shape(client: TestClient) -> None:
     assert client.get("/api/signals/active").json() == []
     assert client.get("/api/signals/gates").json() == []
     assert client.get("/api/signals/nope").status_code == 404
+
+
+def test_paper_trade_endpoints_shape(client: TestClient) -> None:
+    assert client.get("/api/paper-trades").json() == []
+    journal = client.get("/api/journal/stats?from=2026-11-01&to=2026-11-30").json()
+    assert journal["open_trades"] == 0
+    assert journal["stats"][0]["scope"] == "overall"
+    assert journal["stats"][0]["trades"] == 0
+    assert client.post("/api/paper-trades", json={"signal_id": "nope"}).status_code == 404
+    assert client.post("/api/paper-trades/nope/close").status_code == 404

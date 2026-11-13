@@ -1,5 +1,7 @@
-import type { GateOut, SignalOut } from '../../api/types'
-import { countdown, fmtIstTime, fmtPrice } from '../../lib/format'
+import { useState } from 'react'
+
+import type { GateOut, PaperTradeOut, SignalOut } from '../../api/types'
+import { countdown, fmtDuration, fmtIstTime, fmtMoney, fmtPrice, pnlColour } from '../../lib/format'
 
 const REASON_TEXT: Record<NonNullable<GateOut['reason']>, string> = {
   below_threshold: 'bias below the entry threshold',
@@ -24,11 +26,17 @@ interface Props {
   signal: SignalOut | undefined
   gate: GateOut | undefined
   now: number
-  /** Milestone 5 wires this to the paper-trade action. */
-  onPaperTrade?: (signal: SignalOut) => void
+  /** open paper trades on this index, shown whether or not they agree with the signal */
+  openTrades?: PaperTradeOut[]
+  /** why a paper trade cannot be opened right now, if it cannot */
+  blocked?: string | undefined
+  /** opens a paper trade; rejects with the server's reason */
+  onPaperTrade?: (signal: SignalOut) => Promise<unknown>
 }
 
-export function SignalCard({ signal, gate, now, onPaperTrade }: Props) {
+export function SignalCard({ signal, gate, now, openTrades = [], blocked, onPaperTrade }: Props) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<{ id: string; text: string } | null>(null)
   if (!signal) {
     return (
       <div
@@ -96,16 +104,59 @@ export function SignalCard({ signal, gate, now, onPaperTrade }: Props) {
           <li key={r}>{r}</li>
         ))}
       </ul>
-      <div className="mt-3">
+      {openTrades.length > 0 ? (
+        <div
+          className="mt-3 rounded border border-warn/60 bg-warn/10 p-2"
+          data-testid="signal-open-trades"
+        >
+          <div className="font-medium text-warn">
+            {openTrades.length} paper trade{openTrades.length === 1 ? '' : 's'} already open on{' '}
+            {signal.index}
+          </div>
+          <ul className="mt-1 font-mono">
+            {openTrades.map((t) => (
+              <li key={t.id}>
+                {t.strike} {t.direction === 'BUY_CE' ? 'CE' : 'PE'} @ {fmtPrice(t.entry_price)} →{' '}
+                <span className={pnlColour(t.live_net)}>{fmtMoney(t.live_net)}</span>{' '}
+                <span className="text-fg-muted">({fmtDuration(now - t.entry_ts)})</span>
+                {t.direction !== signal.direction ? (
+                  <span className="ml-2 font-sans text-warn">opposite side</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <div className="mt-3 flex items-center gap-3">
         <button
           type="button"
           className="rounded border border-accent px-3 py-1 font-medium text-accent hover:bg-accent/10 disabled:opacity-50"
-          disabled={!onPaperTrade}
-          title={onPaperTrade ? undefined : 'Paper trading arrives in Milestone 5'}
-          onClick={() => onPaperTrade?.(signal)}
+          disabled={!onPaperTrade || busy || blocked !== undefined}
+          title={blocked ?? 'Open a paper trade at the current price. No real order is placed.'}
+          onClick={() => {
+            if (!onPaperTrade) return
+            setBusy(true)
+            setError(null)
+            onPaperTrade(signal)
+              .catch((e: unknown) => {
+                setError({
+                  id: signal.id,
+                  text: e instanceof Error ? e.message : 'could not open',
+                })
+              })
+              .finally(() => {
+                setBusy(false)
+              })
+          }}
         >
-          Paper trade
+          {busy ? 'Opening…' : 'Paper trade'}
         </button>
+        {blocked ? <span className="text-fg-muted">{blocked}</span> : null}
+        {error?.id === signal.id ? (
+          <span className="text-bear" role="alert">
+            Not opened: {error.text}
+          </span>
+        ) : null}
       </div>
     </div>
   )

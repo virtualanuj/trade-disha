@@ -13,10 +13,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from tradedisha.api.analysis import router as analysis_router
+from tradedisha.api.auth import router as auth_router
 from tradedisha.api.chain import router as chain_router
 from tradedisha.api.health import router as health_router
 from tradedisha.api.instruments import router as instruments_router
 from tradedisha.api.metrics import router as metrics_router
+from tradedisha.api.paper import router as paper_router
 from tradedisha.api.signals import router as signals_router
 from tradedisha.api.ws import WsHub
 from tradedisha.api.ws import router as ws_router
@@ -52,6 +54,9 @@ def build_state(settings: Settings) -> AppState:
     latency = LatencyTracker()
     params = ParameterService(settings.params_path)
     params.load()  # invalid file -> refuse to start, with the field errors in the traceback
+    auth = AuthService(
+        required=settings.feed_provider == "upstox", settings=settings, conn=conn, events=events
+    )
     session = FeedSession(
         settings,
         conn,
@@ -60,8 +65,8 @@ def build_state(settings: Settings) -> AppState:
         latency=latency,
         params=lambda: params.params,
         driven_clock=driven,
+        auth=auth,
     )
-    auth = AuthService(required=settings.feed_provider == "upstox")
     return AppState(
         settings=settings,
         conn=conn,
@@ -72,6 +77,23 @@ def build_state(settings: Settings) -> AppState:
         session=session,
         params=params,
     )
+
+
+async def start_feed(state: AppState) -> None:
+    """Start the feed now if we can; a live feed without a login waits for the callback."""
+    cfg = state.settings
+    if state.auth.state() in ("missing", "expired"):
+        log.warning("feed=upstox waiting for login: open the app and press Login")
+        return
+    try:
+        await state.session.start()
+    except Exception:
+        if cfg.feed_provider != "upstox":
+            raise
+        # Keep the app up so the trader can see the problem and log in again to retry.
+        log.exception("the Upstox feed did not start")
+        return
+    log.info("feed=%s indices=%s", cfg.feed_provider, ",".join(state.session.resolved))
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -85,9 +107,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         hub = WsHub(state)
         app.state.ws_hub = hub
         lag_task = asyncio.create_task(sample_loop_lag(state.latency), name="loop-lag")
-        await state.session.start()
+        await start_feed(state)
         hub.start()
-        log.info("feed=%s indices=%s", cfg.feed_provider, ",".join(state.session.resolved))
         try:
             yield
         finally:
@@ -106,10 +127,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(health_router, prefix="/api")
+    app.include_router(auth_router, prefix="/api")
     app.include_router(instruments_router, prefix="/api")
     app.include_router(chain_router, prefix="/api")
     app.include_router(analysis_router, prefix="/api")
     app.include_router(signals_router, prefix="/api")
+    app.include_router(paper_router, prefix="/api")
     app.include_router(metrics_router, prefix="/api")
     app.include_router(ws_router)
     return app

@@ -15,6 +15,10 @@ interface Props {
   debug: boolean
   onToggleDebug: () => void
   configControl?: ReactNode
+  /** which page is showing; omitted hides the Journal button */
+  view?: 'dashboard' | 'journal'
+  onToggleView?: () => void
+  openTradeCount?: number
 }
 
 const MARKET_LABEL: Record<HealthResponse['market_status'], string> = {
@@ -83,14 +87,15 @@ function AuthPill({ health }: { health: HealthResponse | null }) {
   return (
     <span className="flex items-center gap-2 text-warn">
       Login: {auth ?? '…'}
-      <button
-        type="button"
-        className="rounded border border-border px-2 py-0.5 text-fg-muted"
-        disabled
-        title="Upstox login arrives with the live feed"
-      >
-        Login
-      </button>
+      {auth === 'missing' || auth === 'expired' ? (
+        <a
+          href="/api/auth/login"
+          className="rounded border border-border px-2 py-0.5 text-fg hover:border-accent hover:text-accent"
+          title="Sign in to Upstox to start the live feed (needed once a day)"
+        >
+          Login
+        </a>
+      ) : null}
     </span>
   )
 }
@@ -98,6 +103,7 @@ function AuthPill({ health }: { health: HealthResponse | null }) {
 export function TopBar(props: Props) {
   const { health, ws, now, lastTickTs, theme, onToggleTheme, debug, onToggleDebug, configControl } =
     props
+  const { view, onToggleView, openTradeCount = 0 } = props
   return (
     <header className="flex h-11 items-center gap-4 border-b border-border bg-bg-elev px-4 text-xs whitespace-nowrap">
       <span className="font-semibold tracking-wide">TradeDisha</span>
@@ -106,6 +112,21 @@ export function TopBar(props: Props) {
       <AuthPill health={health} />
       {health?.replay_day ? <span className="text-accent">Replay: {health.replay_day}</span> : null}
       <span className="ml-auto" />
+      {view && onToggleView ? (
+        <button
+          type="button"
+          onClick={onToggleView}
+          className={`rounded border border-border px-2 py-0.5 ${view === 'journal' ? 'text-accent' : 'text-fg-muted'} hover:text-fg`}
+          aria-pressed={view === 'journal'}
+        >
+          {view === 'journal' ? 'Dashboard' : 'Journal'}
+          {openTradeCount > 0 && view !== 'journal' ? (
+            <span className="ml-1 text-accent" title="open paper trades">
+              {openTradeCount} open
+            </span>
+          ) : null}
+        </button>
+      ) : null}
       {configControl}
       <button
         type="button"

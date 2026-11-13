@@ -62,6 +62,39 @@ describe('TopBar', () => {
     expect(screen.getByTestId('feed-pill')).toHaveTextContent('disconnected, retrying')
   })
 
+  it('offers the Upstox login when the live feed has no valid login', () => {
+    render(
+      <TopBar
+        health={{ ...health, auth: 'missing' }}
+        ws="open"
+        now={0}
+        lastTickTs={null}
+        theme="dark"
+        onToggleTheme={noop}
+        debug={false}
+        onToggleDebug={noop}
+      />,
+    )
+    expect(screen.getByRole('link', { name: 'Login' })).toHaveAttribute('href', '/api/auth/login')
+  })
+
+  it('hides the login once it is valid', () => {
+    render(
+      <TopBar
+        health={{ ...health, auth: 'valid' }}
+        ws="open"
+        now={0}
+        lastTickTs={null}
+        theme="dark"
+        onToggleTheme={noop}
+        debug={false}
+        onToggleDebug={noop}
+      />,
+    )
+    expect(screen.getByText('Login: valid')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Login' })).not.toBeInTheDocument()
+  })
+
   it('colours tick age green, amber, red', () => {
     expect(tickAgeColour(500)).toBe('text-bull')
     expect(tickAgeColour(5000)).toBe('text-warn')

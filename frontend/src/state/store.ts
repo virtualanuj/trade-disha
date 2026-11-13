@@ -9,6 +9,7 @@ import type {
   HealthResponse,
   IndexPrices,
   OverlayOut,
+  PaperTradeOut,
   ParametersOut,
   ResolvedIndexOut,
   SignalOut,
@@ -48,6 +49,8 @@ interface MarketStore {
   /** today's signals, newest first */
   signalHistory: SignalOut[]
   gates: Record<string, GateOut>
+  /** open trades plus today's, newest first */
+  trades: PaperTradeOut[]
   selectedIndex: string
 
   setWs: (s: WsState) => void
@@ -62,7 +65,9 @@ interface MarketStore {
     signalsActive: SignalOut[],
     signalsToday: SignalOut[],
     gates: GateOut[],
+    trades: PaperTradeOut[],
   ) => void
+  applyTrades: (t: PaperTradeOut[]) => void
   applyTick: (p: IndexPrices, recvAt: number) => void
   applyHealth: (h: HealthResponse) => void
   applyChain: (c: ChainOut) => void
@@ -88,6 +93,7 @@ export const useMarketStore = create<MarketStore>((set) => ({
   signals: {},
   signalHistory: [],
   gates: {},
+  trades: [],
   selectedIndex: 'NIFTY',
 
   setWs: (ws) => {
@@ -104,6 +110,7 @@ export const useMarketStore = create<MarketStore>((set) => ({
     signalsActive,
     signalsToday,
     gates,
+    trades,
   ) => {
     const byIndex: Record<string, IndexPrices> = {}
     for (const p of prices) {
@@ -139,10 +146,18 @@ export const useMarketStore = create<MarketStore>((set) => ({
       signals: signalsByIndex,
       signalHistory: signalsToday,
       gates: gatesByIndex(gates),
+      trades,
       selectedIndex: instruments.some((i) => i.index === s.selectedIndex)
         ? s.selectedIndex
         : (instruments[0]?.index ?? s.selectedIndex),
     }))
+  },
+  applyTrades: (incoming) => {
+    set((s) => {
+      const byId = new Map(s.trades.map((t) => [t.id, t]))
+      for (const t of incoming) byId.set(t.id, t)
+      return { trades: [...byId.values()].sort((a, b) => b.entry_ts - a.entry_ts) }
+    })
   },
   applyTick: (p, recvAt) => {
     set((s) => ({

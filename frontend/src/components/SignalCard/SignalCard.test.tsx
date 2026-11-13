@@ -1,7 +1,8 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 
 import type { SignalOut } from '../../api/types'
 import { countdown } from '../../lib/format'
+import { trade } from '../OpenTrades/fixtures'
 import { SignalCard } from './SignalCard'
 
 const signal: SignalOut = {
@@ -53,6 +54,53 @@ describe('SignalCard', () => {
     expect(card).toHaveTextContent('4:20')
     expect(card).toHaveTextContent('EMA9 above EMA21 by 0.10%')
     expect(screen.getByRole('button', { name: 'Paper trade' })).toBeDisabled()
+  })
+
+  it('opens a paper trade on click and shows the server reason when refused', async () => {
+    const onPaperTrade = vi.fn().mockRejectedValue(new Error('market is not open'))
+    render(
+      <SignalCard
+        signal={signal}
+        gate={undefined}
+        now={1_700_000_100_000}
+        onPaperTrade={onPaperTrade}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Paper trade' }))
+    expect(onPaperTrade).toHaveBeenCalledWith(signal)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Not opened: market is not open')
+  })
+
+  it('disables the action with the reason while the feed is down', () => {
+    render(
+      <SignalCard
+        signal={signal}
+        gate={undefined}
+        now={1_700_000_100_000}
+        blocked="Feed not live: no price to trade at"
+        onPaperTrade={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Paper trade' })).toBeDisabled()
+    expect(screen.getByTestId('signal-card')).toHaveTextContent('Feed not live')
+  })
+
+  it('highlights trades already open on the index, whichever side they are on', () => {
+    render(
+      <SignalCard
+        signal={signal}
+        gate={undefined}
+        now={trade.entry_ts + 18 * 60_000}
+        openTrades={[{ ...trade, direction: 'BUY_PE', live_net: -812 }]}
+        onPaperTrade={vi.fn()}
+      />,
+    )
+    const block = screen.getByTestId('signal-open-trades')
+    expect(block).toHaveTextContent('1 paper trade already open on NIFTY')
+    expect(block).toHaveTextContent('25000 PE @ 101.00')
+    expect(block).toHaveTextContent('−₹812')
+    expect(block).toHaveTextContent('18m')
+    expect(block).toHaveTextContent('opposite side')
   })
 
   it('explains why nothing fired', () => {

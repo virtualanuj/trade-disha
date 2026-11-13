@@ -10,18 +10,24 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 
+import httpx
+
+from tradedisha.auth import AuthService
 from tradedisha.clock import DrivenClock, MarketClock, epoch_ms_now
 from tradedisha.config import Settings
 from tradedisha.engine.bias_engine import BiasComputed, BiasEngine
+from tradedisha.engine.paper import PaperTrade, PaperTradeManager, Price
 from tradedisha.engine.signals import Signal, SignalEngine
 from tradedisha.events import EventBus, FeedHealthChanged
 from tradedisha.feed.bus import StampedTick, TickBus
 from tradedisha.feed.provider import FeedHealth, MarketDataProvider, Tick
 from tradedisha.feed.replay import ReplayProvider
 from tradedisha.feed.synthetic import SyntheticProvider, SyntheticUniverse
+from tradedisha.feed.upstox import UpstoxProvider, fetch_ltp
 from tradedisha.instruments.models import Instrument, ResolvedIndex
-from tradedisha.instruments.resolve import resolve_index
+from tradedisha.instruments.resolve import INDEX_SPOT_NAMES, ResolutionError, resolve_index
 from tradedisha.instruments.synthetic_master import SPEC, build_synthetic_master
+from tradedisha.instruments.upstox_master import load_upstox_master, master_path, read_master
 from tradedisha.market.candles import Candle, CandleBuilder, CandleStore
 from tradedisha.market.chain_manager import ChainManager, SubscriptionChange
 from tradedisha.metrics.latency import LatencyTracker
@@ -43,6 +49,14 @@ class LatestPrices:
         self.ts[t.key] = t.ts
 
 
+def _spot_key(master: list[Instrument], index: str) -> str:
+    wanted = INDEX_SPOT_NAMES.get(index, index)
+    for inst in master:
+        if inst.instrument_type == "INDEX" and inst.name == wanted:
+            return inst.instrument_key
+    raise ResolutionError(f"spot instrument for {index} not in master")
+
+
 class FeedSession:
     """Start -> resolve instruments -> connect provider -> subscribe -> pump ticks -> stop."""
 
@@ -56,8 +70,12 @@ class FeedSession:
         latency: LatencyTracker,
         params: Callable[[], ParameterSet],
         driven_clock: DrivenClock | None = None,
+        auth: AuthService | None = None,
     ) -> None:
         self.settings = settings
+        self.auth = auth
+        self.started = False
+        self._start_lock = asyncio.Lock()
         self.clock = clock
         self.events = bus
         self.latency = latency
@@ -73,11 +91,13 @@ class FeedSession:
         self.chains: ChainManager | None = None
         self.bias: BiasEngine | None = None
         self.signals: SignalEngine | None = None
+        self.paper: PaperTradeManager | None = None
         self.provider: MarketDataProvider | None = None
         self.replay_day: date | None = None
         self.candle_listeners: list[Callable[[Candle], None]] = []
         self.bias_listeners: list[Callable[[BiasComputed], None]] = []
         self.signal_listeners: list[Callable[[Signal], None]] = []
+        self.trade_listeners: list[Callable[[PaperTrade], None]] = []
         self._driven_clock = driven_clock
         self._conn = conn
         self._tasks: list[asyncio.Task[None]] = []
@@ -89,12 +109,20 @@ class FeedSession:
     # -- lifecycle ---------------------------------------------------------
 
     async def start(self) -> None:
-        today = self.clock.today()
-        self.master = build_synthetic_master(today)
+        """Idempotent: the Upstox login callback calls this once a token exists."""
+        async with self._start_lock:
+            if not self.started:
+                await self._start()
+                self.started = True
+
+    async def _start(self) -> None:
+        # Everything that can fail on the network happens first, so a failed start leaves
+        # nothing half-wired and can simply be tried again.
+        today, master, spots = await self._load_instruments()
+        self.master = master
         for index in self.settings.indices:
-            base = float(SPEC[index]["base"])
             self.resolved[index] = resolve_index(
-                self.master, index, today, base, strike_window=self.settings.strike_window
+                self.master, index, today, spots[index], strike_window=self.settings.strike_window
             )
         self.chains = ChainManager(
             master=self.master,
@@ -132,6 +160,19 @@ class FeedSession:
             on_signal=self._on_signal,
         )
         self.bias_listeners.append(self.signals.on_bias)
+        self.paper = PaperTradeManager(
+            clock=self.clock,
+            params=self.params,
+            conn=self._conn,
+            signals=self.signals,
+            price=self._price,
+            feed_live=self.feed_live,
+            enforce_hours=enforce,
+            last_recorded=self._last_recorded,
+            on_trade=self._on_trade,
+        )
+        self.tick_bus.subscribe(self.paper.on_tick)
+        self.bias_listeners.append(self.paper.on_bias)
         self.provider = self._build_provider()
         await self.provider.connect()
         keys = [k for r in self.resolved.values() for k in r.all_keys]
@@ -160,6 +201,45 @@ class FeedSession:
 
     # -- internals ---------------------------------------------------------
 
+    def _replay_day(self) -> date:
+        if self.settings.replay_date:
+            return date.fromisoformat(self.settings.replay_date)
+        days = self.tick_store.recorded_days()
+        if not days:
+            raise RuntimeError("replay requested but no recorded ticks exist")
+        return days[0]
+
+    async def _load_instruments(self) -> tuple[date, list[Instrument], dict[str, float]]:
+        """The day to resolve for, the instrument master, and a spot price per index."""
+        s = self.settings
+        today = self.clock.today()
+        if s.feed_provider == "upstox":
+            token = self.auth.token if self.auth is not None else None
+            if token is None:
+                raise RuntimeError("Upstox login required before the live feed can start")
+            master = await load_upstox_master(s.data_dir, today, s.indices)
+            spot_keys = {i: _spot_key(master, i) for i in s.indices}
+            async with httpx.AsyncClient(timeout=15) as client:
+                ltp = await fetch_ltp(client, token, list(spot_keys.values()))
+            return today, master, {i: ltp[k] for i, k in spot_keys.items()}
+        if s.feed_provider == "replay":
+            self.replay_day = self._replay_day()
+            recorded = master_path(s.data_dir, self.replay_day)
+            if recorded.exists():  # a recorded live session: use that day's real instruments
+                master = await asyncio.to_thread(read_master, recorded, list(s.indices))
+                spots: dict[str, float] = {}
+                for index in s.indices:
+                    first = self.tick_store.first_tick(self.replay_day, _spot_key(master, index))
+                    if first is not None:
+                        spots[index] = first.ltp
+                if len(spots) == len(s.indices):
+                    return self.replay_day, master, spots
+        return (
+            today,
+            build_synthetic_master(today),
+            {i: float(SPEC[i]["base"]) for i in s.indices},
+        )
+
     def _build_provider(self) -> MarketDataProvider:
         s = self.settings
         if s.feed_provider == "synthetic":
@@ -174,18 +254,15 @@ class FeedSession:
                 trend_per_tick=s.synthetic_trend_per_tick,
             )
         if s.feed_provider == "replay":
-            days = self.tick_store.recorded_days()
-            if s.replay_date:
-                day = date.fromisoformat(s.replay_date)
-            elif days:
-                day = days[0]
-            else:
-                raise RuntimeError("replay requested but no recorded ticks exist")
+            day = self.replay_day or self._replay_day()
             self.replay_day = day
             return ReplayProvider(
                 self.tick_store, day, speed=s.replay_speed, clock=self._driven_clock
             )
-        raise RuntimeError("upstox provider needs an account and is not implemented yet")
+        auth = self.auth
+        if auth is None:
+            raise RuntimeError("the upstox feed needs an AuthService")
+        return UpstoxProvider(token=lambda: auth.token, on_unauthorized=auth.mark_expired)
 
     async def _pump(self) -> None:
         assert self.provider is not None
@@ -223,6 +300,18 @@ class FeedSession:
         for fn in self.signal_listeners:
             fn(s)
 
+    def _on_trade(self, t: PaperTrade) -> None:
+        for fn in self.trade_listeners:
+            fn(t)
+
+    def _price(self, key: str) -> Price | None:
+        ltp = self.prices.ltp.get(key)
+        return None if ltp is None else Price(ltp, self.prices.ts[key])
+
+    def _last_recorded(self, key: str, before_ms: int) -> Price | None:
+        t = self.tick_store.last_tick_before(key, before_ms)
+        return None if t is None else Price(t.ltp, t.ts)
+
     def feed_live(self) -> bool:
         h = self.health()
         if h.state != "connected" or h.last_tick_ts is None:
@@ -252,6 +341,8 @@ class FeedSession:
             self.candles.flush_stale(self.clock.now_ms())
             if self.signals is not None:
                 self.signals.tick(self.clock.now_ms())
+            if self.paper is not None:
+                self.paper.tick(self.clock.now_ms())
             await self._publish_health()
             minute = epoch_ms_now() // 60_000
             if minute != last_minute:

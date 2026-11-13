@@ -76,6 +76,23 @@ class TickStore:
         sql += " ORDER BY ts, rowid"
         return [_to_tick(r) for r in self._conn.execute(sql, params)]
 
+    def first_tick(self, day: date, key: str) -> Tick | None:
+        """The earliest recorded tick of one instrument on an IST calendar day."""
+        start, end = day_bounds_ms(day)
+        row = self._conn.execute(
+            "SELECT * FROM ticks WHERE key = ? AND ts >= ? AND ts < ? ORDER BY ts, rowid LIMIT 1",
+            (key, start, end),
+        ).fetchone()
+        return _to_tick(row) if row is not None else None
+
+    def last_tick_before(self, key: str, before_ms: int) -> Tick | None:
+        """The latest recorded tick of one instrument at or before a moment."""
+        row = self._conn.execute(
+            "SELECT * FROM ticks WHERE key = ? AND ts <= ? ORDER BY ts DESC, rowid DESC LIMIT 1",
+            (key, before_ms),
+        ).fetchone()
+        return _to_tick(row) if row is not None else None
+
     def recorded_days(self) -> list[date]:
         """Distinct IST dates that have ticks, newest first."""
         rows = self._conn.execute("SELECT MIN(ts) AS lo, MAX(ts) AS hi FROM ticks").fetchone()

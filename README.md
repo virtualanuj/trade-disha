@@ -9,14 +9,16 @@ order.
 
 ## Status
 
-Milestones 0 to 4 complete on synthetic data: provider interface with synthetic and replay
+Milestones 0 to 5 complete: provider interface with synthetic and replay
 feeds, instrument resolution, tick recording, WebSocket push with latency stamps, a live
 option chain panel, 1-minute candles with EMA/VWAP/supertrend overlays, nine indicators
 combined into a per-minute bias with a visible evidence breakdown, a tunable
 `config/params.toml` with live reload, and signals (buy ATM call or put with entry, target
 and stop, expiry-day point targets via delta) with a signal card, chart markers and a
-daily history. The Upstox adapter and its OAuth login are deferred
-until broker credentials exist. See [docs/plan.md](docs/plan.md) for what comes next.
+daily history; one-click paper trades tracked to target, stop, 15:15 square-off or manual
+close, with net-of-cost P&L and a Journal page (hit rate, average win/loss, net result,
+overall and per index). The live Upstox feed (daily login, real instrument master, websocket
+adapter) is in place; late-start backfill of candles and opening OI is still to come. See [docs/plan.md](docs/plan.md) for what comes next.
 
 ## Documents
 
@@ -32,7 +34,7 @@ until broker credentials exist. See [docs/plan.md](docs/plan.md) for what comes 
 - Backend: Python 3.12 (uv), FastAPI, asyncio, SQLite. Lint and types: ruff, mypy strict.
 - Frontend: Vite, React 19, TypeScript strict, Tailwind v4. Lint: ESLint strict, Prettier,
   Vitest.
-- Data: Upstox API v2 (free with an Upstox account). Arrives in Milestone 1.
+- Data: Upstox API (free with an Upstox account): OAuth login, V3 websocket market feed.
 
 ## Setup
 
@@ -40,7 +42,7 @@ Requirements: [uv](https://docs.astral.sh/uv/), Node 20+.
 
 ```bash
 make setup                 # uv sync, npm install, git pre-commit hook
-cp .env.example .env       # fill in Upstox credentials from Milestone 1 onward
+cp .env.example .env       # Upstox key and secret are needed only for the live feed
 ```
 
 ## Run
@@ -61,11 +63,13 @@ Set `TRADEDISHA_FEED_PROVIDER` in `.env`:
 |---|---|
 | `synthetic` (default) | Random-walk prices for both indices, ticking regardless of market hours. Ticks are recorded to SQLite. `TRADEDISHA_SYNTHETIC_TREND_PER_TICK=0.02` adds an upward drift (in strike steps per spot tick) to exercise re-centring. |
 | `replay` | Replays a recorded day from SQLite, driving the app clock from tick timestamps. `TRADEDISHA_REPLAY_DATE=YYYY-MM-DD` picks the day (default: latest); `TRADEDISHA_REPLAY_SPEED=0` runs as fast as possible. |
-| `upstox` | Not implemented yet; needs an Upstox account. |
+| `upstox` | Live market data. Needs `TRADEDISHA_UPSTOX_API_KEY` / `_SECRET` in `.env` and an Upstox app whose redirect URL is `http://127.0.0.1:8000/api/auth/callback`. Press **Login** in the top bar once a day (the token ends at 03:30 IST). Set `TRADEDISHA_DB_PATH=data/live.sqlite` so live recordings stay apart from synthetic ones; replay with the same path replays a live day against that day's real instruments. |
 
 Trading holidays are read from `config/nse-holidays.txt`. Signal hours (09:15 to the
 `last_signal_time` cut-off) are enforced for replay and Upstox feeds; the synthetic feed
-ignores them so signals can be seen at any hour. Set `TRADEDISHA_ENFORCE_SIGNAL_HOURS`
+ignores them so signals can be seen at any hour. The same switch governs paper trades:
+with hours enforced, a trade opens only while the market is live and before
+`square_off_time`, and open trades are squared off at that time. Set `TRADEDISHA_ENFORCE_SIGNAL_HOURS`
 to override either way.
 
 ### Tuning the signal
