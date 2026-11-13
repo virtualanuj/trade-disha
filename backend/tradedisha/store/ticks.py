@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 from tradedisha.clock import IST, ist_to_ms, ms_to_ist
@@ -36,6 +38,27 @@ def day_bounds_ms(day: date) -> tuple[int, int]:
     """[start, end) epoch-ms of a calendar day in IST."""
     start = datetime.combine(day, datetime.min.time(), tzinfo=IST)
     return ist_to_ms(start), ist_to_ms(start + timedelta(days=1))
+
+
+PRUNE_BATCH = 50_000
+
+
+@dataclass(frozen=True)
+class TickUsage:
+    db_bytes: int
+    tick_rows: int
+    tick_days: int
+    oldest: date | None
+    newest: date | None
+    prune_rows: int
+    prune_days: int
+    prune_bytes_estimate: int
+
+
+@dataclass(frozen=True)
+class PruneResult:
+    rows_deleted: int
+    bytes_freed: int
 
 
 class TickStore:
@@ -113,6 +136,62 @@ class TickStore:
 
     def count(self) -> int:
         return int(self._conn.execute("SELECT COUNT(*) FROM ticks").fetchone()[0])
+
+    # -- pruning (spec §10.4) --------------------------------------------------
+
+    def db_bytes(self) -> int:
+        pages = int(self._conn.execute("PRAGMA page_count").fetchone()[0])
+        free = int(self._conn.execute("PRAGMA freelist_count").fetchone()[0])
+        size = int(self._conn.execute("PRAGMA page_size").fetchone()[0])
+        return (pages - free) * size
+
+    def usage(self, until: date | None = None) -> TickUsage:
+        """What is held, and what deleting ticks up to and including `until` would remove."""
+        total = self.count()
+        days = self.recorded_days()
+        used = self.db_bytes()
+        rows = 0
+        prune_days = 0
+        if until is not None:
+            end = day_bounds_ms(until)[1]
+            rows = int(
+                self._conn.execute("SELECT COUNT(*) FROM ticks WHERE ts < ?", (end,)).fetchone()[0]
+            )
+            prune_days = sum(1 for d in days if d <= until)
+        return TickUsage(
+            db_bytes=used,
+            tick_rows=total,
+            tick_days=len(days),
+            oldest=days[-1] if days else None,
+            newest=days[0] if days else None,
+            prune_rows=rows,
+            prune_days=prune_days,
+            # Ticks dominate the file, so their share of rows is a fair estimate of bytes.
+            prune_bytes_estimate=int(used * rows / total) if total else 0,
+        )
+
+    async def prune(self, until: date, *, batch: int = PRUNE_BATCH) -> PruneResult:
+        """Delete ticks up to and including `until`, in batches so live ticks keep flowing.
+
+        Only `ticks` is touched; candles, chain history, bias, signals and trades stay.
+        """
+        end = day_bounds_ms(until)[1]
+        before = self.db_bytes()
+        deleted = 0
+        while True:
+            with self._conn:
+                cur = self._conn.execute(
+                    "DELETE FROM ticks WHERE rowid IN"
+                    " (SELECT rowid FROM ticks WHERE ts < ? LIMIT ?)",
+                    (end, batch),
+                )
+            deleted += cur.rowcount
+            if cur.rowcount < batch:
+                break
+            await asyncio.sleep(0)  # let the feed pump and the websocket run
+        self._conn.execute("PRAGMA incremental_vacuum").fetchall()
+        self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
+        return PruneResult(rows_deleted=deleted, bytes_freed=max(0, before - self.db_bytes()))
 
 
 class FeedEventLog:

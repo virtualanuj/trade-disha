@@ -10,6 +10,21 @@ export interface FeedHealth {
 export type MarketStatus = 'pre_open' | 'live' | 'closed' | 'holiday'
 export type AuthState = 'missing' | 'valid' | 'expired' | 'not_required'
 
+export type BannerCode =
+  | 'login_missing'
+  | 'login_expired'
+  | 'feed_not_started'
+  | 'feed_gap'
+  | 'market_closed'
+  | 'holiday'
+  | 'pre_open'
+
+export interface BannerOut {
+  code: BannerCode
+  level: 'info' | 'error'
+  since_ms: number | null
+}
+
 export interface HealthResponse {
   status: string
   app: string
@@ -20,6 +35,11 @@ export interface HealthResponse {
   auth: AuthState
   feed: FeedHealth
   replay_day: string | null
+  /** connected and a tick arrived within the last few seconds */
+  feed_live: boolean
+  /** why the screen is not live; null when all is well */
+  banner: BannerOut | null
+  serves_frontend: boolean
 }
 
 export interface InstrumentOut {
@@ -338,4 +358,21 @@ export interface JournalStatsOut {
 export interface JournalOut {
   stats: JournalStatsOut[]
   open_trades: number
+}
+
+export interface UsageOut {
+  db_bytes: number
+  tick_rows: number
+  tick_days: number
+  oldest: string | null
+  newest: string | null
+  prune_rows: number
+  prune_days: number
+  prune_bytes_estimate: number
+}
+
+export interface PruneOut {
+  until_date: string
+  rows_deleted: number
+  bytes_freed: number
 }

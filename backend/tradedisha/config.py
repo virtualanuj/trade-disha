@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
     frontend_url: str = "http://localhost:5173"  # where the Upstox login returns the browser
+    # A production build here is served by the backend itself (`make start`).
+    frontend_dist: Path = REPO_ROOT / "frontend" / "dist"
+    serve_frontend: bool = False
+    reload: bool = True  # restart the dev server when backend code changes
 
     data_dir: Path = REPO_ROOT / "data"  # instrument-master cache
     db_path: Path = REPO_ROOT / "data" / "tradedisha.sqlite"
@@ -55,6 +59,8 @@ class Settings(BaseSettings):
     # Replay feed
     replay_date: str | None = None  # YYYY-MM-DD; defaults to latest recorded day
     replay_speed: float = 1.0  # 0 = as fast as possible
+    # Fault injection: IST time ranges whose ticks are withheld, e.g. ["10:05:00-10:07:30"]
+    replay_drop: list[str] = []
 
     # Upstox (Milestone 1b, needs an account)
     upstox_api_key: str = ""
@@ -65,13 +71,23 @@ class Settings(BaseSettings):
     ws_tick_hz: float = 20.0  # max tick frames per second per index (50 ms gap)
     ws_chain_hz: float = 2.0  # max chain frames per second per index
 
-    @field_validator("db_path", "data_dir", mode="after")
+    @field_validator("db_path", "data_dir", "frontend_dist", mode="after")
     @classmethod
     def _relative_to_repo(cls, v: Path) -> Path:
         """`data/live.sqlite` in .env means the repo's data folder, wherever we start from."""
         if str(v) == ":memory:" or v.is_absolute():
             return v
         return REPO_ROOT / v
+
+
+def hours_enforced(settings: Settings) -> bool:
+    """Whether market hours gate signals, paper trades and the status banner.
+
+    The synthetic feed ticks around the clock, so by default it ignores them.
+    """
+    if settings.enforce_signal_hours is not None:
+        return settings.enforce_signal_hours
+    return settings.feed_provider != "synthetic"
 
 
 def load_settings() -> Settings:

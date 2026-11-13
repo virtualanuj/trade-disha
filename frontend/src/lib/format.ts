@@ -96,3 +96,17 @@ const istDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' })
 export function fmtIstDate(ms: number): string {
   return istDate.format(new Date(ms))
 }
+
+/** Bytes as MB or GB, for storage figures. */
+export function fmtBytes(v: number | null | undefined): string {
+  if (v == null) return '—'
+  const mb = v / 1_048_576
+  if (mb >= 1024) return `${(mb / 1024).toFixed(2)} GB`
+  return `${mb >= 10 ? mb.toFixed(0) : mb.toFixed(1)} MB`
+}
+
+const count = new Intl.NumberFormat('en-IN')
+
+export function fmtCount(v: number | null | undefined): string {
+  return v == null ? '—' : count.format(v)
+}

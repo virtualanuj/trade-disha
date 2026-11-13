@@ -15,6 +15,7 @@ interface Props {
   debug: boolean
   onToggleDebug: () => void
   configControl?: ReactNode
+  dataControl?: ReactNode
   /** which page is showing; omitted hides the Journal button */
   view?: 'dashboard' | 'journal'
   onToggleView?: () => void
@@ -103,7 +104,7 @@ function AuthPill({ health }: { health: HealthResponse | null }) {
 export function TopBar(props: Props) {
   const { health, ws, now, lastTickTs, theme, onToggleTheme, debug, onToggleDebug, configControl } =
     props
-  const { view, onToggleView, openTradeCount = 0 } = props
+  const { view, onToggleView, openTradeCount = 0, dataControl } = props
   return (
     <header className="flex h-11 items-center gap-4 border-b border-border bg-bg-elev px-4 text-xs whitespace-nowrap">
       <span className="font-semibold tracking-wide">TradeDisha</span>
@@ -127,6 +128,7 @@ export function TopBar(props: Props) {
           ) : null}
         </button>
       ) : null}
+      {dataControl}
       {configControl}
       <button
         type="button"

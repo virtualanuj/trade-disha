@@ -5,6 +5,7 @@ import type { SignalOut } from './api/types'
 import { MarketSocket } from './api/ws'
 import { BiasMeter } from './components/BiasMeter/BiasMeter'
 import { ConfigControl } from './components/ConfigControl/ConfigControl'
+import { DataPanel } from './components/DataPanel/DataPanel'
 import { DebugOverlay } from './components/DebugOverlay/DebugOverlay'
 import { EvidenceTable } from './components/EvidenceTable/EvidenceTable'
 import { IndexTabs } from './components/IndexTabs/IndexTabs'
@@ -15,6 +16,8 @@ import { OptionChain } from './components/OptionChain/OptionChain'
 import { PriceChart } from './components/PriceChart/PriceChart'
 import { SignalCard } from './components/SignalCard/SignalCard'
 import { SignalHistory } from './components/SignalHistory/SignalHistory'
+import { currentBanner } from './components/StatusBanner/banner'
+import { StatusBanner } from './components/StatusBanner/StatusBanner'
 import { TopBar } from './components/TopBar/TopBar'
 import { useNow } from './lib/useNow'
 import { useMarketStore } from './state/store'
@@ -93,7 +96,10 @@ export default function App() {
     () => trades.reduce((n, t) => n + (t.status === 'closed' ? 2 : 1), 0),
     [trades],
   )
-  const feedLive = ws === 'open' && health?.feed.state === 'connected'
+  const feedLive = ws === 'open' && health?.feed_live === true
+  const banner = useMemo(() => currentBanner(health, ws), [health, ws])
+  /** last-known data is dimmed so it is never mistaken for live */
+  const staleCls = banner?.stale ? 'opacity-60' : ''
   const paperTrade = useCallback(
     async (s: SignalOut) => {
       applyTrades([await openPaperTrade(s.id)])
@@ -143,6 +149,7 @@ export default function App() {
         view={view}
         onToggleView={toggleView}
         openTradeCount={openTrades.length}
+        dataControl={<DataPanel />}
         configControl={
           <ConfigControl
             parameters={parameters}
@@ -151,12 +158,16 @@ export default function App() {
           />
         }
       />
+      <StatusBanner banner={banner} />
       <main className="flex min-h-0 flex-1">
         {view === 'journal' ? (
           <Journal indices={instruments.map((i) => i.index)} revision={journalRevision} />
         ) : (
           <>
-            <section className="flex min-w-0 flex-1 flex-col gap-3 overflow-auto p-4">
+            <section
+              className={`flex min-w-0 flex-1 flex-col gap-3 overflow-auto p-4 ${staleCls}`}
+              data-stale={banner?.stale ? 'true' : undefined}
+            >
               <IndexTabs
                 indices={instruments.map((i) => i.index)}
                 selected={selected}
@@ -185,7 +196,9 @@ export default function App() {
               <EvidenceTable bias={bias} />
               <SignalHistory signals={signalHistory} index={selected} />
             </section>
-            <aside className="flex w-[640px] shrink-0 flex-col border-l border-border bg-bg-elev p-4">
+            <aside
+              className={`flex w-[640px] shrink-0 flex-col border-l border-border bg-bg-elev p-4 ${staleCls}`}
+            >
               <OptionChain chain={chains[selected]} />
             </aside>
           </>

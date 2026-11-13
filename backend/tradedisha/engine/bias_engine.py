@@ -167,5 +167,16 @@ class BiasEngine:
             self._on_bias(out)
         return out
 
+    def warm(self, index: str) -> int:
+        """After candles are backfilled: rebuild the chart overlays for those minutes.
+
+        No bias is computed or stored for the past; only the EMA and supertrend lines,
+        so the chart is not blank before the first live minute. VWAP history is not known.
+        """
+        p = self._params()
+        spot = self._candles.closed(self._resolved[index].spot.instrument_key)[-400:]
+        self.overlays[index] = [compute_overlays(spot[: i + 1], None, p) for i in range(len(spot))]
+        return len(spot)
+
     def history(self, index: str, start_ms: int, end_ms: int) -> list[sqlite3.Row]:
         return self._store.read_day(index, start_ms, end_ms)

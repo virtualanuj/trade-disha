@@ -249,6 +249,10 @@ class PaperTradeManager:
                 self.open_trades[trade.id] = updated
                 self._save(updated)
 
+    def mark_gap(self) -> None:
+        """The feed was silent for a while: the next tick of each open trade is `after_gap`."""
+        self._gap.update(self.open_trades)
+
     def tick(self, now_ms: int) -> None:
         """Housekeeping twice a second: note feed outages, and square off on time."""
         if not self.open_trades:

@@ -41,6 +41,7 @@ class LegState:
     last_ts: int | None = None
     buildup: BuildUp = "none"
     oi_delta_min: int = 0  # OI change over the last closed minute
+    baselined: bool = False  # oi_open came from a snapshot, not from the first tick seen
     ltp_delta_min: float = 0.0
 
     def apply(self, t: Tick) -> None:
@@ -180,6 +181,22 @@ class ChainState:
         (row.ce if side == "ce" else row.pe).apply(t)
         self.updated_ts = t.ts
         return True
+
+    def set_baseline(self, key: str, oi_open: int, oi_now: int | None = None) -> None:
+        """Opening OI from a chain snapshot; it replaces "first value seen"."""
+        hit = self._by_key.get(key)
+        if hit is None:
+            return
+        strike, side = hit
+        row = self.rows[strike]
+        leg = row.ce if side == "ce" else row.pe
+        leg.oi_open = oi_open
+        leg.baselined = True
+        if leg.oi is None and oi_now is not None:
+            leg.oi = oi_now
+
+    def all_baselined(self) -> bool:
+        return all(r.ce.baselined and r.pe.baselined for r in self.rows.values())
 
     def set_spot(self, spot: float) -> None:
         self.spot = spot

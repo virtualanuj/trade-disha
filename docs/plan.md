@@ -243,6 +243,25 @@ and click-through from a journal row to the signal's evidence.
 **Demo:** start late, kill the network, restore it, and the dashboard recovers without a
 restart or a misleading screen.
 
+**Status (2026-11-13):** built; the demo and the soak are manual and not yet run.
+- Degraded states: `/api/health` carries one `banner` (login missing/expired, feed not
+  started, feed gap with "since", holiday, pre-open, market closed); the UI shows it under
+  the top bar and dims last-known data. A lost backend connection is shown the same way.
+- Late start (Upstox): today's 1-minute candles for spot and futures are fetched and
+  seeded, chart overlays rebuilt, and opening OI taken from the option-chain snapshot's
+  previous-close OI (`oi_baseline` is `partial` until every leg has one). Strikes added
+  by a re-centre get a baseline too. Each part can fail on its own and is logged.
+- Feed gaps: detected by the half-second timer and from tick timestamps; written to
+  `feed_events` (`feed_gap_start`/`feed_gap_end`/`feed_gap`) with the duration; open paper
+  trades are marked so their next exit is `after_gap`.
+- Fault injection: `TRADEDISHA_REPLAY_DROP` withholds time ranges on replay; a test replays
+  an outage plus a re-centre and checks the log and the re-subscription.
+- Tick pruning: `GET /api/data/usage`, `POST /api/data/prune-ticks`, and the Data panel
+  with a typed-date confirmation; batches of 50k, then incremental vacuum.
+- One command: `make start` builds the web app and the backend serves it.
+- **Not done:** the full-day 1x soak (memory, latency at 15:29, frame drops) has not been
+  run. Backfill responses are parsed as documented by Upstox and are unverified live.
+
 ---
 
 ## After the first version

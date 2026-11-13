@@ -21,6 +21,9 @@ const health: HealthResponse = {
     provider: 'synthetic',
   },
   replay_day: null,
+  feed_live: true,
+  banner: null,
+  serves_frontend: false,
 }
 
 const noop = () => undefined

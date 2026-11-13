@@ -11,11 +11,14 @@ from datetime import datetime
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from tradedisha.api.analysis import router as analysis_router
 from tradedisha.api.auth import router as auth_router
 from tradedisha.api.chain import router as chain_router
+from tradedisha.api.data import router as data_router
 from tradedisha.api.health import router as health_router
+from tradedisha.api.health import serves_frontend
 from tradedisha.api.instruments import router as instruments_router
 from tradedisha.api.metrics import router as metrics_router
 from tradedisha.api.paper import router as paper_router
@@ -134,7 +137,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(signals_router, prefix="/api")
     app.include_router(paper_router, prefix="/api")
     app.include_router(metrics_router, prefix="/api")
+    app.include_router(data_router, prefix="/api")
     app.include_router(ws_router)
+    if serves_frontend(cfg):
+        # Last, so /api and /ws win. The web app uses hash routes, so no fallback is needed.
+        app.mount("/", StaticFiles(directory=cfg.frontend_dist, html=True), name="web")
     return app
 
 
@@ -147,5 +154,5 @@ def run() -> None:
         factory=True,
         host=settings.bind_host,
         port=settings.bind_port,
-        reload=True,
+        reload=settings.reload,
     )

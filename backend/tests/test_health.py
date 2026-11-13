@@ -108,3 +108,29 @@ def test_paper_trade_endpoints_shape(client: TestClient) -> None:
     assert journal["stats"][0]["trades"] == 0
     assert client.post("/api/paper-trades", json={"signal_id": "nope"}).status_code == 404
     assert client.post("/api/paper-trades/nope/close").status_code == 404
+
+
+def test_health_has_no_banner_once_the_synthetic_feed_is_ticking(client: TestClient) -> None:
+    time.sleep(0.3)
+    body = client.get("/api/health").json()
+    assert body["feed_live"] is True
+    assert body["banner"] is None
+    assert body["serves_frontend"] is False
+
+
+def test_data_usage_and_prune(client: TestClient) -> None:
+    time.sleep(0.7)
+    usage = client.get("/api/data/usage?until_date=2099-01-01").json()
+    assert usage["tick_rows"] > 0
+    assert usage["prune_rows"] == usage["tick_rows"]
+    assert usage["tick_days"] == 1
+
+    assert client.get("/api/data/usage").json()["prune_rows"] == 0
+    old = client.post("/api/data/prune-ticks", json={"until_date": "2000-01-01"}).json()
+    assert old["rows_deleted"] == 0
+
+    done = client.post("/api/data/prune-ticks", json={"until_date": "2099-01-01"}).json()
+    assert done["rows_deleted"] >= usage["tick_rows"]
+    state = client.app.state.td  # type: ignore[attr-defined]
+    kinds = [r["kind"] for r in state.conn.execute("SELECT kind FROM feed_events")]
+    assert kinds.count("ticks_pruned") == 2

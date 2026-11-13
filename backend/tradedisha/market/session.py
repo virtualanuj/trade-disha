@@ -8,13 +8,13 @@ import logging
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, time
 
 import httpx
 
 from tradedisha.auth import AuthService
-from tradedisha.clock import DrivenClock, MarketClock, epoch_ms_now
-from tradedisha.config import Settings
+from tradedisha.clock import IST, DrivenClock, MarketClock, epoch_ms_now, ist_to_ms
+from tradedisha.config import Settings, hours_enforced
 from tradedisha.engine.bias_engine import BiasComputed, BiasEngine
 from tradedisha.engine.paper import PaperTrade, PaperTradeManager, Price
 from tradedisha.engine.signals import Signal, SignalEngine
@@ -28,7 +28,8 @@ from tradedisha.instruments.models import Instrument, ResolvedIndex
 from tradedisha.instruments.resolve import INDEX_SPOT_NAMES, ResolutionError, resolve_index
 from tradedisha.instruments.synthetic_master import SPEC, build_synthetic_master
 from tradedisha.instruments.upstox_master import load_upstox_master, master_path, read_master
-from tradedisha.market.candles import Candle, CandleBuilder, CandleStore
+from tradedisha.market.backfill import apply_baseline, fetch_intraday_candles, fetch_option_chain
+from tradedisha.market.candles import MINUTE_MS, Candle, CandleBuilder, CandleStore
 from tradedisha.market.chain_manager import ChainManager, SubscriptionChange
 from tradedisha.metrics.latency import LatencyTracker
 from tradedisha.parameters.model import ParameterSet
@@ -47,6 +48,20 @@ class LatestPrices:
     def update(self, t: Tick) -> None:
         self.ltp[t.key] = t.ltp
         self.ts[t.key] = t.ts
+
+
+def parse_drop_ranges(specs: list[str], day: date) -> list[tuple[int, int]]:
+    """`"10:05:00-10:07:30"` on the replay day -> (start_ms, end_ms). For fault injection."""
+    out: list[tuple[int, int]] = []
+    for spec in specs:
+        lo, hi = (time.fromisoformat(part.strip()) for part in spec.split("-", 1))
+        out.append(
+            (
+                ist_to_ms(datetime.combine(day, lo, tzinfo=IST)),
+                ist_to_ms(datetime.combine(day, hi, tzinfo=IST)),
+            )
+        )
+    return out
 
 
 def _spot_key(master: list[Instrument], index: str) -> str:
@@ -75,6 +90,13 @@ class FeedSession:
         self.settings = settings
         self.auth = auth
         self.started = False
+        self.enforce_hours = hours_enforced(settings)
+        self.gap_since: int | None = None  # start of the feed outage in progress, if any
+        self.last_gap: tuple[int, int] | None = None  # (start, end) of the last finished one
+        self.http_transport: httpx.AsyncBaseTransport | None = None  # tests inject a fake
+        self._was_live = False
+        self._prev_tick_ts: int | None = None
+        self._health_key: tuple[object, ...] | None = None
         self._start_lock = asyncio.Lock()
         self.clock = clock
         self.events = bus
@@ -143,9 +165,7 @@ class FeedSession:
             conn=self._conn,
             on_bias=self._on_bias,
         )
-        enforce = self.settings.enforce_signal_hours
-        if enforce is None:
-            enforce = self.settings.feed_provider != "synthetic"
+        enforce = self.enforce_hours
         self.signals = SignalEngine(
             clock=self.clock,
             params=self.params,
@@ -173,6 +193,7 @@ class FeedSession:
         )
         self.tick_bus.subscribe(self.paper.on_tick)
         self.bias_listeners.append(self.paper.on_bias)
+        await self._backfill()
         self.provider = self._build_provider()
         await self.provider.connect()
         keys = [k for r in self.resolved.values() for k in r.all_keys]
@@ -257,7 +278,11 @@ class FeedSession:
             day = self.replay_day or self._replay_day()
             self.replay_day = day
             return ReplayProvider(
-                self.tick_store, day, speed=s.replay_speed, clock=self._driven_clock
+                self.tick_store,
+                day,
+                speed=s.replay_speed,
+                clock=self._driven_clock,
+                drop_ranges=parse_drop_ranges(s.replay_drop, day),
             )
         auth = self.auth
         if auth is None:
@@ -273,6 +298,20 @@ class FeedSession:
 
     def _on_tick(self, st: StampedTick) -> None:
         t = st.tick
+        prev = self._prev_tick_ts
+        if prev is None or t.ts > prev:
+            self._prev_tick_ts = t.ts
+        if (
+            prev is not None
+            and t.ts - prev > self.settings.feed_live_max_tick_age_ms
+            and self.gap_since is None
+            and self.expecting_ticks()
+        ):
+            # A silence the half-second timer did not catch (fast replay, a stalled loop).
+            self.last_gap = (prev, t.ts)
+            self.feed_log.write(epoch_ms_now(), "feed_gap", f"gap_ms={t.ts - prev}")
+            if self.paper is not None:
+                self.paper.mark_gap()
         self.prices.update(t)
         if self.settings.feed_provider != "replay":
             self.tick_store.add(t)
@@ -318,6 +357,109 @@ class FeedSession:
             return False
         return self.clock.now_ms() - h.last_tick_ts <= self.settings.feed_live_max_tick_age_ms
 
+    # -- late start and outages --------------------------------------------
+
+    async def _backfill(self) -> None:
+        """Upstox only: today's candles and opening OI, so a late start is not a blind one.
+
+        Every part may fail on its own; whatever is missing is logged and the app carries
+        on, warming up from live data as it did before backfill existed.
+        """
+        if self.settings.feed_provider != "upstox" or self.auth is None:
+            return
+        token = self.auth.token
+        if token is None or self.chains is None:
+            return
+        now = self.clock.now_ms()
+        this_minute = now - now % MINUTE_MS
+        open_ms, _ = self.clock.session_bounds()
+        late = now > open_ms + MINUTE_MS
+        notes: list[str] = []
+        async with httpx.AsyncClient(timeout=20, transport=self.http_transport) as client:
+            for index, r in self.resolved.items():
+                counts: list[str] = []
+                for inst in (r.spot, r.future):
+                    key = inst.instrument_key
+                    try:
+                        got = await fetch_intraday_candles(
+                            client, token, key, before_ms=this_minute
+                        )
+                        candles = [c for c in got if c.minute_ts >= open_ms]
+                        self.candle_store.write_many(candles)
+                    except Exception as exc:
+                        log.warning("candle backfill failed for %s: %s", key, type(exc).__name__)
+                        candles = self.candle_store.read(key, open_ms, this_minute)
+                        counts.append("failed")
+                    self.candles.seed(key, candles)
+                    counts.append(str(len(candles)))
+                if self.bias is not None:
+                    self.bias.warm(index)
+                chain = self.chains.chains[index]
+                if late:
+                    chain.oi_baseline = "partial"  # until the snapshot says otherwise
+                try:
+                    snaps = await fetch_option_chain(
+                        client, token, r.spot.instrument_key, r.options_expiry
+                    )
+                    legs = apply_baseline(chain, snaps)
+                    counts.append(f"baseline={legs}/{len(chain.keys())}")
+                except Exception as exc:
+                    log.warning("OI baseline failed for %s: %s", index, type(exc).__name__)
+                    counts.append("baseline=failed")
+                notes.append(f"{index} candles={'/'.join(counts[:-1])} {counts[-1]}")
+        self.feed_log.write(epoch_ms_now(), "backfill", "; ".join(notes))
+        log.info("backfill: %s", "; ".join(notes))
+
+    async def _baseline_new_strikes(self, change: SubscriptionChange) -> None:
+        """Strikes that entered the window on a re-centre need an opening OI too."""
+        if self.settings.feed_provider != "upstox" or self.auth is None or self.chains is None:
+            return
+        token = self.auth.token
+        chain = self.chains.chains.get(change.index)
+        r = self.resolved.get(change.index)
+        if token is None or chain is None or r is None:
+            return
+        try:
+            async with httpx.AsyncClient(timeout=20, transport=self.http_transport) as client:
+                snaps = await fetch_option_chain(
+                    client, token, r.spot.instrument_key, r.options_expiry
+                )
+            apply_baseline(chain, snaps, only=set(change.add))
+        except Exception as exc:
+            chain.oi_baseline = "partial"
+            log.warning("OI baseline for new strikes failed: %s", type(exc).__name__)
+
+    def expecting_ticks(self) -> bool:
+        """Silence outside market hours is not an outage."""
+        return not self.enforce_hours or self.clock.status() == "live"
+
+    def _track_gap(self) -> None:
+        """Record when the feed goes quiet during the session, and for how long."""
+        now = self.clock.now_ms()
+        live = self.feed_live()
+        if live:
+            self._was_live = True
+            if self.gap_since is not None:
+                self.last_gap = (self.gap_since, now)
+                self.feed_log.write(
+                    epoch_ms_now(), "feed_gap_end", f"gap_ms={now - self.gap_since}"
+                )
+                log.warning("feed back after %.1f s", (now - self.gap_since) / 1000)
+                self.gap_since = None
+            return
+        if self.gap_since is None:
+            if not self._was_live or not self.expecting_ticks():
+                return
+            last = self.health().last_tick_ts
+            self.gap_since = last if last is not None else now
+            self.feed_log.write(epoch_ms_now(), "feed_gap_start", f"last_tick_ts={last}")
+            log.warning("feed gap: no ticks since %s", last)
+        elif not self.expecting_ticks():
+            # The market closed during the outage; nothing more will come today.
+            self.feed_log.write(epoch_ms_now(), "feed_gap_end", "market_closed")
+            self.gap_since = None
+            self._was_live = False
+
     async def _apply_subscription_changes(self) -> None:
         while True:
             change = await self._sub_changes.get()
@@ -327,6 +469,8 @@ class FeedSession:
                 await self.provider.subscribe(change.add)
             if change.remove:
                 await self.provider.unsubscribe(change.remove)
+            if change.add:
+                await self._baseline_new_strikes(change)
             self.feed_log.write(
                 epoch_ms_now(),
                 "recentre",
@@ -343,6 +487,7 @@ class FeedSession:
                 self.signals.tick(self.clock.now_ms())
             if self.paper is not None:
                 self.paper.tick(self.clock.now_ms())
+            self._track_gap()
             await self._publish_health()
             minute = epoch_ms_now() // 60_000
             if minute != last_minute:
@@ -353,12 +498,18 @@ class FeedSession:
         if self.provider is None:
             return
         h = self.provider.health()
-        changed = self._last_health is None or (h.state, h.subscribed, h.reconnects) != (
-            self._last_health.state,
-            self._last_health.subscribed,
-            self._last_health.reconnects,
+        # Anything the status banner depends on counts as a change worth pushing.
+        key = (
+            h.state,
+            h.subscribed,
+            h.reconnects,
+            self.feed_live(),
+            self.clock.status(),
+            self.gap_since,
+            self.auth.state() if self.auth is not None else None,
         )
-        if changed:
+        if key != self._health_key:
+            self._health_key = key
             self._last_health = h
             await self.events.publish(
                 FeedHealthChanged(h.state, h.last_tick_ts, h.reconnects, h.subscribed, h.provider)

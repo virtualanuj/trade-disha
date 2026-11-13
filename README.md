@@ -9,7 +9,7 @@ order.
 
 ## Status
 
-Milestones 0 to 5 complete: provider interface with synthetic and replay
+Milestones 0 to 6 complete: provider interface with synthetic and replay
 feeds, instrument resolution, tick recording, WebSocket push with latency stamps, a live
 option chain panel, 1-minute candles with EMA/VWAP/supertrend overlays, nine indicators
 combined into a per-minute bias with a visible evidence breakdown, a tunable
@@ -18,7 +18,9 @@ and stop, expiry-day point targets via delta) with a signal card, chart markers 
 daily history; one-click paper trades tracked to target, stop, 15:15 square-off or manual
 close, with net-of-cost P&L and a Journal page (hit rate, average win/loss, net result,
 overall and per index). The live Upstox feed (daily login, real instrument master, websocket
-adapter) is in place; late-start backfill of candles and opening OI is still to come. See [docs/plan.md](docs/plan.md) for what comes next.
+adapter) is in place; starting after the open backfills today's candles and the opening-OI baseline. A status
+banner says why the screen is not live (login, feed outage, market closed) and dims
+last-known data; feed outages are logged; a Data panel deletes old raw ticks. See [docs/plan.md](docs/plan.md) for what comes next.
 
 ## Documents
 
@@ -52,7 +54,13 @@ make backend               # FastAPI on http://127.0.0.1:8000 (reload on change)
 make frontend              # Vite on http://localhost:5173 (proxies /api to the backend)
 ```
 
-Open http://localhost:5173. Add `?debug=1` (or press **Latency**) for the per-hop latency
+For daily use, one command builds the web app and serves everything from the backend:
+
+```bash
+make start                 # then open http://127.0.0.1:8000
+```
+
+In development, open http://localhost:5173. Add `?debug=1` (or press **Latency**) for the per-hop latency
 overlay.
 
 ### Feed modes
@@ -62,7 +70,7 @@ Set `TRADEDISHA_FEED_PROVIDER` in `.env`:
 | Value | What it does |
 |---|---|
 | `synthetic` (default) | Random-walk prices for both indices, ticking regardless of market hours. Ticks are recorded to SQLite. `TRADEDISHA_SYNTHETIC_TREND_PER_TICK=0.02` adds an upward drift (in strike steps per spot tick) to exercise re-centring. |
-| `replay` | Replays a recorded day from SQLite, driving the app clock from tick timestamps. `TRADEDISHA_REPLAY_DATE=YYYY-MM-DD` picks the day (default: latest); `TRADEDISHA_REPLAY_SPEED=0` runs as fast as possible. |
+| `replay` | Replays a recorded day from SQLite, driving the app clock from tick timestamps. `TRADEDISHA_REPLAY_DATE=YYYY-MM-DD` picks the day (default: latest); `TRADEDISHA_REPLAY_SPEED=0` runs as fast as possible. `TRADEDISHA_REPLAY_DROP='["10:05:00-10:07:30"]'` withholds the ticks in those IST time ranges, to see how the app behaves through a feed outage. |
 | `upstox` | Live market data. Needs `TRADEDISHA_UPSTOX_API_KEY` / `_SECRET` in `.env` and an Upstox app whose redirect URL is `http://127.0.0.1:8000/api/auth/callback`. Press **Login** in the top bar once a day (the token ends at 03:30 IST). Set `TRADEDISHA_DB_PATH=data/live.sqlite` so live recordings stay apart from synthetic ones; replay with the same path replays a live day against that day's real instruments. |
 
 Trading holidays are read from `config/nse-holidays.txt`. Signal hours (09:15 to the

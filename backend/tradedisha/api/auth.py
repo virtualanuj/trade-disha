@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import RedirectResponse
 
 from tradedisha.api.deps import State
+from tradedisha.api.health import serves_frontend
 from tradedisha.auth import AuthError
 
 log = logging.getLogger(__name__)
@@ -44,4 +45,5 @@ async def callback(
         raise HTTPException(
             status_code=502, detail=f"Logged in, but the feed did not start: {exc}"
         ) from exc
-    return RedirectResponse(app.settings.frontend_url, status_code=302)
+    home = "/" if serves_frontend(app.settings) else app.settings.frontend_url
+    return RedirectResponse(home, status_code=302)

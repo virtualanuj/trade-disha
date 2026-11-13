@@ -1,4 +1,4 @@
-.PHONY: check backend frontend dev setup
+.PHONY: check backend frontend dev setup start
 
 setup:          ## install backend and frontend dependencies and git hooks
 	cd backend && uv sync
@@ -16,3 +16,7 @@ frontend:       ## run the Vite dev server on http://localhost:5173
 
 dev:            ## run both (backend in background; Ctrl-C stops the frontend)
 	$(MAKE) backend & $(MAKE) frontend
+
+start:          ## build the web app and serve everything from http://127.0.0.1:8000
+	cd frontend && npm run build
+	cd backend && TRADEDISHA_SERVE_FRONTEND=true TRADEDISHA_RELOAD=false uv run tradedisha

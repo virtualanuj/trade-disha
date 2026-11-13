@@ -156,6 +156,17 @@ class CandleStore:
                 (c.key, c.minute_ts, c.open, c.high, c.low, c.close, c.volume, int(c.synthetic)),
             )
 
+    def write_many(self, candles: list[Candle]) -> None:
+        """Backfilled candles, in one transaction."""
+        with self._conn:
+            self._conn.executemany(
+                self.INSERT,
+                [
+                    (c.key, c.minute_ts, c.open, c.high, c.low, c.close, c.volume, int(c.synthetic))
+                    for c in candles
+                ],
+            )
+
     def read(self, key: str, start_ms: int, end_ms: int) -> list[Candle]:
         rows = self._conn.execute(
             "SELECT * FROM candles_1m WHERE key = ? AND minute_ts >= ? AND minute_ts < ?"

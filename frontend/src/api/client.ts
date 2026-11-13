@@ -4,6 +4,8 @@ import type {
   MetricsResponse,
   PaperTradeOut,
   ParametersOut,
+  PruneOut,
+  UsageOut,
 } from './types'
 
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
@@ -109,4 +111,13 @@ export function fetchPaperTrades(q: JournalQuery, signal?: AbortSignal): Promise
 
 export function fetchJournal(q: JournalQuery, signal?: AbortSignal): Promise<JournalOut> {
   return getJson<JournalOut>(`/api/journal/stats${query(q)}`, signal)
+}
+
+export function fetchUsage(untilDate?: string, signal?: AbortSignal): Promise<UsageOut> {
+  const q = untilDate ? `?until_date=${encodeURIComponent(untilDate)}` : ''
+  return getJson<UsageOut>(`/api/data/usage${q}`, signal)
+}
+
+export function pruneTicks(untilDate: string): Promise<PruneOut> {
+  return postJson<PruneOut>('/api/data/prune-ticks', { until_date: untilDate })
 }

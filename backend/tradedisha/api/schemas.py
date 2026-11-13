@@ -14,6 +14,14 @@ class FeedHealthOut(BaseModel):
     provider: str
 
 
+class BannerOut(BaseModel):
+    """The one thing the trader must know before trusting the screen."""
+
+    code: str  # login_missing | login_expired | feed_not_started | feed_gap | holiday | ...
+    level: str  # info | error
+    since_ms: int | None = None
+
+
 class HealthResponse(BaseModel):
     status: str
     app: str
@@ -24,6 +32,9 @@ class HealthResponse(BaseModel):
     auth: str
     feed: FeedHealthOut
     replay_day: str | None
+    feed_live: bool = False
+    banner: BannerOut | None = None
+    serves_frontend: bool = False
 
 
 class InstrumentOut(BaseModel):
