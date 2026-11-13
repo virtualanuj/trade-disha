@@ -12,8 +12,9 @@ interface Props {
 }
 
 /**
- * A right-hand panel that can be hidden. Hidden, it leaves a narrow strip with a button to
- * bring it back; its contents are not rendered, but the data behind them keeps updating.
+ * The right-hand column. Hidden (its panel minimised), it leaves a narrow strip with a
+ * button to bring it back; its contents are not rendered, but the data behind them keeps
+ * updating. Shown, the panel frame inside carries the button that hides it.
  */
 export function SidePanel({ name, open, onToggle, width, className = '', children }: Props) {
   if (!open) {
@@ -36,20 +37,7 @@ export function SidePanel({ name, open, onToggle, width, className = '', childre
     )
   }
   return (
-    <aside
-      className={`relative flex shrink-0 flex-col bg-bg-elev p-4 ${className}`}
-      style={{ width }}
-    >
-      <button
-        type="button"
-        className="absolute top-1 right-1 z-10 rounded px-1.5 text-sm leading-5 text-fg-muted hover:bg-bg-row hover:text-fg"
-        aria-expanded
-        aria-label={`Hide ${name}`}
-        title={`Hide ${name}`}
-        onClick={onToggle}
-      >
-        <span aria-hidden="true">›</span>
-      </button>
+    <aside className={`flex shrink-0 flex-col p-4 pl-2 ${className}`} style={{ width }}>
       {children}
     </aside>
   )

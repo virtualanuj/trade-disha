@@ -318,6 +318,45 @@ the view is compared with NSE's figures on the live feed.
 **Design:** spec §6.2 (VIX), §6.5 step 3 (52-week fetch), §7.4 (index statistics),
 §12 (API), §13.2–13.4 (details view, resizable layout, date format, preferences).
 
+## Milestone E2 — Minimisable panels
+
+**Goal:** the trader can tuck any panel away so the others get the room, and bring it
+back where it was, without missing a signal or an open trade.
+
+- **Panel frame.** One shared frame around all eight panels (index, market view, signal,
+  open paper trades, price chart, evidence, signals today, option chain) with a title bar
+  and a minimise button. No new library.
+- **Minimise.** Collapses to the title bar in place with a one-line summary; panels below
+  move up; remembered in the browser. The option chain's minimised form is the existing
+  strip on the right edge, and E1's remembered choice carries over. The chart keeps its
+  zoom while minimised.
+- **Opens itself.** A minimised signal or open-trades panel expands for a new signal or
+  newly opened trade, once.
+- **Restore panels** button in the top bar while anything is minimised.
+- **Open paper trades panel** always on the page (it says so when none are open) and
+  moved to second last in the main column, just above signals today.
+- Tests: panel state (parse, E1 carry-over, toggle, two panels opened in the same moment,
+  restore all); open-on-new (once per id); each one-line summary with full and missing
+  data; the frame expanded and minimised with its labels; the top-bar button; the open
+  paper trades panel with none open.
+
+**Demo:** minimise each panel and see its summary and the panels below move up; reload to
+find them still minimised; expand them one by one and with "Restore panels", finding
+sizes and chart zoom as they were; on a replayed day, minimise the signal card and see it
+open on the next signal, and the open-trades panel on the next paper trade.
+
+**Not in E2:** full screen for a panel (built first, then removed at the owner's request
+the same day); dragging panels to re-order or re-dock them; chart zoom buttons (still
+deferred).
+
+**Status (2026-11-13):** built, with unit tests, and checked in a browser on the synthetic
+feed: minimise, summaries, reload, expand, "Restore panels", the chart recovering its
+size, and the open paper trades panel in its place with none open. Not yet seen in a browser: a panel opening itself on a real signal or trade (unit
+tests only; no signal fired during the check). The demo on a replayed or live day is not
+yet run.
+
+**Design:** spec §13.2 (PanelFrame, SidePanel).
+
 ---
 
 ## After the first version

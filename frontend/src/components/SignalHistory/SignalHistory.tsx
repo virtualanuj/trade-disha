@@ -11,13 +11,7 @@ const STATUS_CLS: Record<SignalStatus, string> = {
 export function SignalHistory({ signals, index }: { signals: SignalOut[]; index: string }) {
   const rows = signals.filter((s) => s.index === index)
   return (
-    <div
-      className="rounded border border-border bg-bg-elev p-3 text-xs"
-      data-testid="signal-history"
-    >
-      <div className="mb-2 text-[10px] uppercase tracking-wide text-fg-muted">
-        Signals today · {rows.length}
-      </div>
+    <div className="text-xs" data-testid="signal-history">
       {rows.length === 0 ? (
         <div className="text-fg-muted">None yet.</div>
       ) : (

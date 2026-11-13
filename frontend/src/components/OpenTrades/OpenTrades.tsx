@@ -13,11 +13,17 @@ interface Props {
   onClose?: (tradeId: string) => Promise<unknown>
 }
 
-/** Open paper trades with live P&L. Always visible while any are open, signal or not. */
+/** Open paper trades with live P&L. Always on the page, signal or not; says so when none are open. */
 export function OpenTrades({ trades, now, canClose, onClose = closePaperTrade }: Props) {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  if (trades.length === 0) return null
+  if (trades.length === 0) {
+    return (
+      <div className="text-xs text-fg-muted" data-testid="open-trades">
+        No open paper trades.
+      </div>
+    )
+  }
 
   const close = (id: string) => {
     setBusy(id)
@@ -32,13 +38,7 @@ export function OpenTrades({ trades, now, canClose, onClose = closePaperTrade }:
   }
 
   return (
-    <div
-      className="rounded border border-accent/50 bg-bg-elev p-3 text-xs"
-      data-testid="open-trades"
-    >
-      <div className="mb-2 text-[10px] uppercase tracking-wide text-fg-muted">
-        Open paper trades · {trades.length}
-      </div>
+    <div className="text-xs" data-testid="open-trades">
       <table className="w-full font-mono">
         <thead className="text-fg-muted">
           <tr className="h-6 font-sans">

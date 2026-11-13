@@ -656,33 +656,42 @@ On reconnect the client receives a fresh `hello`, so no event replay is needed.
 ### 13.1 Layout
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ TradeDisha   ● LIVE 11:42:07   Feed: connected (0.4s)   Login: valid  [Journal] │
-├───────────────────────────────────────────────┬─────────────────────────────┤
-│  [NIFTY]  [BANKNIFTY]                          │ NIFTY  17 Nov 2026 (weekly) │
-│                                                │ PCR 1.18   Max pain 24,500  │
-│  ◄──────── Bearish ─────┼───── Bullish ───────► │─────────────────────────────│
-│                      62 (Bullish)              │ CE OI  ΔOI  IV  LTP │ STRIKE │ LTP IV ΔOI PE OI│
-│                                                │ ...                         │
-│  ┌ Price chart (1-min, EMA9/21, VWAP, ▲▼) ──┐ │ ▌ 24500 ATM row highlighted │
-│  │                                          │ │ ...                         │
-│  └──────────────────────────────────────────┘ │                             │
-│                                                │                             │
-│  ┌ Active signal ───────────────────────────┐ │                             │
-│  │ BUY NIFTY 24500 CE  @ 142.5              │ │                             │
-│  │ Target 185.3  Stop 121.1   expires 04:12 │ │                             │
-│  │ ⚠ Open: 24400 PE @ 98 → −12.5 (18 min)   │ │                             │
-│  │ [ Paper trade ]                           │ │                             │
-│  └──────────────────────────────────────────┘ │                             │
-│                                                │                             │
-│  Evidence            score  weight  contrib    │                             │
-│  EMA 9/21 cross      +0.71   0.133   +0.095    │                             │
-│  ...                                           │                             │
-└───────────────────────────────────────────────┴─────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ TradeDisha  ● LIVE 11:42:07  Feed: connected (0.4s)  Login: valid  [Journal] │
+├────────────────────────────────────────────────┬─────────────────────────────┤
+│  [NIFTY]  [BANKNIFTY]                          │ OPTION CHAIN             [–]│
+│  ┌ INDEX ─────────────────────────────── [–] ┐ │ NIFTY  17/11/2026           │
+│  │ Spot 24,512.40  Fut 24,548.10  ATM 24500  │ │ PCR 1.18   Max pain 24500   │
+│  │ ▸ Details                                 │ │─────────────────────────────│
+│  └───────────────────────────────────────────┘ │ OI ΔOI IV LTP │STRIKE│ LTP… │
+│  ┌ MARKET VIEW ───── [–] ┐┌ SIGNAL ───── [–] ┐ │ ...                         │
+│  │ Bearish ──┼──▮ Bullish││ BUY 24500 CE     │ │ ▌ 24500 ATM row highlighted │
+│  │       62 Bullish      ││ @ 142.5  T 185.3 │ │ ...                         │
+│  │                       ││ S 121.1    04:12 │ │                             │
+│  │                       ││ [ Paper trade ]  │ │                             │
+│  └───────────────────────┘└──────────────────┘ │                             │
+│  ┌ PRICE CHART ───────────────────────── [–] ┐ │                             │
+│  │ 1-min candles, EMA9/21, VWAP, ▲▼ markers  │ │                             │
+│  └───────────────────────────────────────────┘ │                             │
+│  ═══════════ drag: chart height ═════════════  │                             │
+│  ┌ EVIDENCE ──────────────────────────── [–] ┐ │                             │
+│  │ EMA 9/21 cross   +0.71   0.133   +0.095   │ │                             │
+│  └───────────────────────────────────────────┘ │                             │
+│  ┌ OPEN PAPER TRADES ─────────────────── [–] ┐ │                             │
+│  │ 24400 PE ×75  98.0 → 85.5  −₹938  [Close] │ │                             │
+│  └───────────────────────────────────────────┘ │                             │
+│  ┌ SIGNALS TODAY ─────────────────────── [–] ┐ │                             │
+│  │ 11:38:00  24500 CE  142.5  …  active      │ │                             │
+│  └───────────────────────────────────────────┘ │                             │
+└────────────────────────────────────────────────┴─────────────────────────────┘
+
+A minimised panel is its title bar alone, with a one-line summary:
+  ┌ PRICE CHART  last 24,512.40 ─────────── [▾] ┐
 ```
 
 Minimum supported width 1280 px. The chain panel and the price chart are resizable (see
-"Resizable layout" in §13.2), and the chain panel can be hidden ("SidePanel" in §13.2).
+"Resizable layout" in §13.2). Every panel can be minimised ("PanelFrame" in §13.2).
+The main column scrolls; its panels come in the fixed order drawn above.
 
 ### 13.2 Components
 - **TopBar**: market status pill (pre-open / live / closed, with clock), feed health with
@@ -705,13 +714,32 @@ Minimum supported width 1280 px. The chain panel and the price chart are resizab
   and clamped again on load and on window resize, so a layout saved on a large screen
   cannot hide a panel on a small one. Dragging is throttled to one layout per animation
   frame. No library is added for this.
-- **SidePanel** (the right-hand panel): can be hidden and shown. Shown, it has a small
-  "hide" button in its top corner; hidden, it leaves a 28 px strip on the right edge with
-  a "show" button and the panel's name, and the main column takes the freed width (the
-  chart resizes with it). The divider is not rendered while hidden, and the remembered
-  width is used again on show. Hidden means not rendered only: the chain keeps updating
-  in the store, and indicators, signals and recording are unaffected. Shown by default;
-  the state is remembered.
+- **PanelFrame**: the frame around each of the eight dashboard panels (`tiles`, `bias`,
+  `signal`, `trades`, `chart`, `evidence`, `history`, `chain`). It owns the box and a
+  32 px title bar with the panel's title and one minimise / expand button; the panel
+  components inside draw no box or duplicate heading of their own. Minimised, only the
+  title bar is left, with a one-line summary (`lib/panelSummary.ts`: spot and change;
+  strength and label; signal with entry and time left; open trades with live P&L; last
+  close; bias; signals today; PCR and max pain), and the panels below move up. Contents
+  are not rendered while minimised, except the price chart, which is kept in the page
+  hidden so its zoom survives. The state is remembered in `localStorage`
+  (`tradedisha.panels`); the E1 key `tradedisha.chainOpen` seeds the option chain's state
+  the first time. There is no full-screen state (built, then removed at the owner's
+  request).
+
+  The bias meter and signal card share a row; when either is minimised the row becomes
+  one column. The chart-height divider is rendered only while the chart is expanded. A
+  "Restore panels" button in the TopBar appears while any panel is minimised and expands them all; E1's sizes are
+  untouched. State is shared across the index tabs. *(These are the builder's calls.)*
+  A minimised `signal` panel opens itself when an active signal id not seen in this page
+  load arrives, and `trades` likewise for an open trade id; minimised again, it stays
+  down until the next new id.
+- **SidePanel** (the right-hand column holding the option-chain PanelFrame): minimising
+  the chain hides the column, leaving a 28 px strip on the right edge with a "show"
+  button and the panel's name; the main column takes the freed width (the chart resizes
+  with it). The divider is not rendered while hidden, and the remembered width is used
+  again on show. Hidden means not rendered only: the chain keeps updating in the store,
+  and indicators, signals and recording are unaffected.
 - **BiasMeter**: horizontal gauge −100…+100 with label and strength; animates on update.
 - **PriceChart**: resizes with its container (it has no fixed height once the layout is
   resizable). `lightweight-charts` candlestick; EMA9, EMA21, VWAP line series;
@@ -719,8 +747,19 @@ Minimum supported width 1280 px. The chain panel and the price chart are resizab
   entry/exit markers.
 - **SignalCard**: direction, symbol, entry/target/stop (with points shown on expiry day),
   countdown, open-trades block when `open_trades_on_index` non-empty (each with direction,
-  entry, live P&L, minutes open, and a Close button), Paper trade button (disabled with
-  reason when market closed, feed not live, or signal not active), link to full breakdown.
+  entry, live P&L and minutes open; closing is done from the OpenTrades panel), Paper
+  trade button (disabled with reason when market closed, feed not live, or signal not
+  active), link to full breakdown. With no active signal it says so, with the reason the
+  last minute did not fire.
+- **OpenTrades** (the "Open paper trades" panel): one row per open paper trade on the
+  selected index: option and quantity, entry, current price, target, stop, live net P&L,
+  time open, a "bias reversed" flag, and a Close button (disabled while the feed is not
+  live). Always on the page; with none open it reads "No open paper trades." It sits
+  second last in the main column, directly above Signals today *(owner's decisions,
+  2026-11-13)*. Its border takes the accent colour while a trade is open.
+- **SignalHistory** (the "Signals today" panel): today's signals on the selected index:
+  time fired, option, entry, target, stop, bias strength, status with the time it changed.
+  Last in the main column.
 - **EvidenceTable**: one row per indicator: name, note, raw values on hover, score bar,
   weight, contribution; greyed when `quality != ok`; group subtotals; expiry-day banner.
 - **OptionChain**: virtualised table, ATM centred and highlighted, OI build-up heat
@@ -764,7 +803,8 @@ Minimum supported width 1280 px. The chain panel and the price chart are resizab
   `openTrades`, `stats`.
 - Per-browser preferences in `localStorage`, read through one small hook with a
   try/catch fallback to defaults: theme (existing), `layout` (`{chainWidth, chartHeight}`),
-  `chainOpen` and `detailsOpen`.
+  `panels` (which panels are minimised; replaces E1's `chainOpen`, which is read once to
+  carry the choice over) and `detailsOpen`.
 - REST via TanStack Query for history, journal, and mutations (`POST /paper-trades`).
 - Optimistic UI is not used for paper trades; the button shows a spinner until the server
   confirms, because the fill price comes from the server.

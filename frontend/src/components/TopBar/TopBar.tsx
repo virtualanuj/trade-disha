@@ -20,6 +20,9 @@ interface Props {
   view?: 'dashboard' | 'journal'
   onToggleView?: () => void
   openTradeCount?: number
+  /** a panel is minimised */
+  panelsChanged?: boolean
+  onRestorePanels?: () => void
 }
 
 const MARKET_LABEL: Record<HealthResponse['market_status'], string> = {
@@ -105,6 +108,7 @@ export function TopBar(props: Props) {
   const { health, ws, now, lastTickTs, theme, onToggleTheme, debug, onToggleDebug, configControl } =
     props
   const { view, onToggleView, openTradeCount = 0, dataControl } = props
+  const { panelsChanged = false, onRestorePanels } = props
   return (
     <header className="flex h-11 items-center gap-4 border-b border-border bg-bg-elev px-4 text-xs whitespace-nowrap">
       <span className="font-semibold tracking-wide">TradeDisha</span>
@@ -115,6 +119,16 @@ export function TopBar(props: Props) {
         <span className="text-accent">Replay: {fmtDate(health.replay_day)}</span>
       ) : null}
       <span className="ml-auto" />
+      {panelsChanged && onRestorePanels && view !== 'journal' ? (
+        <button
+          type="button"
+          onClick={onRestorePanels}
+          className="rounded border border-border px-2 py-0.5 text-accent hover:text-fg"
+          title="Expand every minimised panel"
+        >
+          Restore panels
+        </button>
+      ) : null}
       {view && onToggleView ? (
         <button
           type="button"

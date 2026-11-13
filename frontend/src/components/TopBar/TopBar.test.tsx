@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 
 import type { HealthResponse } from '../../api/types'
 import { tickAgeColour } from '../../lib/format'
@@ -103,5 +103,28 @@ describe('TopBar', () => {
     expect(tickAgeColour(5000)).toBe('text-warn')
     expect(tickAgeColour(20_000)).toBe('text-bear')
     expect(tickAgeColour(null)).toBe('text-fg-muted')
+  })
+
+  it('offers to restore the panels only while one is minimised', () => {
+    const onRestorePanels = vi.fn()
+    const bar = (changed: boolean) => (
+      <TopBar
+        health={health}
+        ws="open"
+        now={1400}
+        lastTickTs={1000}
+        theme="dark"
+        onToggleTheme={noop}
+        debug={false}
+        onToggleDebug={noop}
+        panelsChanged={changed}
+        onRestorePanels={onRestorePanels}
+      />
+    )
+    const { rerender } = render(bar(false))
+    expect(screen.queryByRole('button', { name: 'Restore panels' })).not.toBeInTheDocument()
+    rerender(bar(true))
+    fireEvent.click(screen.getByRole('button', { name: 'Restore panels' }))
+    expect(onRestorePanels).toHaveBeenCalledTimes(1)
   })
 })

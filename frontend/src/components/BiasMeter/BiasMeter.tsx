@@ -6,9 +6,8 @@ export function BiasMeter({ bias }: { bias: BiasOut | undefined }) {
   const pct = ((value + 1) / 2) * 100
   const colour = labelColour(bias?.label)
   return (
-    <div className="rounded border border-border bg-bg-elev p-4" data-testid="bias-meter">
-      <div className="mb-2 flex items-baseline justify-between">
-        <span className="text-xs uppercase tracking-wide text-fg-muted">Market view</span>
+    <div data-testid="bias-meter">
+      <div className="mb-2 flex items-baseline justify-end">
         <span className="font-mono text-xs text-fg-muted">
           {bias ? `as of ${fmtIstTime(bias.minute_ts + 60_000)}` : 'waiting for first minute'}
         </span>

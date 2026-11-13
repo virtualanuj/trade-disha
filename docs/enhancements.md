@@ -26,6 +26,9 @@ Decided in the spec: shown by default, the choice remembered in the browser. Hid
 narrow strip on the right edge brings it back at its previous width. The option chain
 keeps updating behind the scenes, so the market view and signals are unaffected.
 
+Since Milestone E2 the hide control is the option-chain panel's minimise button (item 5);
+the strip and the remembered choice are unchanged.
+
 ### 3. DD/MM/YYYY date format
 
 Use DD/MM/YYYY for dates on the UI.
@@ -58,6 +61,29 @@ Data sources, confirmed against the Upstox documentation on 2026-11-13:
 - India VIX is available as `NSE_INDEX|India VIX`.
 - Still to check on the live feed (spec §17): that the computed 52-week figures match
   NSE's, and that VIX ticks on the websocket like the other indices.
+
+### 5. Minimisable panels
+
+Asked for: view one panel full screen, restore it to the original layout, or minimise it
+to make room for the others. Full screen was built and then dropped at the owner's
+request (2026-11-13); minimise-in-place is what remains.
+
+Status: built in Milestone E2, awaiting the manual test on a live or replayed day.
+Requirement in [intent.md](intent.md); design in [spec.md](spec.md) §13.2 "PanelFrame";
+planned in [plan.md](plan.md) Milestone E2.
+
+Decided with the owner on 2026-11-13:
+- All eight panels get the same control: index, market view, signal, open paper trades,
+  price chart, evidence, signals today, option chain.
+- Minimise collapses a panel to its title bar where it sits, with a one-line summary; the
+  panels below move up. Remembered in the browser.
+- A minimised signal card or open-trades panel opens itself for a new signal or a newly
+  opened trade, then stays down if minimised again until the next new one.
+- The open paper trades panel is always on the page, even with none open, and sits
+  second last in the main column, just above signals today.
+- Built as one shared panel frame with no new library.
+
+Not included: full screen for a panel; dragging panels to re-order them.
 
 ## Deferred
 

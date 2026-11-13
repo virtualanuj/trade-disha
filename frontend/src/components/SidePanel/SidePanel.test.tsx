@@ -3,17 +3,15 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { SidePanel } from './SidePanel'
 
 describe('SidePanel', () => {
-  it('shows its contents at the given width with a way to hide them', () => {
-    const onToggle = vi.fn()
+  it('shows its contents at the given width; hiding is left to the panel frame inside', () => {
     render(
-      <SidePanel name="option chain" open onToggle={onToggle} width={640}>
+      <SidePanel name="option chain" open onToggle={vi.fn()} width={640}>
         <div>chain rows</div>
       </SidePanel>,
     )
     expect(screen.getByText('chain rows')).toBeInTheDocument()
     expect(screen.getByRole('complementary')).toHaveStyle({ width: '640px' })
-    fireEvent.click(screen.getByRole('button', { name: 'Hide option chain' }))
-    expect(onToggle).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 
   it('hidden, renders no contents and offers to show them again', () => {

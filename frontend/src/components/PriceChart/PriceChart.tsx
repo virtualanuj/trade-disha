@@ -208,10 +208,7 @@ export function PriceChart({
   }, [signals, theme])
 
   return (
-    <div
-      className="relative w-full shrink-0 rounded border border-border bg-bg-elev"
-      style={{ height }}
-    >
+    <div className="relative w-full shrink-0" style={{ height }}>
       <div ref={host} className="h-full w-full" data-testid="price-chart" />
       <div className="pointer-events-none absolute top-2 left-2 flex gap-3 text-[10px] text-fg-muted">
         <span style={{ color: '#f5b942' }}>EMA fast</span>

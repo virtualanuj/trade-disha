@@ -182,6 +182,10 @@ These apply to the whole product, not to one feature.
   remembers the layout the next time it is opened.
 - The right-hand panel can be hidden to give the main area the full width, and shown
   again with one click. The app remembers which.
+- Every panel can be minimised to a single line with a short summary, and expanded again
+  where it was. The app remembers which are minimised.
+- Open paper trades have their own panel that is always on the page, just above the list
+  of the day's recommendations; it says so when none are open.
 - Dates are shown as DD/MM/YYYY everywhere on screen.
 
 ### Operating hours
@@ -207,7 +211,15 @@ work.
    the previous close and change on the day, the futures premium over the index, and
    India VIX. It applies to NIFTY and BANK NIFTY alike.
 
-Considered and left for later: zoom-in and zoom-out buttons on the charts.
+5. **Minimisable panels.** Every panel on the main screen can be minimised to a single
+   line, showing a short summary, to make room for the others, and expanded again where
+   it was. A minimised recommendation panel opens itself when a new recommendation
+   arrives. Minimised panels are remembered. The open paper trades panel is always on the
+   page, second last, just above the day's recommendations.
+
+Considered and left for later: zoom-in and zoom-out buttons on the charts; showing one
+panel full screen (built, then removed at the owner's request); dragging panels to
+re-order them.
 
 ## Explicitly out of scope for the first version
 - News and FII/DII inputs (planned next).

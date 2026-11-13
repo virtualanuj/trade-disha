@@ -43,11 +43,11 @@ function valueTitle(v: Record<string, number>): string {
 
 export function EvidenceTable({ bias }: { bias: BiasOut | undefined }) {
   if (!bias) {
-    return <p className="text-fg-muted">Evidence appears after the first minute closes.</p>
+    return <p className="text-xs text-fg-muted">Evidence appears after the first minute closes.</p>
   }
   const groups: IndicatorOut['group'][] = ['trend', 'oi', 'premium']
   return (
-    <div className="rounded border border-border bg-bg-elev p-3 text-xs" data-testid="evidence">
+    <div className="text-xs" data-testid="evidence">
       <table className="w-full">
         <thead className="text-fg-muted">
           <tr className="h-6">

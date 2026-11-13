@@ -49,7 +49,7 @@ interface TileProps {
 const Tile = memo(function Tile({ meta, prices, stats }: TileProps) {
   const [open, setOpen] = usePref(DETAILS_KEY, asOpen)
   return (
-    <div className="flex flex-col gap-3 rounded border border-border bg-bg-elev p-4">
+    <div className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between">
         <span className="text-base font-semibold">{meta.index}</span>
         <span className="text-xs text-fg-muted">

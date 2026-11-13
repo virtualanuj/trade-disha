@@ -4,9 +4,10 @@ import { trade } from './fixtures'
 import { OpenTrades } from './OpenTrades'
 
 describe('OpenTrades', () => {
-  it('renders nothing when no trade is open', () => {
-    const { container } = render(<OpenTrades trades={[]} now={0} canClose />)
-    expect(container).toBeEmptyDOMElement()
+  it('says so when no trade is open, rather than disappearing', () => {
+    render(<OpenTrades trades={[]} now={0} canClose />)
+    expect(screen.getByTestId('open-trades')).toHaveTextContent('No open paper trades.')
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 
   it('shows live net P&L, time open and the bias-reversed flag', () => {

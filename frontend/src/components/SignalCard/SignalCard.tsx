@@ -47,12 +47,8 @@ export function SignalCard({ signal, gate, now, openTrades = [], blocked, onPape
   const [error, setError] = useState<{ id: string; text: string } | null>(null)
   if (!signal) {
     return (
-      <div
-        className="rounded border border-dashed border-border p-4 text-xs text-fg-muted"
-        data-testid="signal-card"
-      >
-        <div className="text-[10px] uppercase tracking-wide">Signal</div>
-        <div className="mt-1">
+      <div className="text-xs text-fg-muted" data-testid="signal-card">
+        <div>
           No active signal
           {gate?.reason ? (
             <span>
@@ -68,10 +64,7 @@ export function SignalCard({ signal, gate, now, openTrades = [], blocked, onPape
   const remaining = countdown(signal.expires_at, now)
   const urgent = signal.expires_at - now < 60_000
   return (
-    <div
-      className={`rounded border p-4 text-xs ${isCall ? 'border-bull/60' : 'border-bear/60'} bg-bg-elev`}
-      data-testid="signal-card"
-    >
+    <div className="text-xs" data-testid="signal-card">
       <div className="flex items-baseline justify-between">
         <span className={`text-base font-semibold ${isCall ? 'text-bull' : 'text-bear'}`}>
           BUY {signal.index} {signal.strike} {isCall ? 'CE' : 'PE'}
