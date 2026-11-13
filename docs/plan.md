@@ -178,6 +178,14 @@ them pure. Late-start candle backfill belongs to the Upstox adapter.
 
 **Demo:** replay a volatile session and see signals fire and lapse with reasons.
 
+**Status (2026-11-12):** built and demoed on the synthetic provider. SignalEngine with
+fire / lapse / reverse / traded lifecycle, open trades never gate, re-arm hysteresis knob
+(off by default), hours and feed-live gates, expiry-day point targets converted through
+feed delta or Black-Scholes delta, `signals` table (migration 004), REST and WS frames,
+a gate reason per index so the card can say why nothing fired. Signal hours are enforced
+for replay and Upstox feeds and skipped for the synthetic feed. The Paper trade button is
+rendered disabled until Milestone 5.
+
 ---
 
 ## Milestone 5 — Paper trading and journal

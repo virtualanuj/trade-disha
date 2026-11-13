@@ -1,0 +1,26 @@
+CREATE TABLE IF NOT EXISTS signals (
+    id             TEXT    PRIMARY KEY,
+    idx            TEXT    NOT NULL,
+    minute_ts      INTEGER NOT NULL,
+    ts_fired       INTEGER NOT NULL,
+    direction      TEXT    NOT NULL,
+    instrument_key TEXT    NOT NULL,
+    trading_symbol TEXT    NOT NULL,
+    strike         REAL    NOT NULL,
+    expiry         TEXT    NOT NULL,
+    lot_size       INTEGER NOT NULL,
+    entry_price    REAL    NOT NULL,
+    target_price   REAL    NOT NULL,
+    stop_price     REAL    NOT NULL,
+    target_basis   TEXT    NOT NULL,
+    target_points  REAL,
+    stop_points    REAL,
+    delta_used     REAL,
+    bias           REAL    NOT NULL,
+    strength       INTEGER NOT NULL,
+    breakdown_json TEXT    NOT NULL,
+    expires_at     INTEGER NOT NULL,
+    status         TEXT    NOT NULL,
+    status_ts      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_signals_idx_ts ON signals (idx, ts_fired);

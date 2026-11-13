@@ -56,3 +56,10 @@ export function labelColour(label: 'Bullish' | 'Neutral' | 'Bearish' | undefined
   if (label === 'Bearish') return 'text-bear'
   return 'text-neutral'
 }
+
+/** m:ss remaining until `expiresAt`, never negative. */
+export function countdown(expiresAt: number, now: number): string {
+  const s = Math.max(0, Math.ceil((expiresAt - now) / 1000))
+  const m = Math.floor(s / 60)
+  return `${String(m)}:${String(s % 60).padStart(2, '0')}`
+}

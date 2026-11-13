@@ -24,9 +24,11 @@ from tradedisha.api.analysis import (
 from tradedisha.api.chain import chain_out
 from tradedisha.api.health import build_health
 from tradedisha.api.instruments import resolved_out
+from tradedisha.api.signals import active_signals, gates, signal_out, today_signals
 from tradedisha.app_state import AppState
 from tradedisha.clock import epoch_ms_now
 from tradedisha.engine.bias_engine import BiasComputed
+from tradedisha.engine.signals import Signal
 from tradedisha.events import FeedHealthChanged, ParametersChanged, WindowChanged
 from tradedisha.feed.bus import StampedTick
 from tradedisha.market.candles import Candle
@@ -52,6 +54,7 @@ class WsHub:
         state.session.tick_bus.subscribe(self._on_tick)
         state.session.candle_listeners.append(self._on_candle)
         state.session.bias_listeners.append(self._on_bias)
+        state.session.signal_listeners.append(self._on_signal)
         state.events.subscribe(FeedHealthChanged, self._on_health)
         state.events.subscribe(WindowChanged, self._on_window)
         state.events.subscribe(ParametersChanged, self._on_params)
@@ -94,8 +97,16 @@ class WsHub:
         payload = {
             "bias": bias_out(b).model_dump(),
             "overlay": overlay_out(b.overlays).model_dump(),
+            "gates": [g.model_dump() for g in gates(self._state)],
         }
         self._immediate.append(self._frame("bias", payload, t_src=b.minute_ts, t_in=None))
+
+    def _on_signal(self, s: Signal) -> None:
+        payload = {
+            "signal": signal_out(s).model_dump(),
+            "gates": [g.model_dump() for g in gates(self._state)],
+        }
+        self._immediate.append(self._frame("signal", payload, t_src=s.status_ts, t_in=None))
 
     def _on_health(self, _: FeedHealthChanged) -> None:
         self._health_dirty = True
@@ -159,6 +170,9 @@ class WsHub:
             "candles": [candles_response(s, i, 400).model_dump() for i in s.session.resolved],
             "bias": [bias_out(b).model_dump() for b in latest],
             "parameters": parameters_out(s).model_dump(mode="json"),
+            "signals_active": [x.model_dump() for x in active_signals(s)],
+            "signals_today": [x.model_dump() for x in today_signals(s)],
+            "gates": [g.model_dump() for g in gates(s)],
         }
         return self._frame("hello", payload, t_src=None, t_in=None)
 

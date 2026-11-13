@@ -88,6 +88,9 @@ export interface HelloFrame extends FrameBase {
     candles: CandlesResponse[]
     bias: BiasOut[]
     parameters: ParametersOut
+    signals_active: SignalOut[]
+    signals_today: SignalOut[]
+    gates: GateOut[]
   }
 }
 
@@ -115,6 +118,7 @@ export type Frame =
   | CandleFrame
   | BiasFrame
   | ParametersFrame
+  | SignalFrame
 
 export type BuildUp =
   'long_buildup' | 'short_buildup' | 'short_covering' | 'long_unwinding' | 'none'
@@ -218,10 +222,54 @@ export interface CandleFrame extends FrameBase {
 
 export interface BiasFrame extends FrameBase {
   type: 'bias'
-  payload: { bias: BiasOut; overlay: OverlayOut }
+  payload: { bias: BiasOut; overlay: OverlayOut; gates: GateOut[] }
 }
 
 export interface ParametersFrame extends FrameBase {
   type: 'parameters'
   payload: ParametersOut & { effective_from_minute_ts: number }
+}
+
+export type SignalStatus = 'active' | 'traded' | 'lapsed' | 'reversed'
+export type SignalDirection = 'BUY_CE' | 'BUY_PE'
+
+export interface SignalOut {
+  id: string
+  index: string
+  minute_ts: number
+  ts_fired: number
+  direction: SignalDirection
+  instrument_key: string
+  trading_symbol: string
+  strike: number
+  expiry: string
+  lot_size: number
+  entry_price: number
+  target_price: number
+  stop_price: number
+  target_basis: 'pct' | 'points'
+  target_points: number | null
+  stop_points: number | null
+  delta_used: number | null
+  bias: number
+  strength: number
+  breakdown: { indicators?: IndicatorOut[]; group_scores?: Record<string, number> }
+  expires_at: number
+  status: SignalStatus
+  status_ts: number
+}
+
+export type GateReason =
+  'below_threshold' | 'active_exists' | 'outside_hours' | 'feed_down' | 'no_price' | 'rearm'
+
+export interface GateOut {
+  index: string
+  minute_ts: number
+  fired: boolean
+  reason: GateReason | null
+}
+
+export interface SignalFrame extends FrameBase {
+  type: 'signal'
+  payload: { signal: SignalOut; gates: GateOut[] }
 }

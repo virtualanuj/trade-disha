@@ -91,3 +91,10 @@ def test_candles_and_bias_endpoints_shape(client: TestClient) -> None:
     assert client.get("/api/bias/NIFTY").json() is None  # no minute closed yet
     assert client.get("/api/bias/NIFTY/history").json() == []
     assert client.get("/api/candles/FOO").status_code == 404
+
+
+def test_signals_endpoints_shape(client: TestClient) -> None:
+    assert client.get("/api/signals").json() == []
+    assert client.get("/api/signals/active").json() == []
+    assert client.get("/api/signals/gates").json() == []
+    assert client.get("/api/signals/nope").status_code == 404

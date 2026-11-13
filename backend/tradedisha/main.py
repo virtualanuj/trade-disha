@@ -17,6 +17,7 @@ from tradedisha.api.chain import router as chain_router
 from tradedisha.api.health import router as health_router
 from tradedisha.api.instruments import router as instruments_router
 from tradedisha.api.metrics import router as metrics_router
+from tradedisha.api.signals import router as signals_router
 from tradedisha.api.ws import WsHub
 from tradedisha.api.ws import router as ws_router
 from tradedisha.app_state import AppState
@@ -108,6 +109,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(instruments_router, prefix="/api")
     app.include_router(chain_router, prefix="/api")
     app.include_router(analysis_router, prefix="/api")
+    app.include_router(signals_router, prefix="/api")
     app.include_router(metrics_router, prefix="/api")
     app.include_router(ws_router)
     return app

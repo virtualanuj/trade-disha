@@ -9,11 +9,13 @@ order.
 
 ## Status
 
-Milestones 0 to 3 complete on synthetic data: provider interface with synthetic and replay
+Milestones 0 to 4 complete on synthetic data: provider interface with synthetic and replay
 feeds, instrument resolution, tick recording, WebSocket push with latency stamps, a live
 option chain panel, 1-minute candles with EMA/VWAP/supertrend overlays, nine indicators
-combined into a per-minute bias with a visible evidence breakdown, and a tunable
-`config/params.toml` with live reload. The Upstox adapter and its OAuth login are deferred
+combined into a per-minute bias with a visible evidence breakdown, a tunable
+`config/params.toml` with live reload, and signals (buy ATM call or put with entry, target
+and stop, expiry-day point targets via delta) with a signal card, chart markers and a
+daily history. The Upstox adapter and its OAuth login are deferred
 until broker credentials exist. See [docs/plan.md](docs/plan.md) for what comes next.
 
 ## Documents
@@ -61,7 +63,10 @@ Set `TRADEDISHA_FEED_PROVIDER` in `.env`:
 | `replay` | Replays a recorded day from SQLite, driving the app clock from tick timestamps. `TRADEDISHA_REPLAY_DATE=YYYY-MM-DD` picks the day (default: latest); `TRADEDISHA_REPLAY_SPEED=0` runs as fast as possible. |
 | `upstox` | Not implemented yet; needs an Upstox account. |
 
-Trading holidays are read from `config/nse-holidays.txt`.
+Trading holidays are read from `config/nse-holidays.txt`. Signal hours (09:15 to the
+`last_signal_time` cut-off) are enforced for replay and Upstox feeds; the synthetic feed
+ignores them so signals can be seen at any hour. Set `TRADEDISHA_ENFORCE_SIGNAL_HOURS`
+to override either way.
 
 ### Tuning the signal
 

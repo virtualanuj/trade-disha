@@ -418,6 +418,9 @@ minute close and persisted to `bias_minutes`. `breakdown` is the list of
   expiry day).
 - Feed live: feed health `connected` and last tick age < 5 s *(my call)*; otherwise the
   engine still computes bias (greyed) but fires nothing.
+- Each evaluation records a `Gate` per index (fired or the reason it did not:
+  below_threshold, active_exists, outside_hours, feed_down, no_price, rearm) so the signal
+  card can explain an empty state.
 
 ### 9.2 Signal content
 

@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     pre_open_start: time = time(9, 0)
 
     feed_provider: FeedProviderName = "synthetic"
+    # None = enforce unless the feed is synthetic (which ticks around the clock anyway)
+    enforce_signal_hours: bool | None = None
+    risk_free_rate: float = 0.065  # annual, for computed Greeks
+    feed_live_max_tick_age_ms: int = 5_000
     strike_window: int = 10
     recenter_strikes: int = 2
 

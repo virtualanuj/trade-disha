@@ -13,6 +13,7 @@ from datetime import date
 from tradedisha.clock import DrivenClock, MarketClock, epoch_ms_now
 from tradedisha.config import Settings
 from tradedisha.engine.bias_engine import BiasComputed, BiasEngine
+from tradedisha.engine.signals import Signal, SignalEngine
 from tradedisha.events import EventBus, FeedHealthChanged
 from tradedisha.feed.bus import StampedTick, TickBus
 from tradedisha.feed.provider import FeedHealth, MarketDataProvider, Tick
@@ -71,10 +72,12 @@ class FeedSession:
         self.candle_store = CandleStore(conn)
         self.chains: ChainManager | None = None
         self.bias: BiasEngine | None = None
+        self.signals: SignalEngine | None = None
         self.provider: MarketDataProvider | None = None
         self.replay_day: date | None = None
         self.candle_listeners: list[Callable[[Candle], None]] = []
         self.bias_listeners: list[Callable[[BiasComputed], None]] = []
+        self.signal_listeners: list[Callable[[Signal], None]] = []
         self._driven_clock = driven_clock
         self._conn = conn
         self._tasks: list[asyncio.Task[None]] = []
@@ -112,6 +115,23 @@ class FeedSession:
             conn=self._conn,
             on_bias=self._on_bias,
         )
+        enforce = self.settings.enforce_signal_hours
+        if enforce is None:
+            enforce = self.settings.feed_provider != "synthetic"
+        self.signals = SignalEngine(
+            clock=self.clock,
+            params=self.params,
+            resolved=self.resolved,
+            chains=self.chains.chains,
+            conn=self._conn,
+            feed_live=self.feed_live,
+            enforce_hours=enforce,
+            market_open=self.settings.market_open,
+            market_close=self.settings.market_close,
+            risk_free_rate=self.settings.risk_free_rate,
+            on_signal=self._on_signal,
+        )
+        self.bias_listeners.append(self.signals.on_bias)
         self.provider = self._build_provider()
         await self.provider.connect()
         keys = [k for r in self.resolved.values() for k in r.all_keys]
@@ -199,6 +219,16 @@ class FeedSession:
         for fn in self.bias_listeners:
             fn(b)
 
+    def _on_signal(self, s: Signal) -> None:
+        for fn in self.signal_listeners:
+            fn(s)
+
+    def feed_live(self) -> bool:
+        h = self.health()
+        if h.state != "connected" or h.last_tick_ts is None:
+            return False
+        return self.clock.now_ms() - h.last_tick_ts <= self.settings.feed_live_max_tick_age_ms
+
     async def _apply_subscription_changes(self) -> None:
         while True:
             change = await self._sub_changes.get()
@@ -220,6 +250,8 @@ class FeedSession:
             await asyncio.sleep(0.5)
             self.tick_store.flush()
             self.candles.flush_stale(self.clock.now_ms())
+            if self.signals is not None:
+                self.signals.tick(self.clock.now_ms())
             await self._publish_health()
             minute = epoch_ms_now() // 60_000
             if minute != last_minute:

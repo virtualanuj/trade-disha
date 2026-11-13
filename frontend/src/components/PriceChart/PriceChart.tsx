@@ -5,15 +5,19 @@ import {
   LineSeries,
   LineStyle,
   createChart,
+  createSeriesMarkers,
   type CandlestickData,
   type IChartApi,
   type ISeriesApi,
+  type ISeriesMarkersPluginApi,
   type LineData,
+  type SeriesMarker,
+  type Time,
   type UTCTimestamp,
 } from 'lightweight-charts'
 import { useEffect, useRef } from 'react'
 
-import type { CandleOut, OverlayOut } from '../../api/types'
+import type { CandleOut, OverlayOut, SignalOut } from '../../api/types'
 import type { Theme } from '../../theme/useTheme'
 
 const IST_OFFSET_S = 5.5 * 3600
@@ -43,7 +47,28 @@ function line(points: OverlayOut[], pick: (o: OverlayOut) => number | null): Lin
 interface Props {
   candles: CandleOut[]
   overlays: OverlayOut[]
+  signals?: SignalOut[]
+  /** identifies the series; changing it resets the chart data */
+  dataKey: string
   theme: Theme
+}
+
+const STATUS_SHAPE: Record<SignalOut['status'], string> = {
+  active: '',
+  traded: ' (traded)',
+  lapsed: ' (lapsed)',
+  reversed: ' (reversed)',
+}
+
+function toMarker(s: SignalOut): SeriesMarker<Time> {
+  const call = s.direction === 'BUY_CE'
+  return {
+    time: toTime(s.minute_ts),
+    position: call ? 'belowBar' : 'aboveBar',
+    shape: call ? 'arrowUp' : 'arrowDown',
+    color: call ? cssVar('--bull') : cssVar('--bear'),
+    text: `${call ? 'CE' : 'PE'} ${String(s.strike)}${STATUS_SHAPE[s.status]}`,
+  }
 }
 
 interface Series {
@@ -52,13 +77,14 @@ interface Series {
   emaSlow: ISeriesApi<'Line'>
   vwap: ISeriesApi<'Line'>
   supertrend: ISeriesApi<'Line'>
+  markers: ISeriesMarkersPluginApi<Time>
 }
 
-export function PriceChart({ candles, overlays, theme }: Props) {
+export function PriceChart({ candles, overlays, signals = [], dataKey, theme }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
   const series = useRef<Series | null>(null)
-  const lastCount = useRef({ candles: 0, overlays: 0 })
+  const lastCount = useRef({ candles: 0, overlays: 0, key: '' })
 
   // create / destroy
   useEffect(() => {
@@ -111,10 +137,12 @@ export function PriceChart({ candles, overlays, theme }: Props) {
         priceLineVisible: false,
         lastValueVisible: false,
       }),
+      markers: undefined as unknown as ISeriesMarkersPluginApi<Time>,
     }
+    s.markers = createSeriesMarkers(s.candles, [])
     chart.current = c
     series.current = s
-    lastCount.current = { candles: 0, overlays: 0 }
+    lastCount.current = { candles: 0, overlays: 0, key: '' }
     return () => {
       c.remove()
       chart.current = null
@@ -127,13 +155,20 @@ export function PriceChart({ candles, overlays, theme }: Props) {
     const s = series.current
     if (!s) return
     const prev = lastCount.current
-    if (candles.length < prev.candles || prev.candles === 0 || candles.length - prev.candles > 1) {
+    const reset = prev.key !== dataKey
+    if (
+      reset ||
+      candles.length < prev.candles ||
+      prev.candles === 0 ||
+      candles.length - prev.candles > 1
+    ) {
       s.candles.setData(candles.map(toCandle))
     } else {
       const last = candles[candles.length - 1]
       if (last) s.candles.update(toCandle(last))
     }
     if (
+      reset ||
       overlays.length < prev.overlays ||
       prev.overlays === 0 ||
       overlays.length - prev.overlays > 1
@@ -152,9 +187,16 @@ export function PriceChart({ candles, overlays, theme }: Props) {
         if (o.supertrend != null) s.supertrend.update({ time: t, value: o.supertrend })
       }
     }
-    if (prev.candles === 0 && candles.length) chart.current?.timeScale().fitContent()
-    lastCount.current = { candles: candles.length, overlays: overlays.length }
-  }, [candles, overlays, theme])
+    if ((reset || prev.candles === 0) && candles.length) chart.current?.timeScale().fitContent()
+    lastCount.current = { candles: candles.length, overlays: overlays.length, key: dataKey }
+  }, [candles, overlays, dataKey, theme])
+
+  useEffect(() => {
+    const s = series.current
+    if (!s) return
+    const sorted = [...signals].sort((a, b) => a.minute_ts - b.minute_ts)
+    s.markers.setMarkers(sorted.map(toMarker))
+  }, [signals, theme])
 
   return (
     <div className="relative h-[320px] w-full rounded border border-border bg-bg-elev">

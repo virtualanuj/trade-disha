@@ -9,6 +9,8 @@ import { IndexTabs } from './components/IndexTabs/IndexTabs'
 import { IndexTiles } from './components/IndexTiles/IndexTiles'
 import { OptionChain } from './components/OptionChain/OptionChain'
 import { PriceChart } from './components/PriceChart/PriceChart'
+import { SignalCard } from './components/SignalCard/SignalCard'
+import { SignalHistory } from './components/SignalHistory/SignalHistory'
 import { TopBar } from './components/TopBar/TopBar'
 import { useNow } from './lib/useNow'
 import { useMarketStore } from './state/store'
@@ -41,6 +43,9 @@ export default function App() {
   const candles = useMarketStore((s) => s.candles[s.selectedIndex]) ?? EMPTY
   const overlays = useMarketStore((s) => s.overlays[s.selectedIndex]) ?? EMPTY
   const bias = useMarketStore((s) => s.bias[s.selectedIndex])
+  const signal = useMarketStore((s) => s.signals[s.selectedIndex])
+  const gate = useMarketStore((s) => s.gates[s.selectedIndex])
+  const signalHistory = useMarketStore((s) => s.signalHistory)
   const parameters = useMarketStore((s) => s.parameters)
   const parametersEffectiveFrom = useMarketStore((s) => s.parametersEffectiveFrom)
   const applyParameters = useMarketStore((s) => s.applyParameters)
@@ -66,6 +71,11 @@ export default function App() {
   const selectedInstruments = useMemo(
     () => instruments.filter((i) => i.index === selected),
     [instruments, selected],
+  )
+
+  const markers = useMemo(
+    () => signalHistory.filter((s) => s.index === selected),
+    [signalHistory, selected],
   )
 
   return (
@@ -95,9 +105,19 @@ export default function App() {
             onSelect={selectIndex}
           />
           <IndexTiles instruments={selectedInstruments} prices={prices} />
-          <BiasMeter bias={bias} />
-          <PriceChart candles={candles} overlays={overlays} theme={theme} />
+          <div className="grid gap-3 lg:grid-cols-2">
+            <BiasMeter bias={bias} />
+            <SignalCard signal={signal} gate={gate} now={now} />
+          </div>
+          <PriceChart
+            candles={candles}
+            overlays={overlays}
+            signals={markers}
+            dataKey={selected}
+            theme={theme}
+          />
           <EvidenceTable bias={bias} />
+          <SignalHistory signals={signalHistory} index={selected} />
         </section>
         <aside className="flex w-[640px] shrink-0 flex-col border-l border-border bg-bg-elev p-4">
           <OptionChain chain={chains[selected]} />
