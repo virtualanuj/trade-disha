@@ -270,6 +270,10 @@ class Tick:
 - Rate and subscription limits are enforced client-side from configuration discovered in
   Milestone 1.
 
+**India VIX.** `NSE_INDEX|India VIX` is subscribed alongside the two indices as an
+index-only key: its ticks are recorded and its latest price and previous close are kept,
+but it has no candles, no futures and no chain. It feeds the index details view (§7.4).
+
 ### 6.3 Replay provider
 - Reads `ticks` rows for a given date, emits them in timestamp order at `speed` ×
   real-time (or as fast as possible when `speed = 0`). Used by tests, after-hours demos,
@@ -288,6 +292,11 @@ On startup (or after login) when the market is already open:
    *opening* OI as `current_oi − oi_change_day` when the endpoint provides day change,
    otherwise treat the first observed value as opening and flag `oi_baseline=partial` in
    the evidence breakdown.
+3. On every start, late or not: fetch one year of daily candles per index
+   (`GET /v3/historical-candle/{key}/days/1/{to_date}/{from_date}`, `to_date` = the
+   previous trading day) and keep the highest high and lowest low as the 52-week range
+   before today (§7.4). One request per index per start. A failure is logged in
+   `feed_events` and the 52-week fields stay empty; nothing else depends on them.
 
 ---
 
@@ -330,6 +339,41 @@ If the feed provides IV and delta per option, they are used as-is. If not (decid
 Milestone 2), IV is computed by Black-Scholes bisection from LTP, spot, strike, time to
 expiry, and a flat rate *(default 6.5%)*; delta follows from that. The source is recorded
 on each `LegState` (`greeks_source = feed | computed`).
+
+### 7.4 Index day statistics
+
+One `IndexStats` per index, for the details view. It is display-only: no indicator, signal
+or paper trade reads it.
+
+```python
+class IndexStats:
+    index: str
+    day_open, day_high, day_low: float | None
+    range_pos: float | None        # 0 at the day's low, 1 at the day's high
+    prev_close: float | None
+    change, change_pct: float | None
+    high_52w, low_52w: float | None
+    fut_premium: float | None      # futures LTP − spot LTP
+    vix, vix_change_pct: float | None
+    updated_ts: int | None
+```
+
+| Value | Source |
+|---|---|
+| Day open / high / low | today's closed spot candles plus the candle being formed; complete from 09:15 after a late start because of the candle backfill (§6.5) |
+| Range position | `(spot − day_low) / (day_high − day_low)`; empty while high equals low |
+| Previous close, change, change % | previous close from the feed (`cp` on the spot tick); change = spot − previous close |
+| 52-week high / low | the range before today from §6.5 step 3, widened by today's high/low on every update, so a new extreme shows the moment it happens |
+| Futures premium | latest futures LTP − latest spot LTP |
+| India VIX and its change % | the VIX key's LTP and previous close (§6.2) |
+
+Any value without a source is `None` and shown as "—". On the synthetic feed that is the
+52-week range, previous close and VIX; on replay it is the 52-week range, and previous
+close and VIX for days recorded before E1 (previous close is stored with ticks from E1 on,
+once per instrument whenever it changes).
+
+Recomputed on spot, futures and VIX ticks; cheap enough not to cache beyond the latest
+value.
 
 ---
 
@@ -560,6 +604,7 @@ is reclaimable without a full rewrite.
 | GET | `/auth/callback` | handles code, 302 to `/` |
 | GET | `/instruments` | resolved spot/futures/expiry/window per index |
 | GET | `/chain/{index}` | current `ChainState` snapshot + derived values |
+| GET | `/stats/{index}` | `IndexStats` for the details view (§7.4) |
 | GET | `/candles/{index}?minutes=375` | today's spot candles with EMA/VWAP/supertrend series |
 | GET | `/bias/{index}` | latest bias + breakdown |
 | GET | `/bias/{index}/history?date=` | per-minute bias for a day |
@@ -585,7 +630,8 @@ Server → client JSON frames `{type, ts, payload}`:
 
 | type | cadence | payload |
 |---|---|---|
-| `hello` | on connect | full snapshot: health, instruments, chain per index, latest candles, bias, active signals, open trades |
+| `hello` | on connect | full snapshot: health, instruments, chain per index, latest candles, bias, active signals, open trades, index stats |
+| `stats` | leading-edge throttle, max 1/s per index | `IndexStats` |
 | `tick` | leading-edge throttle, max 20/s per index | `{index, spot_ltp, spot_ts, fut_ltp, fut_ts}` |
 | `chain` | leading-edge throttle, max 2/s per index | full window (21 rows) + derived values; small enough that diffs are not worth it |
 | `candle` | per minute | closed candle + indicator series point |
@@ -635,8 +681,8 @@ On reconnect the client receives a fresh `hello`, so no event replay is needed.
 └───────────────────────────────────────────────┴─────────────────────────────┘
 ```
 
-Minimum supported width 1280 px; the chain panel is 420 px fixed; below 1024 px the
-chain panel collapses behind a toggle.
+Minimum supported width 1280 px. The chain panel and the price chart are resizable (see
+"Resizable layout" in §13.2), and the chain panel can be hidden ("SidePanel" in §13.2).
 
 ### 13.2 Components
 - **TopBar**: market status pill (pre-open / live / closed, with clock), feed health with
@@ -644,8 +690,31 @@ chain panel collapses behind a toggle.
   Journal link.
 - **IndexTabs**: NIFTY / BANKNIFTY; selection drives chart, meter, signal, evidence, and
   chain panel.
+- **IndexTiles**: spot, futures and ATM for the selected index, with a collapsible
+  **details view** underneath showing `IndexStats` (§7.4) in five groups: day open / high
+  / low with a small range bar marking the current price; 52-week high / low with the
+  distance of the current price from each; previous close with change and change %;
+  futures premium over spot; India VIX with its change %. Closed by default *(my call)*;
+  a chevron button toggles it and the state is remembered. Missing values render as "—".
+  The view follows the index tabs; VIX is the same in both.
+- **Resizable layout**: two draggable dividers *(my call)* — a vertical one between the
+  main column and the chain panel, and a horizontal one under the price chart setting its
+  height. Each is a 4 px handle with a wider hit area, `role="separator"`, keyboard
+  arrows move it, double-click resets to the default. Limits: chain panel 420–900 px and
+  never more than 60% of the window; chart 200–700 px. Sizes are stored in `localStorage`
+  and clamped again on load and on window resize, so a layout saved on a large screen
+  cannot hide a panel on a small one. Dragging is throttled to one layout per animation
+  frame. No library is added for this.
+- **SidePanel** (the right-hand panel): can be hidden and shown. Shown, it has a small
+  "hide" button in its top corner; hidden, it leaves a 28 px strip on the right edge with
+  a "show" button and the panel's name, and the main column takes the freed width (the
+  chart resizes with it). The divider is not rendered while hidden, and the remembered
+  width is used again on show. Hidden means not rendered only: the chain keeps updating
+  in the store, and indicators, signals and recording are unaffected. Shown by default;
+  the state is remembered.
 - **BiasMeter**: horizontal gauge −100…+100 with label and strength; animates on update.
-- **PriceChart**: `lightweight-charts` candlestick; EMA9, EMA21, VWAP line series;
+- **PriceChart**: resizes with its container (it has no fixed height once the layout is
+  resizable). `lightweight-charts` candlestick; EMA9, EMA21, VWAP line series;
   supertrend as coloured line; signal markers (▲ CE, ▼ PE) with tooltips; paper-trade
   entry/exit markers.
 - **SignalCard**: direction, symbol, entry/target/stop (with points shown on expiry day),
@@ -674,6 +743,13 @@ chain panel collapses behind a toggle.
   (colour, spacing, type scale) in one Tailwind config so both themes derive from the same
   scale. Bullish green / bearish red / neutral slate, with a colour-blind-safe alternative
   (blue/orange) as a token swap.
+- **Dates**: every date shown is DD/MM/YYYY, produced by one `fmtDate` helper in
+  `lib/format.ts` that accepts an ISO date string or epoch ms (IST). This covers the
+  journal's Date column, option and futures expiry on the tiles, signal card and chain
+  header, the replay day in the top bar, and the Data panel (oldest/newest day, preview,
+  result). Dates stay ISO on the wire, in the config file and in file names. Native date
+  pickers follow the browser's locale and are not overridden *(my call)*; the Data panel's
+  typed confirmation asks for, and accepts, the date as it is displayed.
 - **Density**: tabular numerals, 12–13 px data rows, 4 px vertical rhythm in the chain;
   the whole dashboard fits 1440 × 900 without scrolling.
 - **Motion**: value changes flash subtly (120 ms) and the meter eases over 300 ms; nothing
@@ -685,7 +761,10 @@ chain panel collapses behind a toggle.
 ### 13.4 State and data flow
 - WS client with exponential reconnect; on `hello` replaces all live stores.
 - Per-index stores: `chain`, `candles` (ring buffer of 375), `bias`, `activeSignal`,
-  `openTrades`.
+  `openTrades`, `stats`.
+- Per-browser preferences in `localStorage`, read through one small hook with a
+  try/catch fallback to defaults: theme (existing), `layout` (`{chainWidth, chartHeight}`),
+  `chainOpen` and `detailsOpen`.
 - REST via TanStack Query for history, journal, and mutations (`POST /paper-trades`).
 - Optimistic UI is not used for paper trades; the button shows a spinner until the server
   confirms, because the fill price comes from the server.
@@ -831,3 +910,5 @@ Live verification per milestone is described in plan.md.
 | Whether option-chain REST provides day OI change for opening-OI backfill | M2 | `oi_baseline=partial` flag |
 | Intraday candle REST availability for same-day minutes | M3 | warm-up period with `quality=warming` |
 | Indicator constants (k, bands) | M3 review point | tune on recorded days |
+| 52-week high/low from daily candles matches NSE's published figures | E1 demo | show the values with their source dates on hover |
+| India VIX arrives on the feed in `full` mode like the other indices | E1 demo | poll the quote API once a minute |

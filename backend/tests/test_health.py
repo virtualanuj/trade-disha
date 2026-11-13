@@ -134,3 +134,17 @@ def test_data_usage_and_prune(client: TestClient) -> None:
     state = client.app.state.td  # type: ignore[attr-defined]
     kinds = [r["kind"] for r in state.conn.execute("SELECT kind FROM feed_events")]
     assert kinds.count("ticks_pruned") == 2
+
+
+def test_stats_endpoint_shape_on_the_synthetic_feed(client: TestClient) -> None:
+    time.sleep(0.3)
+    body = client.get("/api/stats/nifty").json()
+    assert body["index"] == "NIFTY"
+    assert body["day_low"] <= body["day_open"] <= body["day_high"]
+    assert body["fut_premium"] is not None
+    # the generated market has no previous close, 52-week history or VIX
+    assert (body["prev_close"], body["high_52w"], body["vix"]) == (None, None, None)
+    assert client.get("/api/stats/FOO").status_code == 404
+    with client.websocket_connect("/ws") as ws:
+        hello = ws.receive_json()
+    assert [s["index"] for s in hello["payload"]["stats"]] == ["NIFTY", "BANKNIFTY"]

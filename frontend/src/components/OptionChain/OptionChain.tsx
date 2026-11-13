@@ -2,7 +2,7 @@ import { memo } from 'react'
 
 import type { BuildUp, ChainOut, ChainRowOut, LegOut } from '../../api/types'
 import { oiHeat } from '../../lib/chain'
-import { fmtIstTime, fmtOi, fmtPrice, fmtSigned } from '../../lib/format'
+import { fmtDate, fmtIstTime, fmtOi, fmtPrice, fmtSigned } from '../../lib/format'
 
 const BUILDUP_LABEL: Record<BuildUp, string> = {
   long_buildup: 'Long build-up',
@@ -85,7 +85,7 @@ export function OptionChain({ chain }: { chain: ChainOut | undefined }) {
     <div className="flex h-full flex-col text-xs">
       <div className="mb-2 flex items-baseline justify-between">
         <span className="text-sm font-semibold">
-          {chain.index} <span className="font-normal text-fg-muted">{chain.expiry}</span>
+          {chain.index} <span className="font-normal text-fg-muted">{fmtDate(chain.expiry)}</span>
         </span>
         <span className="font-mono text-fg-muted">
           {chain.updated_ts ? fmtIstTime(chain.updated_ts) : '—'}

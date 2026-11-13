@@ -33,7 +33,8 @@ describe('DataPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Data' }))
     const panel = await screen.findByTestId('data-panel')
     expect(await screen.findByText('150 MB')).toBeInTheDocument()
-    expect(panel).toHaveTextContent('2026-11-11')
+    expect(panel).toHaveTextContent('11/11/2026')
+    expect(panel).toHaveTextContent('13/11/2026')
 
     fireEvent.change(screen.getByLabelText('Up to and including'), {
       target: { value: '2026-11-12' },
@@ -43,14 +44,17 @@ describe('DataPanel', () => {
 
     const del = screen.getByRole('button', { name: 'Delete ticks' })
     expect(del).toBeDisabled()
-    fireEvent.change(screen.getByLabelText('Type 2026-11-12 to confirm'), {
-      target: { value: '2026-11-12' },
-    })
+    const confirm = screen.getByLabelText('Type 12/11/2026 to confirm')
+    fireEvent.change(confirm, { target: { value: '2026-11-12' } })
+    expect(del).toBeDisabled() // the date must be typed as it is shown
+    fireEvent.change(confirm, { target: { value: '12/11/2026' } })
     expect(del).toBeEnabled()
     fireEvent.click(del)
 
     expect(prune).toHaveBeenCalledWith('2026-11-12')
-    expect(await screen.findByRole('status')).toHaveTextContent('Deleted 14,00,000 ticks')
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Deleted 14,00,000 ticks up to 12/11/2026',
+    )
   })
 
   it('offers nothing to delete when no ticks fall in range', async () => {
@@ -61,7 +65,9 @@ describe('DataPanel', () => {
     fireEvent.change(screen.getByLabelText('Up to and including'), {
       target: { value: '2026-11-01' },
     })
-    expect(await screen.findByTestId('prune-preview')).toHaveTextContent('No ticks on or before')
+    expect(await screen.findByTestId('prune-preview')).toHaveTextContent(
+      'No ticks on or before 01/11/2026',
+    )
     expect(screen.queryByRole('button', { name: 'Delete ticks' })).not.toBeInTheDocument()
   })
 })

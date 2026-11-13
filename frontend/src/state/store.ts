@@ -8,6 +8,7 @@ import type {
   GateOut,
   HealthResponse,
   IndexPrices,
+  IndexStatsOut,
   OverlayOut,
   PaperTradeOut,
   ParametersOut,
@@ -51,6 +52,8 @@ interface MarketStore {
   gates: Record<string, GateOut>
   /** open trades plus today's, newest first */
   trades: PaperTradeOut[]
+  /** day statistics per index, for the details view */
+  stats: Record<string, IndexStatsOut>
   selectedIndex: string
 
   setWs: (s: WsState) => void
@@ -66,7 +69,9 @@ interface MarketStore {
     signalsToday: SignalOut[],
     gates: GateOut[],
     trades: PaperTradeOut[],
+    stats: IndexStatsOut[],
   ) => void
+  applyStats: (s: IndexStatsOut) => void
   applyTrades: (t: PaperTradeOut[]) => void
   applyTick: (p: IndexPrices, recvAt: number) => void
   applyHealth: (h: HealthResponse) => void
@@ -94,6 +99,7 @@ export const useMarketStore = create<MarketStore>((set) => ({
   signalHistory: [],
   gates: {},
   trades: [],
+  stats: {},
   selectedIndex: 'NIFTY',
 
   setWs: (ws) => {
@@ -111,6 +117,7 @@ export const useMarketStore = create<MarketStore>((set) => ({
     signalsToday,
     gates,
     trades,
+    stats,
   ) => {
     const byIndex: Record<string, IndexPrices> = {}
     for (const p of prices) {
@@ -147,10 +154,14 @@ export const useMarketStore = create<MarketStore>((set) => ({
       signalHistory: signalsToday,
       gates: gatesByIndex(gates),
       trades,
+      stats: Object.fromEntries(stats.map((x) => [x.index, x])),
       selectedIndex: instruments.some((i) => i.index === s.selectedIndex)
         ? s.selectedIndex
         : (instruments[0]?.index ?? s.selectedIndex),
     }))
+  },
+  applyStats: (x) => {
+    set((s) => ({ stats: { ...s.stats, [x.index]: x } }))
   },
   applyTrades: (incoming) => {
     set((s) => {

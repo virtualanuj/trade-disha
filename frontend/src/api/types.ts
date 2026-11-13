@@ -112,6 +112,7 @@ export interface HelloFrame extends FrameBase {
     signals_today: SignalOut[]
     gates: GateOut[]
     paper_trades: PaperTradeOut[]
+    stats: IndexStatsOut[]
   }
 }
 
@@ -141,6 +142,7 @@ export type Frame =
   | ParametersFrame
   | SignalFrame
   | PaperTradeFrame
+  | StatsFrame
 
 export type BuildUp =
   'long_buildup' | 'short_buildup' | 'short_covering' | 'long_unwinding' | 'none'
@@ -375,4 +377,29 @@ export interface PruneOut {
   until_date: string
   rows_deleted: number
   bytes_freed: number
+}
+
+/** Day statistics for the index details view. A null means the feed has no source for it. */
+export interface IndexStatsOut {
+  index: string
+  day_open: number | null
+  day_high: number | null
+  day_low: number | null
+  /** 0 at the day's low, 1 at the day's high */
+  range_pos: number | null
+  prev_close: number | null
+  change: number | null
+  change_pct: number | null
+  high_52w: number | null
+  low_52w: number | null
+  /** futures price minus spot */
+  fut_premium: number | null
+  vix: number | null
+  vix_change_pct: number | null
+  updated_ts: number | null
+}
+
+export interface StatsFrame extends FrameBase {
+  type: 'stats'
+  payload: IndexStatsOut
 }

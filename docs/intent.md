@@ -158,6 +158,10 @@ These apply to the whole product, not to one feature.
 - **Top bar**: whether the market is open, whether the live data feed is healthy and how
   fresh it is, and whether the daily broker login has been done, with a way to do it.
 - **Main area**, switchable between NIFTY and BANK NIFTY:
+  - a summary of the index with a details view that can be opened and closed, showing the
+    day's open, high and low and where the price sits in that range, the 52-week high and
+    low, the previous close and the change on the day, the futures premium over the index,
+    and India VIX,
   - the current market view as a bearish-to-bullish meter with its strength,
   - an intraday price chart of the index with recommendation markers,
   - the active recommendation, if any, with its details and the Paper trade action,
@@ -174,12 +178,36 @@ These apply to the whole product, not to one feature.
 - **Data**: an action to delete raw tick data up to and including a chosen date, which
   first shows how many days and how much space will be freed and asks for confirmation.
 - Everything on screen updates live without the trader refreshing the page.
+- The trader can resize the panels by dragging the borders between them, and the app
+  remembers the layout the next time it is opened.
+- The right-hand panel can be hidden to give the main area the full width, and shown
+  again with one click. The app remembers which.
+- Dates are shown as DD/MM/YYYY everywhere on screen.
 
 ### Operating hours
 - The app is active from market open to market close on NSE trading days.
 - Outside those hours it shows the last known state and makes clear the market is closed.
 - The broker feed requires a fresh login each day. When that login is missing or expired,
   the app says so clearly and keeps working with whatever it can, rather than failing.
+
+## Enhancements after the first version
+
+Requested once the first version was in daily use. They change how the screen looks and
+what it shows; they do not change how the market view, recommendations or paper trades
+work.
+
+1. **Resizable panels.** The borders between the main area and the option chain, and
+   under the price chart, can be dragged. The layout is remembered.
+2. **Hideable right-hand panel.** The option-chain panel can be hidden and shown again;
+   the choice is remembered. Hiding it changes nothing about how the option chain feeds
+   the market view.
+3. **DD/MM/YYYY dates.** Every date on screen uses this format.
+4. **Index details view.** The index summary at the top of the main area opens to show the
+   day's open, high and low with the position in the day's range, the 52-week high and low,
+   the previous close and change on the day, the futures premium over the index, and
+   India VIX. It applies to NIFTY and BANK NIFTY alike.
+
+Considered and left for later: zoom-in and zoom-out buttons on the charts.
 
 ## Explicitly out of scope for the first version
 - News and FII/DII inputs (planned next).
@@ -201,6 +229,13 @@ These were set by the planner, not the trader, and can be changed:
 - When the app is started after market open, it fills in the morning's data so that its
   view is valid immediately rather than after a warm-up.
 - Raw tick data is kept until the trader deletes it; nothing is pruned automatically.
+- The right-hand panel starts shown.
+- The index details view starts closed. Whether it is open, and the panel sizes, are
+  remembered on the trader's computer.
+- A panel cannot be dragged so small that it disappears; double-clicking a border puts it
+  back to its original position.
+- The 52-week high and low are worked out from a year of daily prices from the broker and
+  include today.
 
 ## Before building can be tested live
 - The trader opens a broker account with a free, official data API (Upstox is the chosen

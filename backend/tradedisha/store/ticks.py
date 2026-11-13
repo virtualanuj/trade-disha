@@ -11,13 +11,13 @@ from tradedisha.clock import IST, ist_to_ms, ms_to_ist
 from tradedisha.feed.provider import Tick
 
 INSERT = (
-    "INSERT INTO ticks (key, ts, ltp, volume, oi, bid, ask, iv, delta) "
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO ticks (key, ts, ltp, volume, oi, bid, ask, iv, delta, close_prev) "
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 )
 
 
-def _row(t: Tick) -> tuple[object, ...]:
-    return (t.key, t.ts, t.ltp, t.volume, t.oi, t.bid, t.ask, t.iv, t.delta)
+def _row(t: Tick, close_prev: float | None) -> tuple[object, ...]:
+    return (t.key, t.ts, t.ltp, t.volume, t.oi, t.bid, t.ask, t.iv, t.delta, close_prev)
 
 
 def _to_tick(r: sqlite3.Row) -> Tick:
@@ -31,6 +31,7 @@ def _to_tick(r: sqlite3.Row) -> Tick:
         ask=r["ask"],
         iv=r["iv"],
         delta=r["delta"],
+        close_prev=r["close_prev"],
     )
 
 
@@ -68,10 +69,18 @@ class TickStore:
         self._conn = conn
         self._batch_size = batch_size
         self._buffer: list[tuple[object, ...]] = []
+        self._close_prev: dict[str, float] = {}  # last previous-close stored per key
         self.written = 0
 
     def add(self, tick: Tick) -> None:
-        self._buffer.append(_row(tick))
+        # The feed repeats the previous close on every tick; store it only when it changes.
+        close_prev = tick.close_prev
+        if close_prev is not None:
+            if self._close_prev.get(tick.key) == close_prev:
+                close_prev = None
+            else:
+                self._close_prev[tick.key] = close_prev
+        self._buffer.append(_row(tick, close_prev))
         if len(self._buffer) >= self._batch_size:
             self.flush()
 

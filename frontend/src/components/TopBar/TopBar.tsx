@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 
 import type { HealthResponse } from '../../api/types'
-import { fmtAge, fmtIstTime, tickAgeColour } from '../../lib/format'
+import { fmtAge, fmtDate, fmtIstTime, tickAgeColour } from '../../lib/format'
 import type { WsState } from '../../state/store'
 import type { Theme } from '../../theme/useTheme'
 
@@ -111,7 +111,9 @@ export function TopBar(props: Props) {
       <MarketPill health={health} now={now} />
       <FeedPill health={health} ws={ws} now={now} lastTickTs={lastTickTs} />
       <AuthPill health={health} />
-      {health?.replay_day ? <span className="text-accent">Replay: {health.replay_day}</span> : null}
+      {health?.replay_day ? (
+        <span className="text-accent">Replay: {fmtDate(health.replay_day)}</span>
+      ) : null}
       <span className="ml-auto" />
       {view && onToggleView ? (
         <button

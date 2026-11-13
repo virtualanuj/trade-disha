@@ -51,6 +51,8 @@ interface Props {
   /** identifies the series; changing it resets the chart data */
   dataKey: string
   theme: Theme
+  /** pixels; the chart follows its container when this changes */
+  height?: number
 }
 
 const STATUS_SHAPE: Record<SignalOut['status'], string> = {
@@ -80,7 +82,14 @@ interface Series {
   markers: ISeriesMarkersPluginApi<Time>
 }
 
-export function PriceChart({ candles, overlays, signals = [], dataKey, theme }: Props) {
+export function PriceChart({
+  candles,
+  overlays,
+  signals = [],
+  dataKey,
+  theme,
+  height = 320,
+}: Props) {
   const host = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
   const series = useRef<Series | null>(null)
@@ -199,7 +208,10 @@ export function PriceChart({ candles, overlays, signals = [], dataKey, theme }: 
   }, [signals, theme])
 
   return (
-    <div className="relative h-[320px] w-full rounded border border-border bg-bg-elev">
+    <div
+      className="relative w-full shrink-0 rounded border border-border bg-bg-elev"
+      style={{ height }}
+    >
       <div ref={host} className="h-full w-full" data-testid="price-chart" />
       <div className="pointer-events-none absolute top-2 left-2 flex gap-3 text-[10px] text-fg-muted">
         <span style={{ color: '#f5b942' }}>EMA fast</span>

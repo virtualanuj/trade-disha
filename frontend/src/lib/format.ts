@@ -90,11 +90,22 @@ export function fmtDuration(ms: number | null | undefined): string {
   return `${String(Math.floor(m / 60))}h ${String(m % 60).padStart(2, '0')}m`
 }
 
-const istDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' })
+const istParts = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Asia/Kolkata',
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+})
 
-/** YYYY-MM-DD in IST. */
-export function fmtIstDate(ms: number): string {
-  return istDate.format(new Date(ms))
+/**
+ * A date as DD/MM/YYYY, the one format used on screen.
+ * Accepts an ISO date (YYYY-MM-DD, as the API sends) or epoch ms (shown as the IST day).
+ */
+export function fmtDate(v: string | number | null | undefined): string {
+  if (v == null || v === '') return '—'
+  if (typeof v === 'number') return istParts.format(new Date(v))
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v)
+  return m ? `${m[3] ?? ''}/${m[2] ?? ''}/${m[1] ?? ''}` : v
 }
 
 /** Bytes as MB or GB, for storage figures. */

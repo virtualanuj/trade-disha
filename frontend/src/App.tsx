@@ -7,6 +7,7 @@ import { BiasMeter } from './components/BiasMeter/BiasMeter'
 import { ConfigControl } from './components/ConfigControl/ConfigControl'
 import { DataPanel } from './components/DataPanel/DataPanel'
 import { DebugOverlay } from './components/DebugOverlay/DebugOverlay'
+import { Divider } from './components/Divider/Divider'
 import { EvidenceTable } from './components/EvidenceTable/EvidenceTable'
 import { IndexTabs } from './components/IndexTabs/IndexTabs'
 import { IndexTiles } from './components/IndexTiles/IndexTiles'
@@ -15,11 +16,15 @@ import { OpenTrades } from './components/OpenTrades/OpenTrades'
 import { OptionChain } from './components/OptionChain/OptionChain'
 import { PriceChart } from './components/PriceChart/PriceChart'
 import { SignalCard } from './components/SignalCard/SignalCard'
+import { SidePanel } from './components/SidePanel/SidePanel'
 import { SignalHistory } from './components/SignalHistory/SignalHistory'
 import { currentBanner } from './components/StatusBanner/banner'
 import { StatusBanner } from './components/StatusBanner/StatusBanner'
 import { TopBar } from './components/TopBar/TopBar'
+import { clampLayout, DEFAULT_LAYOUT, LIMITS, parseLayout } from './lib/layout'
+import type { Layout } from './lib/layout'
 import { useNow } from './lib/useNow'
+import { usePref } from './lib/usePref'
 import { useMarketStore } from './state/store'
 import { useTheme } from './theme/useTheme'
 
@@ -36,6 +41,39 @@ function useDebugFlag(): [boolean, () => void] {
 }
 
 type View = 'dashboard' | 'journal'
+
+const LAYOUT_KEY = 'tradedisha.layout'
+const CHAIN_OPEN_KEY = 'tradedisha.chainOpen'
+/** shown unless the trader has hidden it */
+const notFalse = (v: unknown): boolean => v !== false
+
+function useWindowWidth(): number {
+  const [width, setWidth] = useState(() => window.innerWidth)
+  useEffect(() => {
+    const sync = () => {
+      setWidth(window.innerWidth)
+    }
+    window.addEventListener('resize', sync)
+    return () => {
+      window.removeEventListener('resize', sync)
+    }
+  }, [])
+  return width
+}
+
+/** Panel sizes: remembered in this browser, and always clamped to fit the window. */
+function useLayout(): [Layout, (change: Partial<Layout>) => void] {
+  const [stored, store] = usePref(LAYOUT_KEY, parseLayout)
+  const width = useWindowWidth()
+  const layout = useMemo(() => clampLayout(stored, width), [stored, width])
+  const update = useCallback(
+    (change: Partial<Layout>) => {
+      store(clampLayout({ ...layout, ...change }, width))
+    },
+    [layout, store, width],
+  )
+  return [layout, update]
+}
 
 function viewFromHash(): View {
   return location.hash === '#journal' ? 'journal' : 'dashboard'
@@ -63,6 +101,8 @@ function useView(): [View, () => void] {
 
 export default function App() {
   const [view, toggleView] = useView()
+  const [layout, setLayout] = useLayout()
+  const [chainOpen, setChainOpen] = usePref(CHAIN_OPEN_KEY, notFalse)
   const [theme, toggleTheme] = useTheme()
   const [debug, toggleDebug] = useDebugFlag()
   const now = useNow(500)
@@ -84,6 +124,7 @@ export default function App() {
   const parametersEffectiveFrom = useMarketStore((s) => s.parametersEffectiveFrom)
   const applyParameters = useMarketStore((s) => s.applyParameters)
   const trades = useMarketStore((s) => s.trades)
+  const stats = useMarketStore((s) => s.stats)
   const applyTrades = useMarketStore((s) => s.applyTrades)
 
   const openTrades = useMemo(() => trades.filter((t) => t.status === 'open'), [trades])
@@ -173,7 +214,7 @@ export default function App() {
                 selected={selected}
                 onSelect={selectIndex}
               />
-              <IndexTiles instruments={selectedInstruments} prices={prices} />
+              <IndexTiles instruments={selectedInstruments} prices={prices} stats={stats} />
               <div className="grid gap-3 lg:grid-cols-2">
                 <BiasMeter bias={bias} />
                 <SignalCard
@@ -192,15 +233,50 @@ export default function App() {
                 signals={markers}
                 dataKey={selected}
                 theme={theme}
+                height={layout.chartHeight}
+              />
+              <Divider
+                orientation="horizontal"
+                label="Chart height"
+                value={layout.chartHeight}
+                min={LIMITS.chartMin}
+                max={LIMITS.chartMax}
+                onDrag={(d) => {
+                  setLayout({ chartHeight: layout.chartHeight + d })
+                }}
+                onReset={() => {
+                  setLayout({ chartHeight: DEFAULT_LAYOUT.chartHeight })
+                }}
               />
               <EvidenceTable bias={bias} />
               <SignalHistory signals={signalHistory} index={selected} />
             </section>
-            <aside
-              className={`flex w-[640px] shrink-0 flex-col border-l border-border bg-bg-elev p-4 ${staleCls}`}
+            {chainOpen ? (
+              <Divider
+                orientation="vertical"
+                label="Option chain width"
+                value={layout.chainWidth}
+                min={LIMITS.chainMin}
+                max={LIMITS.chainMax}
+                onDrag={(d) => {
+                  setLayout({ chainWidth: layout.chainWidth - d })
+                }}
+                onReset={() => {
+                  setLayout({ chainWidth: DEFAULT_LAYOUT.chainWidth })
+                }}
+              />
+            ) : null}
+            <SidePanel
+              name="option chain"
+              open={chainOpen}
+              onToggle={() => {
+                setChainOpen(!chainOpen)
+              }}
+              width={layout.chainWidth}
+              className={staleCls}
             >
               <OptionChain chain={chains[selected]} />
-            </aside>
+            </SidePanel>
           </>
         )}
       </main>

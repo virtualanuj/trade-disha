@@ -1,7 +1,15 @@
 import { useState } from 'react'
 
 import type { GateOut, PaperTradeOut, SignalOut } from '../../api/types'
-import { countdown, fmtDuration, fmtIstTime, fmtMoney, fmtPrice, pnlColour } from '../../lib/format'
+import {
+  countdown,
+  fmtDate,
+  fmtDuration,
+  fmtIstTime,
+  fmtMoney,
+  fmtPrice,
+  pnlColour,
+} from '../../lib/format'
 
 const REASON_TEXT: Record<NonNullable<GateOut['reason']>, string> = {
   below_threshold: 'bias below the entry threshold',
@@ -76,7 +84,7 @@ export function SignalCard({ signal, gate, now, openTrades = [], blocked, onPape
         </span>
       </div>
       <div className="mt-1 text-fg-muted">
-        {signal.trading_symbol} · exp {signal.expiry} · lot {signal.lot_size}
+        {signal.trading_symbol} · exp {fmtDate(signal.expiry)} · lot {signal.lot_size}
       </div>
       <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4">
         <Stat label="Entry" value={fmtPrice(signal.entry_price)} />

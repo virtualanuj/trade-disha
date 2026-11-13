@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { fetchUsage, pruneTicks } from '../../api/client'
 import type { PruneOut, UsageOut } from '../../api/types'
-import { fmtBytes, fmtCount } from '../../lib/format'
+import { fmtBytes, fmtCount, fmtDate } from '../../lib/format'
 
 interface Props {
   usage?: (untilDate?: string, signal?: AbortSignal) => Promise<UsageOut>
@@ -37,7 +37,9 @@ export function DataPanel({ usage = fetchUsage, prune = pruneTicks }: Props) {
     }
   }, [open, until, revision, usage])
 
-  const confirmed = until !== '' && typed === until
+  /** the chosen date as it is shown, which is also what must be typed to confirm */
+  const shown = fmtDate(until)
+  const confirmed = until !== '' && typed === shown
   const nothing = data?.prune_rows === 0
 
   const run = () => {
@@ -77,8 +79,8 @@ export function DataPanel({ usage = fetchUsage, prune = pruneTicks }: Props) {
               <Row label="Database size" value={fmtBytes(data?.db_bytes)} />
               <Row label="Raw ticks" value={fmtCount(data?.tick_rows)} />
               <Row label="Days of ticks" value={fmtCount(data?.tick_days)} />
-              <Row label="Oldest tick day" value={data?.oldest ?? '—'} />
-              <Row label="Newest tick day" value={data?.newest ?? '—'} />
+              <Row label="Oldest tick day" value={fmtDate(data?.oldest)} />
+              <Row label="Newest tick day" value={fmtDate(data?.newest)} />
             </tbody>
           </table>
 
@@ -104,7 +106,7 @@ export function DataPanel({ usage = fetchUsage, prune = pruneTicks }: Props) {
           {until && data ? (
             <div className="mt-2" data-testid="prune-preview">
               {nothing ? (
-                <span className="text-fg-muted">No ticks on or before {until}.</span>
+                <span className="text-fg-muted">No ticks on or before {shown}.</span>
               ) : (
                 <span>
                   This deletes <b>{fmtCount(data.prune_days)}</b> day
@@ -117,12 +119,12 @@ export function DataPanel({ usage = fetchUsage, prune = pruneTicks }: Props) {
           {until && !nothing ? (
             <>
               <label className="mt-2 flex items-center justify-between gap-2 text-fg-muted">
-                Type {until} to confirm
+                Type {shown} to confirm
                 <input
                   type="text"
                   className={`${field} w-32`}
                   value={typed}
-                  placeholder={until}
+                  placeholder={shown}
                   onChange={(e) => {
                     setTyped(e.target.value.trim())
                   }}
@@ -140,8 +142,8 @@ export function DataPanel({ usage = fetchUsage, prune = pruneTicks }: Props) {
           ) : null}
           {result.kind === 'done' ? (
             <div className="mt-2 text-bull" role="status">
-              Deleted {fmtCount(result.out.rows_deleted)} ticks up to {result.out.until_date};{' '}
-              {fmtBytes(result.out.bytes_freed)} freed.
+              Deleted {fmtCount(result.out.rows_deleted)} ticks up to{' '}
+              {fmtDate(result.out.until_date)}; {fmtBytes(result.out.bytes_freed)} freed.
             </div>
           ) : null}
           {result.kind === 'error' ? (

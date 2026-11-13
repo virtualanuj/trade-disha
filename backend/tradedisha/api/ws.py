@@ -26,6 +26,7 @@ from tradedisha.api.health import build_health
 from tradedisha.api.instruments import resolved_out
 from tradedisha.api.paper import open_trades, today_trades, trade_out
 from tradedisha.api.signals import active_signals, gates, signal_out, today_signals
+from tradedisha.api.stats import all_stats
 from tradedisha.app_state import AppState
 from tradedisha.clock import epoch_ms_now
 from tradedisha.engine.bias_engine import BiasComputed
@@ -183,6 +184,7 @@ class WsHub:
             "signals_today": [x.model_dump() for x in today_signals(s)],
             "gates": [g.model_dump() for g in gates(s)],
             "paper_trades": [t.model_dump() for t in today_trades(s)],
+            "stats": [x.model_dump() for x in all_stats(s)],
         }
         return self._frame("hello", payload, t_src=None, t_in=None)
 
@@ -194,6 +196,19 @@ class WsHub:
                 continue
             q.put_nowait(frame)
 
+    def _push_every_second(self, last_stats: dict[str, str]) -> None:
+        """Live P&L of open trades, and index details when they moved."""
+        live = open_trades(self._state)
+        if live:
+            payload = {"trades": [t.model_dump() for t in live]}
+            self._broadcast(self._frame("paper_trade", payload, t_src=None, t_in=None))
+        for st in all_stats(self._state):
+            body = st.model_dump()
+            fingerprint = json.dumps(body, sort_keys=True)
+            if last_stats.get(st.index) != fingerprint:
+                last_stats[st.index] = fingerprint
+                self._broadcast(self._frame("stats", body, t_src=None, t_in=None))
+
     async def _pusher(self) -> None:
         """Leading-edge throttle per channel; immediate frames go out on the next pass."""
         interval_ms = 1000.0 / self._state.settings.ws_tick_hz
@@ -201,6 +216,7 @@ class WsHub:
         last_push: dict[str, float] = {}
         last_chain_push: dict[str, float] = {}
         last_trades_push = 0.0
+        last_stats: dict[str, str] = {}
         while True:
             await asyncio.sleep(interval_ms / 4000)
             if not self._clients:
@@ -235,10 +251,7 @@ class WsHub:
                 self._broadcast(self._frame("chain", payload, t_src=chain.updated_ts, t_in=t_in))
             if now - last_trades_push >= OPEN_TRADES_PUSH_MS:
                 last_trades_push = now
-                live = open_trades(self._state)
-                if live:  # live P&L of open trades, once a second
-                    payload = {"trades": [t.model_dump() for t in live]}
-                    self._broadcast(self._frame("paper_trade", payload, t_src=None, t_in=None))
+                self._push_every_second(last_stats)
             if self._health_dirty:
                 self._health_dirty = False
                 payload = build_health(self._state).model_dump()

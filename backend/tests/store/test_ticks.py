@@ -14,7 +14,7 @@ def ms(day: date, h: int, m: int, s: int = 0) -> int:
 
 def test_migrations_apply_once() -> None:
     conn = connect(":memory:")
-    assert schema_version(conn) == 5
+    assert schema_version(conn) == 6
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {
         "ticks",
@@ -53,3 +53,18 @@ def test_recorded_days_newest_first() -> None:
     store.add(Tick(key="A", ts=ms(date(2026, 11, 12), 10, 0), ltp=1.0))
     store.flush()
     assert store.recorded_days() == [date(2026, 11, 12), date(2026, 11, 10)]
+
+
+def test_previous_close_is_stored_once_per_key_and_replayed() -> None:
+    conn = connect(":memory:")
+    store = TickStore(conn)
+    t0 = ist_to_ms(datetime(2026, 11, 13, 9, 15, tzinfo=IST))
+    store.add(Tick(key="A", ts=t0, ltp=101.0, close_prev=100.0))
+    store.add(Tick(key="A", ts=t0 + 1, ltp=102.0, close_prev=100.0))
+    store.add(Tick(key="B", ts=t0 + 2, ltp=51.0, close_prev=50.0))
+    store.flush()
+
+    stored = [r[0] for r in conn.execute("SELECT close_prev FROM ticks ORDER BY ts")]
+    assert stored == [100.0, None, 50.0]
+    replayed = store.read_day(datetime(2026, 11, 13, tzinfo=IST).date())
+    assert [t.close_prev for t in replayed] == [100.0, None, 50.0]

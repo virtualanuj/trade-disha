@@ -20,7 +20,9 @@ close, with net-of-cost P&L and a Journal page (hit rate, average win/loss, net 
 overall and per index). The live Upstox feed (daily login, real instrument master, websocket
 adapter) is in place; starting after the open backfills today's candles and the opening-OI baseline. A status
 banner says why the screen is not live (login, feed outage, market closed) and dims
-last-known data; feed outages are logged; a Data panel deletes old raw ticks. See [docs/plan.md](docs/plan.md) for what comes next.
+last-known data; feed outages are logged; a Data panel deletes old raw ticks. After 1.0.0
+(Milestone E1): resizable panels, a hideable option-chain panel, DD/MM/YYYY dates, and a details view on the index tile
+(day and 52-week range, change on the day, futures premium, India VIX). See [docs/plan.md](docs/plan.md) for what comes next.
 
 ## Documents
 

@@ -264,6 +264,62 @@ restart or a misleading screen.
 
 ---
 
+## Enhancements
+
+Improvements requested after release 1.0.0. The running list, including items left for
+later, is in [enhancements.md](enhancements.md); requirements are in intent.md under
+"Enhancements after the first version".
+
+## Milestone E1 — Layout, dates and index details
+
+**Goal:** the screen fits how the trader works: panels sized to taste, dates in the
+familiar format, and the day's key index facts one click away.
+
+- **Dates as DD/MM/YYYY.** One `fmtDate` helper; used in the journal, on every expiry
+  shown (tiles, signal card, chain header), the replay day in the top bar and the Data
+  panel. The Data panel's typed confirmation takes the date as displayed. Dates stay ISO
+  in the API, the config file and file names.
+- **Resizable layout.** A draggable divider between the main column and the option chain,
+  and one under the price chart for its height. Size limits, keyboard control,
+  double-click to reset, sizes remembered in the browser and re-clamped when the window
+  changes. The chart resizes with its container.
+- **Hideable right-hand panel.** A hide button on the option-chain panel and a narrow
+  strip to show it again; remembered in the browser. Data keeps flowing while hidden.
+- **Index statistics (backend).** India VIX added to the subscription set; one year of
+  daily candles fetched per index at start for the 52-week range; `IndexStats` computed
+  per index (day open/high/low, range position, previous close and change, 52-week
+  high/low including today, futures premium, VIX); `GET /api/stats/{index}`, `stats` in
+  the WebSocket `hello`, and a `stats` frame at most once a second.
+- **Index details view.** A collapsible section under the index summary showing those
+  statistics in five groups, closed by default, state remembered, "—" for anything the
+  current feed cannot supply. Works for NIFTY and BANK NIFTY through the tabs.
+- Tests: date formatting (ISO string and epoch ms, IST day boundary); layout clamping,
+  persistence and reset; statistics maths (range position incl. high = low, 52-week range
+  widened by today's extreme, premium, missing inputs); daily-candle parsing against a
+  mocked response and its failure path; the details view with full and with missing data.
+
+**Demo:** drag both dividers, reload, and find them where they were left; hide the
+option-chain panel, reload, and find it still hidden, then show it at its previous width; every date on
+the dashboard, journal and Data panel reads DD/MM/YYYY; on the live feed open the details
+view for each index and compare day and 52-week figures and VIX with NSE's own.
+
+**Risk retired:** whether 52-week figures derived from daily candles match NSE's, and
+whether India VIX ticks on the feed like the other indices (spec §17).
+
+**Not in E1:** zoom-in and zoom-out buttons on the charts (deferred).
+
+**Status (2026-11-13):** built; the demo is manual and not yet run. All four parts are in
+place with unit tests. Two things differ from, or add to, the note above: previous close
+is now stored with recorded ticks (once per instrument when it changes), so a replayed day
+shows change on the day — days recorded before this have none; and the details toggle
+shows the day's change beside it while closed. The two risks above are still open until
+the view is compared with NSE's figures on the live feed.
+
+**Design:** spec §6.2 (VIX), §6.5 step 3 (52-week fetch), §7.4 (index statistics),
+§12 (API), §13.2–13.4 (details view, resizable layout, date format, preferences).
+
+---
+
 ## After the first version
 
 Not planned in detail yet; listed so the design keeps room for them.

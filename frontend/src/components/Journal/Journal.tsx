@@ -11,7 +11,7 @@ import type {
 } from '../../api/types'
 import {
   fmtDuration,
-  fmtIstDate,
+  fmtDate,
   fmtIstTime,
   fmtMoney,
   fmtPrice,
@@ -297,7 +297,7 @@ function TradeRow({ t }: { t: PaperTradeOut }) {
     t.exit_fill_quality && t.exit_fill_quality !== 'live' ? QUALITY_TEXT[t.exit_fill_quality] : null
   return (
     <tr className="h-7 border-t border-border/60">
-      <td className="text-fg-muted">{fmtIstDate(t.entry_ts)}</td>
+      <td className="text-fg-muted">{fmtDate(t.entry_ts)}</td>
       <td className={t.direction === 'BUY_CE' ? 'text-bull' : 'text-bear'}>
         {t.index} {t.strike} {t.direction === 'BUY_CE' ? 'CE' : 'PE'}
       </td>

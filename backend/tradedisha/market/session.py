@@ -28,9 +28,15 @@ from tradedisha.instruments.models import Instrument, ResolvedIndex
 from tradedisha.instruments.resolve import INDEX_SPOT_NAMES, ResolutionError, resolve_index
 from tradedisha.instruments.synthetic_master import SPEC, build_synthetic_master
 from tradedisha.instruments.upstox_master import load_upstox_master, master_path, read_master
-from tradedisha.market.backfill import apply_baseline, fetch_intraday_candles, fetch_option_chain
+from tradedisha.market.backfill import (
+    apply_baseline,
+    fetch_52w_range,
+    fetch_intraday_candles,
+    fetch_option_chain,
+)
 from tradedisha.market.candles import MINUTE_MS, Candle, CandleBuilder, CandleStore
 from tradedisha.market.chain_manager import ChainManager, SubscriptionChange
+from tradedisha.market.stats import VIX_KEY, IndexStats, compute_stats
 from tradedisha.metrics.latency import LatencyTracker
 from tradedisha.parameters.model import ParameterSet
 from tradedisha.store.ticks import FeedEventLog, TickStore
@@ -44,10 +50,13 @@ class LatestPrices:
 
     ltp: dict[str, float] = field(default_factory=dict)
     ts: dict[str, int] = field(default_factory=dict)
+    close_prev: dict[str, float] = field(default_factory=dict)
 
     def update(self, t: Tick) -> None:
         self.ltp[t.key] = t.ltp
         self.ts[t.key] = t.ts
+        if t.close_prev is not None:
+            self.close_prev[t.key] = t.close_prev
 
 
 def parse_drop_ranges(specs: list[str], day: date) -> list[tuple[int, int]]:
@@ -91,6 +100,7 @@ class FeedSession:
         self.auth = auth
         self.started = False
         self.enforce_hours = hours_enforced(settings)
+        self.range_52w: dict[str, tuple[float, float]] = {}  # index -> (high, low) to yesterday
         self.gap_since: int | None = None  # start of the feed outage in progress, if any
         self.last_gap: tuple[int, int] | None = None  # (start, end) of the last finished one
         self.http_transport: httpx.AsyncBaseTransport | None = None  # tests inject a fake
@@ -197,6 +207,8 @@ class FeedSession:
         self.provider = self._build_provider()
         await self.provider.connect()
         keys = [k for r in self.resolved.values() for k in r.all_keys]
+        if self.settings.feed_provider != "synthetic":  # the generated market has no VIX
+            keys.append(VIX_KEY)
         await self.provider.subscribe(keys)
         self.feed_log.write(
             epoch_ms_now(), "session_start", f"provider={self.provider.name} keys={len(keys)}"
@@ -374,6 +386,7 @@ class FeedSession:
         this_minute = now - now % MINUTE_MS
         open_ms, _ = self.clock.session_bounds()
         late = now > open_ms + MINUTE_MS
+        today = self.clock.today()
         notes: list[str] = []
         async with httpx.AsyncClient(timeout=20, transport=self.http_transport) as client:
             for index, r in self.resolved.items():
@@ -406,7 +419,15 @@ class FeedSession:
                 except Exception as exc:
                     log.warning("OI baseline failed for %s: %s", index, type(exc).__name__)
                     counts.append("baseline=failed")
-                notes.append(f"{index} candles={'/'.join(counts[:-1])} {counts[-1]}")
+                try:
+                    found = await fetch_52w_range(client, token, r.spot.instrument_key, today)
+                    if found is not None:
+                        self.range_52w[index] = found
+                    counts.append("52w=ok" if found else "52w=empty")
+                except Exception as exc:
+                    log.warning("52-week range failed for %s: %s", index, type(exc).__name__)
+                    counts.append("52w=failed")
+                notes.append(f"{index} candles={'/'.join(counts[:-2])} {counts[-2]} {counts[-1]}")
         self.feed_log.write(epoch_ms_now(), "backfill", "; ".join(notes))
         log.info("backfill: %s", "; ".join(notes))
 
@@ -428,6 +449,27 @@ class FeedSession:
         except Exception as exc:
             chain.oi_baseline = "partial"
             log.warning("OI baseline for new strikes failed: %s", type(exc).__name__)
+
+    def index_stats(self, index: str) -> IndexStats:
+        """Day statistics for the details view (spec §7.4)."""
+        r = self.resolved[index]
+        spot_key = r.spot.instrument_key
+        day_start = ist_to_ms(datetime.combine(self.clock.today(), time(0, 0), tzinfo=IST))
+        day = [c for c in self.candles.closed(spot_key) if c.minute_ts >= day_start]
+        forming = self.candles.current(spot_key)
+        if forming is not None and forming.minute_ts >= day_start:
+            day.append(forming)
+        return compute_stats(
+            index,
+            spot=self.prices.ltp.get(spot_key),
+            fut=self.prices.ltp.get(r.future.instrument_key),
+            prev_close=self.prices.close_prev.get(spot_key),
+            candles=day,
+            range_52w=self.range_52w.get(index),
+            vix=self.prices.ltp.get(VIX_KEY),
+            vix_prev_close=self.prices.close_prev.get(VIX_KEY),
+            updated_ts=self.prices.ts.get(spot_key),
+        )
 
     def expecting_ticks(self) -> bool:
         """Silence outside market hours is not an outage."""

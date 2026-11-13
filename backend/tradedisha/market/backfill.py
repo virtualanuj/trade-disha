@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 from urllib.parse import quote
 
@@ -24,6 +24,8 @@ log = logging.getLogger(__name__)
 
 INTRADAY_URL = "https://api.upstox.com/v3/historical-candle/intraday/{key}/minutes/1"
 CHAIN_URL = "https://api.upstox.com/v2/option/chain"
+DAILY_URL = "https://api.upstox.com/v3/historical-candle/{key}/days/1/{to}/{frm}"
+YEAR_DAYS = 365
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -72,6 +74,31 @@ async def fetch_intraday_candles(
     url = INTRADAY_URL.format(key=quote(key, safe=""))
     data = _check(await client.get(url, headers=_bearer(token)), "candle request")
     return parse_candles(key, (data or {}).get("candles") or [], before_ms=before_ms)
+
+
+def parse_range(rows: Iterable[list[Any]]) -> tuple[float, float] | None:
+    """(highest high, lowest low) over daily candle rows `[time, o, h, l, c, ...]`."""
+    highs: list[float] = []
+    lows: list[float] = []
+    for row in rows:
+        high, low = float(row[2]), float(row[3])
+        if high > 0 and low > 0:
+            highs.append(high)
+            lows.append(low)
+    return (max(highs), min(lows)) if highs else None
+
+
+async def fetch_52w_range(
+    client: httpx.AsyncClient, token: str, key: str, today: date
+) -> tuple[float, float] | None:
+    """The 52-week high and low up to yesterday, from a year of daily candles."""
+    url = DAILY_URL.format(
+        key=quote(key, safe=""),
+        to=(today - timedelta(days=1)).isoformat(),
+        frm=(today - timedelta(days=YEAR_DAYS)).isoformat(),
+    )
+    data = _check(await client.get(url, headers=_bearer(token)), "daily candle request")
+    return parse_range((data or {}).get("candles") or [])
 
 
 # -- option chain -----------------------------------------------------------------

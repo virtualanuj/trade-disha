@@ -78,6 +78,7 @@ export class MarketSocket {
           frame.payload.signals_today,
           frame.payload.gates,
           frame.payload.paper_trades,
+          frame.payload.stats,
         )
         break
       case 'tick':
@@ -98,6 +99,9 @@ export class MarketSocket {
         break
       case 'signal':
         s.applySignal(frame.payload.signal, frame.payload.gates)
+        break
+      case 'stats':
+        s.applyStats(frame.payload)
         break
       case 'paper_trade':
         s.applyTrades(frame.payload.trades)
