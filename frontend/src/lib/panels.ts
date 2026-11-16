@@ -5,11 +5,10 @@ import { usePref } from './usePref'
 /** The dashboard panels that can be minimised. */
 export const PANEL_IDS = [
   'tiles',
-  'bias',
+  'bias', // "Market view": the meter with its evidence (one panel since E9)
   'signal',
   'trades',
   'chart',
-  'evidence',
   'history',
   'chain',
 ] as const
@@ -27,16 +26,16 @@ export const NONE_MINIMISED: Minimised = {
   signal: false,
   trades: false,
   chart: false,
-  evidence: false,
   history: false,
   chain: false,
 }
 
 /**
- * What moves up and down the left column. Market view and signal share a row, so they are
- * one unit (`view`) and move together. The option chain has its own column and is not one.
+ * What moves up and down the left column: every panel on its own (since E9 the signal has
+ * its own row and Market view holds the evidence). The option chain has its own column and
+ * does not move.
  */
-export const UNIT_IDS = ['tiles', 'view', 'chart', 'evidence', 'trades', 'history'] as const
+export const UNIT_IDS = ['tiles', 'signal', 'bias', 'chart', 'trades', 'history'] as const
 
 export type UnitId = (typeof UNIT_IDS)[number]
 export type Order = readonly UnitId[]
@@ -46,8 +45,18 @@ export const DEFAULT_ORDER: Order = UNIT_IDS
 
 /** The unit a panel moves with; null for a panel that does not move. */
 export function unitOf(id: PanelId): UnitId | null {
-  if (id === 'bias' || id === 'signal') return 'view'
   return id === 'chain' ? null : id
+}
+
+/**
+ * Before E9 market view and signal were one unit, `view`, and evidence had its own: an
+ * order stored then keeps the pair's place as signal then market view, and evidence (now
+ * inside market view) is dropped.
+ */
+function carryOver(stored: unknown[]): unknown[] {
+  return stored.flatMap((id) =>
+    id === 'view' ? ['signal', 'bias'] : id === 'evidence' ? [] : [id],
+  )
 }
 
 /**
@@ -58,7 +67,7 @@ export function parseOrder(v: unknown): Order {
   if (!Array.isArray(v)) return DEFAULT_ORDER
   const known = new Set<unknown>(UNIT_IDS)
   const out: UnitId[] = []
-  for (const id of [...(v as unknown[]), ...UNIT_IDS]) {
+  for (const id of [...carryOver(v as unknown[]), ...UNIT_IDS]) {
     if (known.has(id) && !out.includes(id as UnitId)) out.push(id as UnitId)
   }
   return out.every((id, i) => id === DEFAULT_ORDER[i]) ? DEFAULT_ORDER : out

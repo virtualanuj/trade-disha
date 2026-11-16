@@ -29,8 +29,7 @@ Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by
     and a Data panel deletes old raw ticks.
 - **E1:** resizable panels, a hideable option chain, DD/MM/YYYY dates, and an index details
   view (day and 52-week range, change, futures premium, India VIX).
-- **E2 / E3:** every panel can be minimised, and moved up and down (market view and signal
-  move as a pair).
+- **E2 / E3:** every panel can be minimised, and moved up and down.
 - **C1:** the config is edited in the app and kept as numbered, tagged versions you can
   revert to. Each signal records the version it fired under.
 - **S1 / S2:** every signal is scored by what its option did next. An order-flow trigger
@@ -46,6 +45,8 @@ Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by
   trade takes the live levels at its fill.
 - **E8:** a net-volume histogram under the price chart: buyer- minus seller-initiated
   volume per minute, signed from the futures ticks (Upstox does not supply it).
+- **E9:** one full-width Market view panel (the meter with its evidence and order flow),
+  with the signal on its own row above it.
 
 ## Documents
 

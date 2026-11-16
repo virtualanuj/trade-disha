@@ -15,10 +15,16 @@ import {
 
 describe('parsePanels', () => {
   it('reads stored minimised flags, treating anything missing as not minimised', () => {
-    expect(parsePanels({ chart: true, evidence: false, bogus: true })).toEqual({
+    expect(parsePanels({ chart: true, bias: true, bogus: true })).toEqual({
       ...NONE_MINIMISED,
       chart: true,
+      bias: true,
     })
+  })
+
+  it('ignores the evidence flag: evidence is part of Market view since E9', () => {
+    expect(parsePanels({ evidence: true })).toEqual(NONE_MINIMISED)
+    expect(Object.keys(NONE_MINIMISED)).not.toContain('evidence')
   })
 
   it('falls back to nothing minimised for anything that is not a stored value', () => {
@@ -36,11 +42,15 @@ describe('parsePanels', () => {
 })
 
 describe('panel order', () => {
-  it('market view and signal are one unit; the option chain is not movable', () => {
-    expect(unitOf('bias')).toBe('view')
-    expect(unitOf('signal')).toBe('view')
+  it('every panel moves on its own; the option chain is not movable', () => {
+    expect(unitOf('bias')).toBe('bias')
+    expect(unitOf('signal')).toBe('signal')
     expect(unitOf('chart')).toBe('chart')
     expect(unitOf('chain')).toBeNull()
+  })
+
+  it('starts with signal above market view', () => {
+    expect(DEFAULT_ORDER).toEqual(['tiles', 'signal', 'bias', 'chart', 'trades', 'history'])
   })
 
   it('reads a stored order, dropping unknown and repeated ids and adding missing ones', () => {
@@ -48,10 +58,24 @@ describe('panel order', () => {
       'history',
       'chart',
       'tiles',
-      'view',
-      'evidence',
+      'signal',
+      'bias',
       'trades',
     ])
+  })
+
+  it('carries an order stored before E9: the old pair becomes signal then market view', () => {
+    expect(parseOrder(['tiles', 'chart', 'view', 'evidence', 'trades', 'history'])).toEqual([
+      'tiles',
+      'chart',
+      'signal',
+      'bias',
+      'trades',
+      'history',
+    ])
+    expect(parseOrder(['tiles', 'view', 'chart', 'evidence', 'trades', 'history'])).toBe(
+      DEFAULT_ORDER,
+    )
   })
 
   it('falls back to the default order for anything that is not a stored list', () => {
@@ -63,13 +87,13 @@ describe('panel order', () => {
   it('moves a unit one place and leaves the ends alone', () => {
     expect(moveUnit(DEFAULT_ORDER, 'chart', -1)).toEqual([
       'tiles',
+      'signal',
       'chart',
-      'view',
-      'evidence',
+      'bias',
       'trades',
       'history',
     ])
-    expect(moveUnit(DEFAULT_ORDER, 'chart', 1).indexOf('chart')).toBe(3)
+    expect(moveUnit(DEFAULT_ORDER, 'chart', 1).indexOf('chart')).toBe(4)
     expect(moveUnit(DEFAULT_ORDER, 'tiles', -1)).toBe(DEFAULT_ORDER)
     expect(moveUnit(DEFAULT_ORDER, 'history', 1)).toBe(DEFAULT_ORDER)
   })
@@ -158,20 +182,20 @@ describe('usePanels', () => {
     act(() => {
       result.current.move('chart', -1)
     })
-    expect(result.current.order.slice(0, 3)).toEqual(['tiles', 'chart', 'view'])
+    expect(result.current.order.slice(0, 4)).toEqual(['tiles', 'signal', 'chart', 'bias'])
     expect(result.current.changed).toBe(true)
     expect(JSON.parse(localStorage.getItem(ORDER_KEY) ?? '[]')).toEqual(result.current.order)
     expect(renderHook(() => usePanels()).result.current.order).toEqual(result.current.order)
   })
 
-  it('moving market view or signal moves both, as one unit', () => {
+  it('signal and market view move independently', () => {
     const { result } = renderHook(() => usePanels())
     act(() => {
       result.current.move('signal', 1)
     })
-    expect(result.current.order.slice(0, 3)).toEqual(['tiles', 'chart', 'view'])
+    expect(result.current.order.slice(0, 3)).toEqual(['tiles', 'bias', 'signal'])
     act(() => {
-      result.current.move('bias', -1)
+      result.current.move('bias', 1)
     })
     expect(result.current.order).toEqual(DEFAULT_ORDER)
     expect(result.current.changed).toBe(false)
@@ -189,7 +213,7 @@ describe('usePanels', () => {
   it('restoreAll puts the panels back in the default order', () => {
     const { result } = renderHook(() => usePanels())
     act(() => {
-      result.current.move('evidence', -1)
+      result.current.move('trades', -1)
     })
     act(() => {
       result.current.restoreAll()

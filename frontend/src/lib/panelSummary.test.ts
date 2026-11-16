@@ -13,7 +13,6 @@ import {
   bullionSummary,
   chainSummary,
   chartSummary,
-  evidenceSummary,
   historySummary,
   signalSummary,
   tilesSummary,
@@ -74,11 +73,6 @@ describe('panel summaries', () => {
   it('chart: the last close', () => {
     expect(chartSummary([{ c: 1 }, { c: 24801.5 }] as CandleOut[])).toBe('last 24,801.50')
     expect(chartSummary([])).toBe('—')
-  })
-
-  it('evidence: the bias the rows add up to', () => {
-    expect(evidenceSummary({ bias: 0.4213 } as BiasOut)).toBe('bias +0.421')
-    expect(evidenceSummary(undefined)).toBe('—')
   })
 
   it('signal history: how many fired today on this index', () => {

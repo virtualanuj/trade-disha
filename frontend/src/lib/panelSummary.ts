@@ -51,10 +51,6 @@ export function chartSummary(candles: CandleOut[]): string {
   return last ? `last ${fmtPrice(last.c)}` : '—'
 }
 
-export function evidenceSummary(bias: BiasOut | undefined): string {
-  return bias ? `bias ${fmtSigned(bias.bias, 3)}` : '—'
-}
-
 export function historySummary(signals: SignalOut[], index: string): string {
   const mine = signals.filter((s) => s.index === index)
   const shadow = mine.filter((s) => s.shadow).length

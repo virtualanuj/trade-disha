@@ -99,6 +99,7 @@ Decided with the owner on 2026-11-16:
 - Up and down buttons on each panel's title bar, beside minimise. No drag-and-drop and no
   new library.
 - Market view and signal are a pair: moving either moves both, so they stay side by side.
+  *(Superseded by item 13: each now moves on its own.)*
 - The order is remembered in the browser, and "Restore panels" puts it back.
 - The index tabs stay at the top and the option chain stays in its own column.
 
@@ -287,6 +288,29 @@ Builder's calls:
 - Display only; the order-flow score keeps its own seconds-scale signing.
 - Minutes backfilled at start have no side data and show no bar; a replay rebuilds the
   split from the recorded ticks.
+
+### 13. One Market view panel
+
+Asked for (2026-11-16): combine the market view and evidence panels into one "Market
+view" panel, and move the signal out of the market-view row so the view gets the full
+width.
+
+Status: built in Milestone E9 and checked in a browser. Design in [spec.md](spec.md) §13.1
+and §13.2 "Panel order"; planned in [plan.md](plan.md) Milestone E9.
+
+Decided with the owner on 2026-11-16:
+- The signal panel sits above Market view by default.
+- Inside Market view the meter is on top, full width, with the evidence below.
+
+Builder's calls:
+- A layout saved in the browser before this change is carried over: the old market
+  view + signal pair becomes Signal then Market view in its place, and the old Evidence
+  position is dropped.
+- The merged panel keeps the old market-view panel's minimise state.
+
+Also asked (2026-11-16): make the bullion panel's details collapsible like the index
+panel's. Each metal card keeps its price and change on show; the rest sits behind a
+Details toggle, closed by default, one remembered choice for both cards.
 
 ## Deferred
 

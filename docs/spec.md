@@ -987,19 +987,22 @@ On reconnect the client receives a fresh `hello`, so no event replay is needed.
 │  │ Spot 24,512.40  Fut 24,548.10  ATM 24500  │ │ PCR 1.18   Max pain 24500   │
 │  │ ▸ Details                                 │ │─────────────────────────────│
 │  └───────────────────────────────────────────┘ │ OI ΔOI IV LTP │STRIKE│ LTP… │
-│  ┌ MARKET VIEW ───── [–] ┐┌ SIGNAL ───── [–] ┐ │ ...                         │
-│  │ Bearish ──┼──▮ Bullish││ BUY 24500 CE     │ │ ▌ 24500 ATM row highlighted │
-│  │       62 Bullish      ││ @ 142.5  T 185.3 │ │ ...                         │
-│  │                       ││ S 121.1    04:12 │ │                             │
-│  │                       ││ [ Paper trade ]  │ │                             │
-│  └───────────────────────┘└──────────────────┘ │                             │
+│  ┌ SIGNAL ────────────────────────────── [–] ┐ │ ...                         │
+│  │ BUY NIFTY 24500 CE   Live 142.5 T 185.3   │ │ ▌ 24500 ATM row highlighted │
+│  │ Fired 140.0 T 182.0 S 119.0  04:12 left   │ │ ...                         │
+│  │ [ Paper trade ]                           │ │                             │
+│  └───────────────────────────────────────────┘ │                             │
+│  ┌ MARKET VIEW ───────────────────────── [–] ┐ │                             │
+│  │ Bearish ─────────┼──────▮ Bullish  62 Bul.│ │                             │
+│  │ ───────────────────────────────────────── │ │                             │
+│  │ EMA 9/21 cross   +0.71   0.133   +0.095   │ │                             │
+│  │ …  Order flow +0.31                       │ │                             │
+│  └───────────────────────────────────────────┘ │                             │
 │  ┌ PRICE CHART ───────────────────────── [–] ┐ │                             │
 │  │ 1-min candles, EMA9/21, VWAP, ▲▼ markers  │ │                             │
+│  │ net volume ▆▂▇▃ (E8)                      │ │                             │
 │  └───────────────────────────────────────────┘ │                             │
 │  ═══════════ drag: chart height ═════════════  │                             │
-│  ┌ EVIDENCE ──────────────────────────── [–] ┐ │                             │
-│  │ EMA 9/21 cross   +0.71   0.133   +0.095   │ │                             │
-│  └───────────────────────────────────────────┘ │                             │
 │  ┌ OPEN PAPER TRADES ─────────────────── [–] ┐ │                             │
 │  │ 24400 PE ×75  98.0 → 85.5  −₹938  [Close] │ │                             │
 │  └───────────────────────────────────────────┘ │                             │
@@ -1041,7 +1044,10 @@ them ("Panel order" in §13.2).
   and its divider are not shown.
 - **BullionCards** (the BULLION tiles):
   - A card per metal, headed by the contract, expiry and lot:
-    - LTP with unit, change and change %
+    - LTP with unit, change and change % (always shown)
+    - a **Details** toggle, like the index tile's, closed by default; one choice for both
+      cards, remembered in `localStorage` (`tradedisha.bullionDetailsOpen`, apart from the
+      index's `tradedisha.detailsOpen`). Opened, it shows:
     - Today: open, high, low with range bar, previous close, ATP
     - Liquidity: volume, OI, bid and ask with quantities, spread, buy/sell quantity and ratio
     - Contract, 1 year: high and low with distance and range bar, circuit limits
@@ -1063,13 +1069,13 @@ them ("Panel order" in §13.2).
   and clamped again on load and on window resize, so a layout saved on a large screen
   cannot hide a panel on a small one. Dragging is throttled to one layout per animation
   frame. No library is added for this.
-- **PanelFrame**: the frame around each of the eight dashboard panels (`tiles`, `bias`,
-  `signal`, `trades`, `chart`, `evidence`, `history`, `chain`). It owns the box and a
+- **PanelFrame**: the frame around each of the seven dashboard panels (`tiles`, `bias`
+  "Market view", `signal`, `trades`, `chart`, `history`, `chain`). It owns the box and a
   32 px title bar with the panel's title and one minimise / expand button; the panel
   components inside draw no box or duplicate heading of their own. Minimised, only the
   title bar is left, with a one-line summary (`lib/panelSummary.ts`: spot and change;
   strength and label; signal with entry and time left; open trades with live P&L; last
-  close; bias; signals today; PCR and max pain), and the panels below move up. Contents
+  close; signals today; PCR and max pain), and the panels below move up. Contents
   are not rendered while minimised, except the price chart, which is kept in the page
   hidden so its zoom survives. The state is remembered in `localStorage`
   (`tradedisha.panels`); the E1 key `tradedisha.chainOpen` seeds the option chain's state
@@ -1083,14 +1089,16 @@ them ("Panel order" in §13.2).
   A minimised `signal` panel opens itself when an active signal id not seen in this page
   load arrives, and `trades` likewise for an open trade id; minimised again, it stays
   down until the next new id.
-- **Panel order** (Milestone E3): the main column is six units, drawn in a remembered
-  order: `tiles`, `view` (the bias meter and signal card, which share a row and move as
-  one), `chart` (with its height divider), `evidence`, `trades`, `history`. Each of their
-  PanelFrames has move-up and move-down buttons beside minimise; the button with nowhere
-  to go is disabled, and both panels of `view` carry the same pair of buttons. The index
+- **Panel order** (Milestones E3, E9): the main column is six panels, each moving on its
+  own, drawn in a remembered order; the default is `tiles`, `signal`, `bias` (Market
+  view: the meter with the evidence table and order-flow line below it, full width),
+  `chart` (with its height divider), `trades`, `history`. Each PanelFrame has move-up and
+  move-down buttons beside minimise; the button with nowhere to go is disabled. The index
   tabs and the option chain do not move. The order is kept in `localStorage`
   (`tradedisha.panelOrder`); a stored list is read tolerantly (unknown and repeated ids
-  dropped, missing units added at the end). "Restore panels" also resets the order and is
+  dropped, missing units added at the end). An order stored before E9 is carried over:
+  the old `view` pair becomes `signal`, `bias` in its place and the old `evidence` unit is
+  dropped; a stored `evidence` minimised flag is ignored. "Restore panels" also resets the order and is
   shown while it differs from the default. Units are keyed, so a moved chart is not
   remounted and keeps its zoom. `lib/panels.ts` holds the order logic.
 - **SidePanel** (the right-hand column holding the option-chain PanelFrame): minimising

@@ -190,8 +190,9 @@ These apply to the whole product, not to one feature.
 - Every panel can be minimised to a single line with a short summary, and expanded again
   where it was. The app remembers which are minimised.
 - The panels of the main area can be moved up and down into the order the trader
-  prefers; the market view and the recommendation move together. The app remembers the
-  order.
+  prefers, each on its own. The market view panel holds the meter and the evidence behind
+  it, across the full width; the recommendation has its own panel above it. The app
+  remembers the order.
 - Open paper trades have their own panel that is always on the page, just above the list
   of the day's recommendations; it says so when none are open.
 - Dates are shown as DD/MM/YYYY everywhere on screen.
@@ -230,8 +231,10 @@ work, as each says.
    page, second last, just above the day's recommendations.
 
    **5a. Re-ordering.** The panels of the main area can be moved up and down with buttons
-   on each panel. The market view and the recommendation stay side by side and move as a
-   pair. The order is remembered, and one button puts the original layout back.
+   on each panel. The order is remembered, and one button puts the original layout back.
+   (Originally the market view and the recommendation sat side by side and moved as a
+   pair; since enhancement 13 the market view holds the evidence at full width and the
+   recommendation is its own panel above it.)
 
 6. **Earlier recommendations with fewer false ones.** Unlike the items above, this one
    changes how recommendations are made. Recommendations were too often wrong and too

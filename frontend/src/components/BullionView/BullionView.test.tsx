@@ -51,7 +51,28 @@ describe('BullionCards', () => {
     localStorage.clear()
   })
 
+  it('keeps the details closed at first, with the price and change on show', () => {
+    show()
+    const g = screen.getByTestId('bullion-GOLD')
+    expect(g).toHaveTextContent('1,34,914.00')
+    expect(g).toHaveTextContent('-1791.00 (-1.31%)')
+    expect(screen.queryByTestId('bullion-details-GOLD')).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /Details/ })).toHaveLength(2)
+  })
+
+  it('opens the details of both metals together, and remembers it', () => {
+    show()
+    const [goldToggle] = screen.getAllByRole('button', { name: /Details/ })
+    expect(goldToggle).toHaveAttribute('aria-expanded', 'false')
+    if (goldToggle) fireEvent.click(goldToggle)
+    expect(screen.getByTestId('bullion-details-GOLD')).toHaveTextContent('ATP (VWAP)')
+    expect(screen.getByTestId('bullion-details-SILVER')).toBeInTheDocument()
+    expect(localStorage.getItem('tradedisha.bullionDetailsOpen')).toBe('true')
+    expect(localStorage.getItem('tradedisha.detailsOpen')).toBeNull() // the index one is apart
+  })
+
   it('shows each metal with its day, liquidity, contract and next-month figures', () => {
+    localStorage.setItem('tradedisha.bullionDetailsOpen', 'true')
     show()
     const g = screen.getByTestId('bullion-GOLD')
     expect(g).toHaveTextContent('GOLD FUT 04 DEC 26 · exp 04/12/2026 · lot 1')
@@ -79,6 +100,7 @@ describe('BullionCards', () => {
       calendar_spread_pct: null,
       updated_ts: null,
     }
+    localStorage.setItem('tradedisha.bullionDetailsOpen', 'true')
     show({ metals: [empty], ratio: null })
     expect(screen.getByTestId('bullion-ratio')).toHaveTextContent('—')
     expect(screen.getByTestId('bullion-GOLD')).toHaveTextContent('Spread over near—')

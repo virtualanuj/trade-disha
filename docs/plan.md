@@ -71,6 +71,7 @@ version, then enhancements, configuration and signal quality).
 | E6 | Bullion signals and paper trades | 2026-11-16 | built; bias and panels checked live, a live bullion trade still to see |
 | E7 | Live signal levels | 2026-11-16 | built, with unit tests |
 | E8 | Net volume per candle | 2026-11-16 | built, with unit and replay tests |
+| E9 | One Market view panel | 2026-11-16 | built; checked in a browser |
 | S3 | Switch the trigger on, on evidence | — | planned: after five live sessions of shadow data |
 
 ---
@@ -571,6 +572,32 @@ the app started have no bar.
 synthetic feed.
 
 **Design:** spec §7.1, §11, §12, §13.2.
+
+## Milestone E9 — One Market view panel
+
+**Goal:** the market view and the evidence that produces it in one full-width panel, with
+the signal on its own row.
+
+- "Market view" holds the bias meter (full width) with the evidence table and the
+  order-flow line below it; the separate Evidence panel is gone.
+- The signal is its own panel, above Market view by default; every panel now moves on its
+  own (the market view + signal pair from E3 is retired).
+- A layout stored in the browser is carried over: the old pair becomes Signal then Market
+  view in its place, the old Evidence slot is dropped, and minimise states are kept.
+- Applies to the index tabs and BULLION alike. On BULLION the metal cards' day, liquidity,
+  contract and next-month figures go behind a Details toggle like the index tile's (closed
+  by default, one remembered choice for both cards).
+- Tests: the panel model (units, default order, carrying over an old order and old
+  minimise flags, independent moves, restore); the panel summaries.
+
+**Demo:** open the app fresh: Index, Signal, Market view (meter, then evidence and order
+flow), Price chart, Open paper trades, Signals today. Move Signal and Market view
+separately; restore. In a browser that had a moved layout, the pair's place is kept.
+
+**Status (2026-11-16):** built, with unit tests, and checked in a browser on the
+synthetic feed, including a pre-E9 stored layout carried over.
+
+**Design:** spec §13.1, §13.2 (Panel order, PanelFrame).
 
 ## Milestone C1 — Editable, versioned config
 

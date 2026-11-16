@@ -33,7 +33,6 @@ import {
   biasSummary,
   chainSummary,
   chartSummary,
-  evidenceSummary,
   historySummary,
   signalSummary,
   tilesSummary,
@@ -208,7 +207,6 @@ export default function App() {
         panels.toggleMinimise(id)
       },
       move: unitOf(id) ? { up: step(-1), down: step(1) } : undefined,
-      moveLabel: unitOf(id) === 'view' ? 'market view and signal' : undefined,
     }
   }
   // a new signal or a newly opened trade brings its minimised panel back, once
@@ -271,37 +269,40 @@ export default function App() {
         <IndexTiles instruments={selectedInstruments} prices={prices} stats={stats} />
       </PanelFrame>
     ),
-    view: (
-      <div
-        className={`grid gap-3 ${
-          panels.minimised.bias || panels.minimised.signal ? '' : 'lg:grid-cols-2'
-        }`}
+    signal: (
+      <PanelFrame
+        {...frame('signal')}
+        title="Signal"
+        summary={signalSummary(signal, now)}
+        border={
+          signal
+            ? isLong(signal.direction)
+              ? 'border-bull/60'
+              : 'border-bear/60'
+            : 'border-dashed border-border'
+        }
       >
-        <PanelFrame {...frame('bias')} title="Market view" summary={biasSummary(bias)}>
+        <SignalCard
+          signal={signal}
+          gate={gate}
+          now={now}
+          openTrades={openOnIndex}
+          blocked={tradeLive ? undefined : notLive}
+          onPaperTrade={paperTrade}
+        />
+      </PanelFrame>
+    ),
+    // the view and the evidence that produced it, in one full-width panel (E9)
+    bias: (
+      <PanelFrame {...frame('bias')} title="Market view" summary={biasSummary(bias)}>
+        <div className="flex flex-col gap-3">
           <BiasMeter bias={bias} />
-        </PanelFrame>
-        <PanelFrame
-          {...frame('signal')}
-          title="Signal"
-          summary={signalSummary(signal, now)}
-          border={
-            signal
-              ? isLong(signal.direction)
-                ? 'border-bull/60'
-                : 'border-bear/60'
-              : 'border-dashed border-border'
-          }
-        >
-          <SignalCard
-            signal={signal}
-            gate={gate}
-            now={now}
-            openTrades={openOnIndex}
-            blocked={tradeLive ? undefined : notLive}
-            onPaperTrade={paperTrade}
-          />
-        </PanelFrame>
-      </div>
+          <div className="border-t border-border pt-3">
+            <EvidenceTable bias={bias} />
+            {onBullion ? null : <FlowLine flow={flow} />}
+          </div>
+        </div>
+      </PanelFrame>
     ),
     chart: (
       <>
@@ -338,12 +339,6 @@ export default function App() {
           />
         )}
       </>
-    ),
-    evidence: (
-      <PanelFrame {...frame('evidence')} title="Evidence" summary={evidenceSummary(bias)}>
-        <EvidenceTable bias={bias} />
-        {onBullion ? null : <FlowLine flow={flow} />}
-      </PanelFrame>
     ),
     trades: (
       <PanelFrame
