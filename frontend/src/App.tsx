@@ -160,7 +160,7 @@ export default function App() {
     [trades],
   )
   const feedLive = ws === 'open' && health?.feed_live === true
-  const banner = useMemo(() => currentBanner(health, ws), [health, ws])
+  const banner = useMemo(() => currentBanner(health, ws, onBullion), [health, ws, onBullion])
   /** last-known data is dimmed so it is never mistaken for live */
   const staleCls = banner?.stale ? 'opacity-60' : ''
   const paperTrade = useCallback(
@@ -218,6 +218,11 @@ export default function App() {
     }
     return latest
   }, [prices])
+  /** on the BULLION tab the feed pill measures MCX ticks, which run to 23:30 */
+  const lastBullionTs = useMemo(() => {
+    const stamps = (bullion?.metals ?? []).map((m) => m.updated_ts).filter((t) => t != null)
+    return stamps.length ? Math.max(...stamps) : null
+  }, [bullion])
 
   const selectedInstruments = useMemo(
     () => instruments.filter((i) => i.index === selected),
@@ -340,7 +345,8 @@ export default function App() {
         health={health}
         ws={ws}
         now={now}
-        lastTickTs={lastTickTs}
+        lastTickTs={onBullion ? lastBullionTs : lastTickTs}
+        bullionTab={onBullion}
         theme={theme}
         onToggleTheme={toggleTheme}
         debug={debug}

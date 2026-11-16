@@ -420,6 +420,38 @@ month. Switch the chart; reload to find the tab and switch kept.
 
 **Design:** spec §6.6 and §13.2 (IndexTabs, BullionView).
 
+## Milestone E5 — NSE and MCX hours apart
+
+**Goal:** bullion keeps MCX hours, and gold ticking never hides an index outage.
+
+- **Index liveness from NSE ticks only.** Before, any tick kept the feed "live", so an
+  index feed gone quiet while MCX ticked never entered degraded mode.
+- **MCX hours and calendar.** `mcx_open`/`mcx_close` settings and
+  `config/mcx-holidays.txt` (full holidays and evening-only days); a second `MarketClock`
+  on the same time source.
+- **Bullion status** (`live`, `stale`, `closed`, `holiday`) in the health frame; MCX
+  outages logged as `bullion_gap_start`/`bullion_gap_end`; display only.
+- **Banner on the BULLION tab** follows MCX: no NSE "Market closed" after 15:30, a stale
+  warning when bullion stops.
+- **Top bar follows the tab.** On BULLION the market pill reads MCX status and the feed
+  pill's tick age is the newest bullion tick. A closed market's silence is shown muted,
+  not red.
+- **Session banners stand out.** Closed, holiday and pre-open (NSE and MCX) are an amber
+  band with a bold title; errors stay red.
+- **Data dictionary.** Bullion and MCX terms (dd §1a), with the NSE-only entries marked.
+- Tests: MCX clock through the day, late opens, holidays, calendar parsing; bullion ticks
+  not keeping a silent index feed live; an MCX outage at 20:00 logged without touching
+  index state; bullion status by MCX hours; the health field; the banner on the tab;
+  the top-bar pills by tab and hours; the amber titled session banner.
+
+**Demo:** on the live feed after 15:30, the index tabs say "Market closed" and BULLION
+shows live prices with no banner. Drop the network for half a minute: BULLION says prices
+are stale from the last tick, and `feed_events` has the bullion gap rows.
+
+**Status (2026-11-16):** built, with unit tests; not yet checked on the live feed.
+
+**Design:** spec §6.6 (Hours and liveness) and §14.
+
 ## Milestone C1 — Editable, versioned config
 
 **Goal:** the trader tunes the parameters in the app, can always get back to an earlier

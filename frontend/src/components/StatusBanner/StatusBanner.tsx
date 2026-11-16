@@ -1,18 +1,26 @@
 import type { Banner } from './banner'
 
+/**
+ * One band under the top bar. Errors are red; a market's session state (closed, holiday,
+ * pre-open) is amber with a bold title, so a closed market is never mistaken for a quiet one.
+ */
 export function StatusBanner({ banner }: { banner: Banner | null }) {
   if (!banner) return null
-  const tone =
-    banner.level === 'error'
-      ? 'border-bear/50 bg-bear/15 text-bear'
-      : 'border-border bg-bg-elev text-fg-muted'
+  const error = banner.level === 'error'
+  const tone = error ? 'border-bear/60 bg-bear/15 text-bear' : 'border-warn/60 bg-warn/15 text-warn'
   return (
     <div
-      className={`flex items-center gap-3 border-b px-4 py-1.5 text-xs ${tone}`}
-      role={banner.level === 'error' ? 'alert' : 'status'}
+      className={`flex flex-wrap items-center gap-x-3 gap-y-1 border-b-2 px-4 py-2.5 text-sm ${tone}`}
+      role={error ? 'alert' : 'status'}
       data-testid="status-banner"
     >
-      <span>{banner.text}</span>
+      <span aria-hidden="true" className="text-base leading-none">
+        {error ? '⚠' : '⏸'}
+      </span>
+      {banner.title ? (
+        <span className="font-semibold uppercase tracking-wide">{banner.title}</span>
+      ) : null}
+      <span className={banner.title ? 'text-fg' : undefined}>{banner.text}</span>
       {banner.login ? (
         <a
           href="/api/auth/login"

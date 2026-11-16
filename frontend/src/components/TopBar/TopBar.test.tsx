@@ -23,6 +23,7 @@ const health: HealthResponse = {
   replay_day: null,
   feed_live: true,
   banner: null,
+  bullion: null,
   serves_frontend: false,
 }
 
@@ -126,5 +127,52 @@ describe('TopBar', () => {
     rerender(bar(true))
     fireEvent.click(screen.getByRole('button', { name: 'Restore panels' }))
     expect(onRestorePanels).toHaveBeenCalledTimes(1)
+  })
+
+  describe('NSE and MCX keep different hours', () => {
+    const closedNse: HealthResponse = { ...health, market_status: 'closed', feed_live: false }
+    const pill = (h: HealthResponse, bullionTab = false, lastTickTs = 1000) =>
+      render(
+        <TopBar
+          health={h}
+          ws="open"
+          now={60_000}
+          lastTickTs={lastTickTs}
+          bullionTab={bullionTab}
+          theme="dark"
+          onToggleTheme={noop}
+          debug={false}
+          onToggleDebug={noop}
+        />,
+      )
+
+    it('does not turn the feed red when the index is quiet because NSE has closed', () => {
+      pill(closedNse)
+      expect(screen.getByTestId('feed-pill')).toHaveClass('text-fg-muted')
+      expect(screen.getByTestId('feed-pill')).not.toHaveClass('text-bear')
+    })
+
+    it('still turns it red when the index goes quiet during the session', () => {
+      pill({ ...health, feed_live: false })
+      expect(screen.getByTestId('feed-pill')).toHaveClass('text-bear')
+    })
+
+    it('measures MCX ticks and shows MCX status on the BULLION tab', () => {
+      pill({ ...closedNse, bullion: { status: 'live', since_ms: null } }, true, 59_500)
+      expect(screen.getByTestId('feed-pill')).toHaveClass('text-bull')
+      expect(screen.getByTestId('market-pill')).toHaveTextContent('MCX LIVE')
+      expect(screen.getByTestId('market-pill')).toHaveClass('text-bull')
+    })
+
+    it('turns bullion red when MCX is open but its ticks stop', () => {
+      pill({ ...closedNse, bullion: { status: 'stale', since_ms: 1000 } }, true, 1000)
+      expect(screen.getByTestId('feed-pill')).toHaveClass('text-bear')
+    })
+
+    it('mutes bullion once MCX has closed', () => {
+      pill({ ...closedNse, bullion: { status: 'closed', since_ms: null } }, true, 1000)
+      expect(screen.getByTestId('feed-pill')).toHaveClass('text-fg-muted')
+      expect(screen.getByTestId('market-pill')).toHaveTextContent('MCX CLOSED')
+    })
   })
 })

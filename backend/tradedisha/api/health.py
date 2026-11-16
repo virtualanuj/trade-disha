@@ -6,7 +6,7 @@ from fastapi import APIRouter
 
 from tradedisha import __version__
 from tradedisha.api.deps import State
-from tradedisha.api.schemas import BannerOut, FeedHealthOut, HealthResponse
+from tradedisha.api.schemas import BannerOut, BullionStatusOut, FeedHealthOut, HealthResponse
 from tradedisha.app_state import AppState
 from tradedisha.clock import epoch_ms_now
 from tradedisha.config import Settings
@@ -48,9 +48,14 @@ def status_banner(state: AppState) -> BannerOut | None:
     if not session.started:
         return BannerOut(code="feed_not_started", level="error")
     if not session.feed_live():
-        since = session.gap_since or session.health().last_tick_ts
+        since = session.gap_since or session.last_index_tick_ts
         return BannerOut(code="feed_gap", level="error", since_ms=since)
     return None
+
+
+def bullion_status_out(state: AppState) -> BullionStatusOut | None:
+    st = state.session.bullion_status()
+    return None if st is None else BullionStatusOut(status=st[0], since_ms=st[1])
 
 
 def build_health(state: AppState) -> HealthResponse:
@@ -66,6 +71,7 @@ def build_health(state: AppState) -> HealthResponse:
         replay_day=state.session.replay_day.isoformat() if state.session.replay_day else None,
         feed_live=state.session.feed_live(),
         banner=status_banner(state),
+        bullion=bullion_status_out(state),
         serves_frontend=serves_frontend(state.settings),
     )
 

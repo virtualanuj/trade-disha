@@ -9,7 +9,10 @@ interface Props {
   health: HealthResponse | null
   ws: WsState
   now: number
+  /** newest tick of the market on screen: the indices, or MCX bullion on its tab */
   lastTickTs: number | null
+  /** the BULLION tab is selected: market and feed follow MCX hours, not NSE */
+  bullionTab?: boolean
   theme: Theme
   onToggleTheme: () => void
   debug: boolean
@@ -32,14 +35,37 @@ const MARKET_LABEL: Record<HealthResponse['market_status'], string> = {
   holiday: 'HOLIDAY',
 }
 
-function MarketPill({ health, now }: { health: HealthResponse | null; now: number }) {
-  const status = health?.market_status
+/** MCX session for the BULLION tab; a stale feed is still an open market. */
+function mcxStatus(health: HealthResponse | null): HealthResponse['market_status'] | undefined {
+  const b = health?.bullion?.status
+  return b === 'stale' ? 'live' : b
+}
+
+/** Whether silence from the market on screen would be a fault (it is open, or ticking). */
+function ticksExpected(health: HealthResponse | null, bullionTab: boolean): boolean {
+  if (bullionTab) return mcxStatus(health) === 'live'
+  return health?.market_status === 'live' || health?.feed_live === true
+}
+
+function MarketPill({
+  health,
+  now,
+  bullionTab,
+}: {
+  health: HealthResponse | null
+  now: number
+  bullionTab: boolean
+}) {
+  const status = bullionTab ? mcxStatus(health) : health?.market_status
   const colour =
     status === 'live' ? 'text-bull' : status === 'pre_open' ? 'text-warn' : 'text-fg-muted'
   return (
     <span className={`flex items-center gap-2 ${colour}`} data-testid="market-pill">
       <span aria-hidden="true">●</span>
-      <span className="font-medium">{status ? MARKET_LABEL[status] : '…'}</span>
+      <span className="font-medium">
+        {bullionTab ? 'MCX ' : ''}
+        {status ? MARKET_LABEL[status] : '…'}
+      </span>
       <span className="font-mono text-fg-muted">{fmtIstTime(now)} IST</span>
     </span>
   )
@@ -50,11 +76,13 @@ function FeedPill({
   ws,
   now,
   lastTickTs,
+  bullionTab,
 }: {
   health: HealthResponse | null
   ws: WsState
   now: number
   lastTickTs: number | null
+  bullionTab: boolean
 }) {
   if (ws !== 'open') {
     return (
@@ -66,7 +94,10 @@ function FeedPill({
   const feed = health?.feed
   const age = lastTickTs == null ? null : Math.max(0, now - lastTickTs)
   const state = feed?.state ?? 'disconnected'
-  const colour = state === 'connected' ? tickAgeColour(age) : 'text-bear'
+  // Silence from a closed market is expected: only a fresh tick is worth colouring then.
+  const ageColour = tickAgeColour(age)
+  const quietOk = !ticksExpected(health, bullionTab) && ageColour !== 'text-bull'
+  const colour = state !== 'connected' ? 'text-bear' : quietOk ? 'text-fg-muted' : ageColour
   return (
     <span
       className={colour}
@@ -107,13 +138,13 @@ function AuthPill({ health }: { health: HealthResponse | null }) {
 export function TopBar(props: Props) {
   const { health, ws, now, lastTickTs, theme, onToggleTheme, debug, onToggleDebug, configControl } =
     props
-  const { view, onToggleView, openTradeCount = 0, dataControl } = props
+  const { view, onToggleView, openTradeCount = 0, dataControl, bullionTab = false } = props
   const { panelsChanged = false, onRestorePanels } = props
   return (
     <header className="flex h-11 items-center gap-4 border-b border-border bg-bg-elev px-4 text-xs whitespace-nowrap">
       <span className="font-semibold tracking-wide">TradeDisha</span>
-      <MarketPill health={health} now={now} />
-      <FeedPill health={health} ws={ws} now={now} lastTickTs={lastTickTs} />
+      <MarketPill health={health} now={now} bullionTab={bullionTab} />
+      <FeedPill health={health} ws={ws} now={now} lastTickTs={lastTickTs} bullionTab={bullionTab} />
       <AuthPill health={health} />
       {health?.replay_day ? (
         <span className="text-accent">Replay: {fmtDate(health.replay_day)}</span>

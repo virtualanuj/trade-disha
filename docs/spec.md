@@ -373,9 +373,28 @@ either.
   Synthetic and replay have no bullion.
 - **Not recorded.** Bullion ticks are not written to `ticks` and its candles are not stored:
   MCX trades until 23:30, and recorded evening ticks would stretch a replay and drive its
-  clock past the NSE close. Feed health is unchanged (one socket carries both).
+  clock past the NSE close.
+- **Hours and liveness.** MCX keeps its own hours: `mcx_open`/`mcx_close` in settings
+  (09:00 to 23:30; 23:55 while the US is on standard time, set by hand with the season) and
+  `config/mcx-holidays.txt`, where a line with a time (`2026-12-25 17:00`) is a day with
+  the morning shut and an evening session. `FeedSession.mcx_clock` is a second
+  `MarketClock` on the same time source, so replay drives both. One socket carries both
+  exchanges, but liveness is judged per exchange: index liveness (§14) counts NSE ticks
+  only, so gold ticking never hides an index outage. Bullion is `live` when MCX is open
+  and a bullion tick arrived within `bullion_live_max_tick_age_ms` (15 s); otherwise
+  `stale`, `closed` or `holiday`. An MCX outage is logged to `feed_events`
+  (`bullion_gap_start`/`bullion_gap_end`) and changes nothing else: no degraded mode, no
+  effect on signals or paper trades.
 - **API:**
   - `GET /api/bullion` (the snapshot) and `GET /api/bullion/{metal}/candles`
+  - `bullion` (status and `since_ms`) in the health response and `health` frame. On the
+    BULLION tab the banner follows it instead of the NSE session: no "Market closed" while
+    MCX trades, "Bullion prices are not updating" when stale. Login and connection banners
+    still come first, and an index outage is still shown there, without dimming bullion.
+  - The top bar follows the tab too: on BULLION the market pill reads `MCX LIVE` /
+    `MCX CLOSED` and the feed pill's tick age is the newest bullion tick. On any tab, a
+    tick age turns amber or red only while that market is open; a closed market's
+    silence is shown muted.
   - `bullion` and `bullion_candles` in `hello`
   - a `bullion` frame throttled like `tick`, and a `bullion_candle` frame on each close
 
@@ -1048,6 +1067,8 @@ them ("Panel order" in §13.2).
     (then marked `after_gap`); the square-off timer still fires and closes at the last
     known LTP marked `stale`. Entering and leaving degraded mode are recorded in
     `feed_events` with the gap duration.
+  - "Feed live" means connected and an **index** (NSE) tick within
+    `feed_live_max_tick_age_ms`. MCX bullion ticks on the same socket do not count (§6.6).
 
 ---
 

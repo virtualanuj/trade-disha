@@ -11,9 +11,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tradedisha.app_state import AppState
-from tradedisha.clock import IST, epoch_ms_now, ist_to_ms
+from tradedisha.clock import IST, DrivenClock, MarketClock, epoch_ms_now, ist_to_ms
+from tradedisha.config import Settings
+from tradedisha.events import EventBus
 from tradedisha.feed.bus import StampedTick
-from tradedisha.feed.provider import Tick
+from tradedisha.feed.provider import FeedHealth, Tick
 from tradedisha.feed.upstox import FullQuote, fetch_quotes, parse_full_quote
 from tradedisha.indicators.series import vwap_series
 from tradedisha.instruments.resolve import resolve_commodity_months
@@ -28,6 +30,10 @@ from tradedisha.market.bullion import (
     metal_snapshot,
 )
 from tradedisha.market.candles import MINUTE_MS, Candle
+from tradedisha.market.session import FeedSession
+from tradedisha.metrics.latency import LatencyTracker
+from tradedisha.parameters import ParameterService
+from tradedisha.store.db import connect
 
 TODAY = date(2026, 11, 16)
 
@@ -389,3 +395,125 @@ def test_ws_hello_bullion_and_candle_frames(client: TestClient) -> None:
         5,
     )
     assert candle["overlay"]["vwap"] == 135050.0
+
+
+# -- hours and liveness (NSE and MCX trade different hours) -------------------------------
+
+
+class _Connected:
+    """A provider stub: only `health()` matters to the liveness checks."""
+
+    name = "upstox"
+
+    def health(self) -> FeedHealth:
+        return FeedHealth("connected", None, 0, 0, self.name)
+
+
+def _hours_session(tmp_path: Path, start: datetime) -> tuple[FeedSession, DrivenClock]:
+    mcx_file = tmp_path / "mcx.txt"
+    mcx_file.write_text("2026-12-25 17:00\n")
+    settings = Settings(
+        _env_file=None,
+        db_path=tmp_path / "t.sqlite",
+        enforce_signal_hours=True,
+        mcx_holidays_file=mcx_file,
+    )
+    driven = DrivenClock(start)
+    clock = MarketClock(
+        market_open=settings.market_open,
+        market_close=settings.market_close,
+        pre_open_start=settings.pre_open_start,
+        holidays=frozenset({date(2026, 12, 25)}),
+        source=driven,
+    )
+    conn = connect(settings.db_path)
+    params = ParameterService(conn, settings.params_path)
+    params.load()
+    session = FeedSession(
+        settings,
+        conn,
+        clock,
+        bus=EventBus(),
+        latency=LatencyTracker(),
+        params=lambda: params.params,
+    )
+    session.provider = _Connected()  # type: ignore[assignment]
+    tracker = BullionTracker({"GOLD": _contract("GOLD"), "SILVER": _contract("SILVER")})
+    session.bullion = tracker
+    session.tick_bus.subscribe(session._on_tick)  # as `_start` wires them
+    session.tick_bus.subscribe(tracker.on_tick)
+    return session, driven
+
+
+def _ist(h: int, m: int, s: int = 0, day: date = TODAY) -> datetime:
+    return datetime(day.year, day.month, day.day, h, m, s, tzinfo=IST)
+
+
+def _feed_events(session: FeedSession) -> list[str]:
+    return [r["kind"] for r in session._conn.execute("SELECT kind FROM feed_events ORDER BY rowid")]
+
+
+def test_bullion_ticks_do_not_keep_a_silent_index_feed_live(tmp_path: Path) -> None:
+    session, driven = _hours_session(tmp_path, _ist(11, 0))
+    nse_ts = ist_to_ms(_ist(11, 0))
+    session.tick_bus.publish(_st("NSE_INDEX|Nifty 50", nse_ts, 25_000.0))
+    assert session.feed_live()
+    session._track_gap()
+
+    for sec in range(1, 11):  # gold keeps ticking, the index does not
+        driven.set_ms(nse_ts + sec * 1000)
+        session.tick_bus.publish(_st("MCX_FO|495213", nse_ts + sec * 1000, 134_900.0))
+    session._track_gap()
+
+    assert not session.feed_live()
+    assert session.gap_since == nse_ts
+    assert session.bullion_status() == ("live", None)
+
+
+def test_an_mcx_outage_after_the_nse_close_is_noticed_and_logged(tmp_path: Path) -> None:
+    session, driven = _hours_session(tmp_path, _ist(20, 0))
+    t0 = ist_to_ms(_ist(20, 0))
+    session.tick_bus.publish(_st("MCX_FO|495213", t0, 134_900.0))
+    session._track_gap()
+    assert session.bullion_status() == ("live", None)
+
+    driven.set_ms(t0 + 30_000)  # thirty seconds without a bullion tick
+    session._track_gap()
+    assert session.bullion_status() == ("stale", t0)
+
+    driven.set_ms(t0 + 40_000)
+    session.tick_bus.publish(_st("MCX_FO|495214", t0 + 40_000, 170_100.0))
+    session._track_gap()
+    assert session.bullion_status() == ("live", None)
+
+    assert _feed_events(session) == ["bullion_gap_start", "bullion_gap_end"]
+    assert session.gap_since is None  # the index session is closed: not an index outage
+
+
+def test_bullion_status_follows_mcx_hours(tmp_path: Path) -> None:
+    session, driven = _hours_session(tmp_path, _ist(23, 45))
+    assert session.bullion_status() == ("closed", None)
+
+    driven.set_ms(ist_to_ms(_ist(11, 0, day=date(2026, 12, 25))))  # NSE holiday, MCX at 17:00
+    assert session.clock.status() == "holiday"
+    assert session.bullion_status() == ("closed", None)
+    driven.set_ms(ist_to_ms(_ist(17, 30, day=date(2026, 12, 25))))
+    assert session.mcx_clock.status() == "live"
+    assert session.bullion_status() == ("stale", None)  # MCX open, no tick seen yet
+
+    driven.set_ms(ist_to_ms(_ist(12, 0, day=date(2026, 11, 14))))  # a Saturday
+    assert session.bullion_status() == ("holiday", None)
+
+
+def test_no_bullion_status_without_bullion(tmp_path: Path) -> None:
+    session, _ = _hours_session(tmp_path, _ist(11, 0))
+    session.bullion = None
+    assert session.bullion_status() is None
+
+
+def test_health_carries_the_bullion_status(client: TestClient) -> None:
+    assert client.get("/api/health").json()["bullion"] is None  # synthetic: no bullion
+    _with_bullion(client)
+    body = client.get("/api/health").json()["bullion"]
+    assert body["status"] in {"live", "stale", "closed", "holiday"}  # depends on the wall clock
+    assert set(body) == {"status", "since_ms"}

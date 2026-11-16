@@ -16,12 +16,12 @@ each group. Where TradeDisha gives a term a specific meaning or value, that is s
 | **F&O** | Futures and Options segment of NSE. |
 | **FII / FPI** | Foreign Institutional (Portfolio) Investors. Their net daily buying/selling is a widely watched sentiment input. Planned v2 input, not in v1. |
 | **Futures (current-month)** | A contract to buy or sell the index at a fixed price on expiry. TradeDisha subscribes to the nearest monthly future for each index and uses it (not spot) for VWAP, because spot has no traded volume. |
-| **Holiday calendar** | The list of NSE trading holidays for the year. Stored as a static file; drives the `holiday` market status. |
+| **Holiday calendar** | The list of NSE trading holidays for the year, in `config/nse-holidays.txt`; drives the `holiday` market status. MCX keeps its own calendar (§1a). |
 | **Index / spot** | The live value of NIFTY 50 or NIFTY BANK itself, computed by NSE from constituent stocks. "Spot" is this value, as opposed to futures or option prices. |
 | **IST** | Indian Standard Time (UTC+5:30). All user-facing times and all trading-hour rules are in IST. Stored timestamps are UTC epoch milliseconds. |
 | **Lot / lot size** | The minimum tradable quantity of an F&O contract, set by NSE (for example 75 for NIFTY, 30 for BANK NIFTY; these change). Read from the instrument master. Paper trades are one lot. |
-| **Market hours** | 09:15 to 15:30 IST on trading days. |
-| **Market status** | One of `pre_open`, `live`, `closed`, `holiday`, derived from IST time and the holiday calendar. |
+| **Market hours** | NSE: 09:15 to 15:30 IST on trading days. MCX bullion trades longer hours (§1a). |
+| **Market status** | One of `pre_open`, `live`, `closed`, `holiday`, derived from IST time and the holiday calendar. Means the NSE session unless stated; the BULLION tab shows the MCX status instead. |
 | **NIFTY (NIFTY 50)** | NSE's benchmark index of 50 large-cap stocks. Strike step ₹50. Weekly expiries. |
 | **NSE** | National Stock Exchange of India, where NIFTY and BANK NIFTY derivatives trade. |
 | **Pre-open** | 09:00 to 09:15 IST, when NSE runs its opening auction. TradeDisha shows status but does not evaluate signals. |
@@ -29,6 +29,37 @@ each group. Where TradeDisha gives a term a specific meaning or value, that is s
 | **Tick** | One price/volume/OI update for one instrument from the exchange feed. The smallest unit of market data in the system. |
 | **Tick size** | The minimum price increment of an instrument (₹0.05 for index options). |
 | **Trading day / session** | One NSE trading day from 09:15 to 15:30. "Session open" values (opening OI, VWAP start) reset each day. |
+
+---
+
+## 1a. Bullion and MCX terms
+
+Bullion is display only: no indicator, signal or paper trade reads it (spec §6.6).
+
+| Term | Meaning |
+|---|---|
+| **ATP (average traded price)** | The exchange's own volume-weighted average price for the day, sent with each full-mode tick. Shown as "ATP (VWAP)" on the metal card. |
+| **Bullion** | Gold and silver. In TradeDisha, the MCX `GOLD` and `SILVER` futures shown on the BULLION tab. Upstox has no spot price for either, so the near-month future stands in for it. |
+| **Bullion gap** | An MCX outage while MCX is open: no bullion tick for `bullion_live_max_tick_age_ms` (15 s). Logged to `feed_events` as `bullion_gap_start` / `bullion_gap_end`; nothing else reacts. |
+| **Bullion status** | `live`, `stale`, `closed` or `holiday`: MCX status combined with how fresh the last bullion tick is. `stale` means MCX is open but no bullion tick has arrived recently. Sent in the health response; drives the BULLION tab's banner and top-bar pills. |
+| **Buy / sell quantity** | Total buy quantity (TBQ) and total sell quantity (TSQ): all buy and sell orders pending on the exchange for the contract. The **buy/sell ratio** is TBQ ÷ TSQ; above 1 means more waiting to buy than to sell. |
+| **Calendar spread** | Next-month price minus near-month price, also shown as a % of the near price. Normally positive (contango), reflecting the cost of carry. |
+| **Circuit limits** | The upper and lower prices the exchange allows the contract to trade at today. From the full quote at start. |
+| **Contract one-year range** | The contract's highest high and lowest low over a year of daily candles up to yesterday, widened by today's range. Days with no volume are skipped (see Placeholder price). |
+| **Day range position** | Where the price sits in today's range: 0 at the day's low, 1 at the high. Drawn as a marker on the range bar. |
+| **Delivery period** | The last days of an MCX contract, when open positions settle by physical delivery. TradeDisha rolls to the next contract on expiry day so it never shows a contract in delivery. |
+| **Evening session / late open** | A day when MCX shuts its morning session but trades in the evening, often on an NSE holiday. Written as `YYYY-MM-DD HH:MM` in the MCX calendar; MCX status is `closed` until that time. |
+| **Gold (MCX `GOLD`)** | The 1 kg gold futures contract, quoted in ₹ per 10 g. |
+| **Gold/silver ratio** | How many kilograms of silver one kilogram of gold buys: gold × 100 ÷ silver (gold is quoted per 10 g, silver per kg). A widely watched gauge of whether gold or silver is relatively expensive. |
+| **MCX** | Multi Commodity Exchange of India, where gold and silver futures trade. A different exchange from NSE, with its own hours and holidays. |
+| **MCX holiday calendar** | `config/mcx-holidays.txt`: `YYYY-MM-DD` for a day closed throughout, `YYYY-MM-DD HH:MM` for an evening-only day. Maintained by hand from the MCX circular. |
+| **MCX hours** | 09:00 to 23:30 IST, extended to 23:55 while the US is on standard time (roughly November to March). Settings `mcx_open` and `mcx_close`; the close is changed by hand with the season. |
+| **Mini / petal contracts** | Smaller gold and silver contracts (`GOLDM`, `GOLDPETAL`, `SILVERM` and others). Excluded: only the full-size `GOLD` and `SILVER` contracts are shown. |
+| **Near / next month** | The near contract is the one with the nearest expiry strictly after today; the next is the one after it. Prices and charts are for the near contract; the next contract's price is shown for the calendar spread. |
+| **Placeholder price** | A made-up price on the daily candles of a future's early days, before it trades (one gold contract showed ₹2,47,917). Recognised by zero volume and skipped. |
+| **Previous close (bullion)** | Yesterday's settlement price. From the feed's `cp` field; before the first tick it is worked out from the full quote as last price − net change. |
+| **Roll** | Switching from the expiring contract to the next one. Bullion rolls on expiry day. |
+| **Silver (MCX `SILVER`)** | The 30 kg silver futures contract, quoted in ₹ per kg. |
 
 ---
 
@@ -132,11 +163,14 @@ each group. Where TradeDisha gives a term a specific meaning or value, that is s
 | **Backfill** | Fetching the part of today's data that was missed because the app started after market open: 1-minute candles and the option-chain snapshot. |
 | **Backoff (exponential)** | Waiting progressively longer between reconnect attempts: 1 s, 2 s, 4 s … up to 30 s. |
 | **Feed** | The continuous stream of ticks from the broker's websocket. |
-| **Feed health** | `connecting`, `connected`, or `disconnected`, plus last-tick timestamp, reconnect count, and subscribed instrument count. |
+| **Feed health** | `connecting`, `connected`, or `disconnected`, plus last-tick timestamp, reconnect count, and subscribed instrument count. One socket carries both NSE and MCX keys; whether each is delivering is judged separately (index liveness, bullion status). |
+| **Full quote** | Upstox's market-quote snapshot (`GET /v2/market-quote/quotes`): day OHLC, circuit limits, net change. Used once at start for bullion. Its `ohlc.close` is the live price, not yesterday's close. |
 | **Full mode** | The Upstox websocket subscription level that includes depth, OI, and Greeks, as opposed to LTP-only. |
 | **Instrument key** | Upstox's unique identifier for one tradable instrument (for example `NSE_INDEX|Nifty 50`, `NSE_FO|12345`). Primary key for ticks and candles. |
-| **Instrument master** | The daily file from Upstox listing every tradable instrument with symbol, expiry, strike, type, lot size, tick size. |
+| **Historical candle API** | Upstox's candle endpoints: intraday (`/v3/historical-candle/intraday/...`, today's 1-minute candles, used for backfill) and by date range (`/v3/historical-candle/{key}/days/1/...`, daily candles, used for 52-week and contract ranges). History is per contract; there is no continuous futures series. |
+| **Instrument master** | The daily file from Upstox listing every tradable instrument with symbol, expiry, strike, type, lot size, tick size. One file per exchange: `NSE.json.gz` for the indices, `MCX.json.gz` for bullion (cached as `data/mcx-instruments-YYYY-MM-DD.json.gz`). |
 | **LTP (last traded price)** | The most recent trade price of an instrument. |
+| **Market OHLC (`1d` row)** | In a full-mode tick, the open, high, low and close for the day. Sent for MCX futures; it is the bullion day range when present. |
 | **Market data provider** | The interface every feed implementation satisfies: connect, subscribe, unsubscribe, stream ticks, report health. Implementations: Upstox, replay, synthetic (tests). |
 | **OAuth** | The login flow in which the trader authorises TradeDisha in Upstox's web page and Upstox redirects back with a code that is exchanged for an access token. |
 | **Protobuf** | Protocol Buffers, the binary encoding Upstox uses for websocket market data. |
@@ -156,11 +190,13 @@ each group. Where TradeDisha gives a term a specific meaning or value, that is s
 |---|---|
 | **Adapter** | A class that translates an external system's interface (Upstox) into TradeDisha's internal one (`MarketDataProvider`). |
 | **asyncio** | Python's built-in framework for cooperative, single-threaded concurrency. The backend is an asyncio application. |
+| **Bullion tracker** | `market/bullion.py:BullionTracker`: keeps the latest bullion ticks, the day range, the last bullion tick time and its own candle builder (900 minutes, since MCX runs to 23:30). Kept apart from the shared candle builder, which drives the bias engine, and from the tick store, so evening MCX ticks never stretch a replay. |
 | **Batched insert** | Writing many rows in one database transaction (every 500 ms or 500 rows) instead of one at a time. |
 | **Candle builder** | The component that turns ticks into 1-minute candles and emits a `CandleClosed` event on each minute boundary. |
 | **Chain state** | The in-memory option chain for one index, with derived values (ATM, PCR, OI changes, max pain) kept up to date per tick. |
 | **Coalescing** | When several updates arrive within one throttle window, sending only the latest state rather than every intermediate one. |
-| **Degraded mode** | Market is live but auth is missing/expired or the feed is disconnected. Last-known data is shown greyed; bias still computed but greyed; no new signals; paper-trade entry and manual close refused; target/stop checked again from the first tick after the feed returns (`after_gap`); the square-off timer still fires at the last known price (`stale`). |
+| **Degraded mode** | NSE market is live but auth is missing/expired or the index feed is silent (see Index liveness). Last-known data is shown greyed; bias still computed but greyed; no new signals; paper-trade entry and manual close refused; target/stop checked again from the first tick after the feed returns (`after_gap`); the square-off timer still fires at the last known price (`stale`). |
+| **Display only** | Shown to the trader but never an input to the bias, signals or paper trades, and never recorded or replayed. Applies to bullion. |
 | **DTO (data transfer object)** | A typed structure that defines the shape of data crossing a boundary (API request/response, websocket frame). Generated into TypeScript from the backend's OpenAPI schema. |
 | **Event bus** | The in-process publish/subscribe mechanism through which components announce `CandleClosed`, `BiasComputed`, `SignalFired`, `PaperTradeUpdated`, etc. |
 | **Event-loop lag** | How late asyncio runs a task compared to when it was due. Sampled every 100 ms; a sign the hot path is blocked. |
@@ -173,11 +209,12 @@ each group. Where TradeDisha gives a term a specific meaning or value, that is s
 | **Hot path** | The code executed for every tick. Must never block; anything slow is moved off it. |
 | **Hypothesis** | A Python property-based testing library; used to assert indicator scores stay within bounds for any input. |
 | **Import-linter** | A tool that enforces which Python packages may import which, keeping dependencies pointing inward. |
+| **Index liveness** | Whether the index feed is delivering: connected, and an NSE tick within `feed_live_max_tick_age_ms`. Bullion ticks on the same socket do not count, so gold ticking never hides an index outage. `FeedSession.feed_live()`. |
 | **Incremental computation** | Updating a running value (EMA, rolling sum, chain totals) from the latest input rather than recomputing over the whole window. |
 | **Ingest timestamp (`t_in`)** | When the backend received a tick. Start of the latency budget TradeDisha controls. |
 | **Latency budget** | Agreed maximum time per hop at the 95th percentile, measured from arrival at the app (not from the exchange timestamp; the broker→app hop is shown separately). Total ingest → painted under 250 ms; minute close detected → signal painted under 100 ms. |
 | **lightweight-charts** | TradingView's open-source canvas charting library, used for the candlestick chart. |
-| **Market clock** | The single source of "what time is it and what is the market status?" for the whole backend. Reads the wall clock in live mode and the replayed tick timestamps in replay mode, so replays behave exactly as the live session did. No other code reads the system clock directly. |
+| **Market clock** | The single source of "what time is it and what is the market status?" for the whole backend. Reads the wall clock in live mode and the replayed tick timestamps in replay mode, so replays behave exactly as the live session did. No other code reads the system clock directly. There are two on one time source: the NSE clock and `mcx_clock` for MCX hours and holidays. |
 | **Minute close detected** | The moment the candle builder closes a 1-minute candle: the first tick of the next minute, or a 2-second wall-clock fallback when ticks are sparse. The 100 ms signal latency budget starts here; the detection delay itself is reported separately. |
 | **Migration** | A versioned SQL script that changes the database schema; applied in order at startup. |
 | **mypy (strict)** | Python static type checker run with all strictness flags. |
@@ -195,7 +232,7 @@ each group. Where TradeDisha gives a term a specific meaning or value, that is s
 | **ruff** | Python linter and formatter. |
 | **SQLAlchemy Core** | The SQL-expression layer (not the ORM) used to talk to SQLite. |
 | **SQLite (WAL mode)** | The embedded database file holding all persisted data. Write-Ahead Logging mode lets reads proceed while the writer task commits. |
-| **Standby mode** | Market closed or holiday: no feed, last-known state shown with a "Market closed" banner. |
+| **Standby mode** | NSE closed or holiday: no index ticks expected, last-known state shown under an amber "NSE market closed" (or holiday) banner, and a quiet index feed is not an outage. On the live feed the socket stays connected for MCX bullion until it closes. |
 | **Static settings** | Values that need a restart and are not about the algorithm (credentials, paths, indices, market hours). From `.env`. Distinct from the parameter set. |
 | **Store (frontend)** | A client-side state container (Zustand) holding live data per index; updated from websocket frames and rendered once per animation frame. |
 | **TanStack Query / Virtual** | React libraries for server-state fetching/caching and for rendering only the visible rows of a long table. |
@@ -223,7 +260,7 @@ each group. Where TradeDisha gives a term a specific meaning or value, that is s
 | `config_versions` | one saved set of tunable parameters, numbered and tagged |
 | `paper_trades` | one paper trade from open to close, including exit fill quality |
 | `app_state` | one key/value (schema version) |
-| `feed_events` | one operational event (disconnect, gap, re-centre, backfill, config reload) |
+| `feed_events` | one operational event (disconnect, gap, bullion gap, re-centre, backfill, config reload) |
 | `latency_samples` | one hop's latency percentiles for one minute |
 
 ---
@@ -233,6 +270,7 @@ each group. Where TradeDisha gives a term a specific meaning or value, that is s
 | Abbrev. | Expansion |
 |---|---|
 | ATM | at the money |
+| ATP | average traded price |
 | ATR | average true range (used inside supertrend) |
 | CE / PE | call European / put European (NSE option suffixes) |
 | DII | Domestic Institutional Investors |
@@ -244,6 +282,7 @@ each group. Where TradeDisha gives a term a specific meaning or value, that is s
 | ITM / OTM | in / out of the money |
 | IV | implied volatility |
 | LTP | last traded price |
+| MCX | Multi Commodity Exchange of India |
 | NSE / BSE | National / Bombay Stock Exchange |
 | OHLCV | open, high, low, close, volume |
 | OI | open interest |
@@ -251,6 +290,7 @@ each group. Where TradeDisha gives a term a specific meaning or value, that is s
 | PCR | put-call ratio |
 | ROC | rate of change |
 | STT | Securities Transaction Tax |
+| TBQ / TSQ | total buy / sell quantity |
 | TTL | time to live |
 | VWAP | volume-weighted average price |
 | WS | websocket |

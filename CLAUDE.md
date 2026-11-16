@@ -109,10 +109,12 @@ Things that are easy to get wrong:
   `FeedSession` (`chains`, `bias`, `signals`, `paper`, `provider`) are `None` until then.
 - **Degraded mode.** When the feed is silent during market hours, signals stop,
   paper-trade entry and manual close are refused, and fills after the gap are marked. See
-  `feed_live()`, `_track_gap()` and spec §14. Liveness means ticks arriving, and Upstox
-  stamps ticks with its send time, so a price frozen at the source (seen on 2026-11-16:
-  index spot stuck from 15:15 while futures traded) still counts as live. Check the
-  `ticks` table for distinct `ltp` per minute before blaming the app.
+  `feed_live()`, `_track_gap()` and spec §14. Liveness means NSE ticks arriving: bullion
+  ticks share the socket but are judged separately against MCX hours (`mcx_clock`,
+  `bullion_status()`, display only). Upstox stamps ticks with its send time, so a price
+  frozen at the source (seen on 2026-11-16: index spot stuck from 15:15 while futures
+  traded) still counts as live. Check the `ticks` table for distinct `ltp` per minute
+  before blaming the app.
 - **Bullion is display only** (spec §6.6). GOLD and SILVER MCX futures come from the same
   Upstox socket but must never reach the shared `CandleBuilder` (it drives the bias
   engine) or `TickStore` (MCX trades until 23:30 and would stretch replays). Every bullion

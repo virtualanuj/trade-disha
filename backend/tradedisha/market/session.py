@@ -9,11 +9,20 @@ import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
+from typing import Literal
 
 import httpx
 
 from tradedisha.auth import AuthService
-from tradedisha.clock import IST, DrivenClock, MarketClock, epoch_ms_now, ist_to_ms
+from tradedisha.clock import (
+    IST,
+    DrivenClock,
+    MarketClock,
+    MarketStatus,
+    epoch_ms_now,
+    ist_to_ms,
+    load_calendar,
+)
 from tradedisha.config import Settings, hours_enforced
 from tradedisha.engine.bias_engine import BiasComputed, BiasEngine
 from tradedisha.engine.outcomes import Outcome, OutcomeTracker
@@ -85,6 +94,9 @@ def _spot_key(master: list[Instrument], index: str) -> str:
     raise ResolutionError(f"spot instrument for {index} not in master")
 
 
+BullionState = Literal["live", "stale", "closed", "holiday"]
+
+
 class FeedSession:
     """Start -> resolve instruments -> connect provider -> subscribe -> pump ticks -> stop."""
 
@@ -109,11 +121,18 @@ class FeedSession:
         self.last_gap: tuple[int, int] | None = None  # (start, end) of the last finished one
         self.http_transport: httpx.AsyncBaseTransport | None = None  # tests inject a fake
         self._was_live = False
-        self._prev_tick_ts: int | None = None
+        # Latest tick time per exchange. Liveness is judged on the index keys alone, so MCX
+        # ticks (which run to 23:30) never hide an NSE outage, and the other way round.
+        self.last_index_tick_ts: int | None = None
         self._health_key: tuple[object, ...] | None = None
         self._start_lock = asyncio.Lock()
         self.feed_ended = asyncio.Event()  # set when the provider has no more ticks (replay)
         self.clock = clock
+        self.mcx_clock = clock.with_hours(
+            market_open=settings.mcx_open,
+            market_close=settings.mcx_close,
+            calendar=load_calendar(settings.mcx_holidays_file),
+        )
         self.events = bus
         self.latency = latency
         self.params = params
@@ -337,9 +356,12 @@ class FeedSession:
 
     def _on_tick(self, st: StampedTick) -> None:
         t = st.tick
-        prev = self._prev_tick_ts
+        if t.key in self.bullion_keys:  # BullionTracker has its own subscription and candles
+            self.prices.update(t)
+            return
+        prev = self.last_index_tick_ts
         if prev is None or t.ts > prev:
-            self._prev_tick_ts = t.ts
+            self.last_index_tick_ts = t.ts
         if (
             prev is not None
             and t.ts - prev > self.settings.feed_live_max_tick_age_ms
@@ -352,7 +374,7 @@ class FeedSession:
             if self.paper is not None:
                 self.paper.mark_gap()
         self.prices.update(t)
-        if self.settings.feed_provider != "replay" and t.key not in self.bullion_keys:
+        if self.settings.feed_provider != "replay":
             self.tick_store.add(t)
             self.latency.record("src_to_in", st.t_in - t.ts, at_ms=st.t_in)
         if t.key in self._candle_keys():
@@ -437,10 +459,34 @@ class FeedSession:
         return None if t is None else Price(t.ltp, t.ts)
 
     def feed_live(self) -> bool:
-        h = self.health()
-        if h.state != "connected" or h.last_tick_ts is None:
+        """The index feed is delivering: connected, and an NSE tick arrived recently."""
+        last = self.last_index_tick_ts
+        if self.health().state != "connected" or last is None:
             return False
-        return self.clock.now_ms() - h.last_tick_ts <= self.settings.feed_live_max_tick_age_ms
+        return self.clock.now_ms() - last <= self.settings.feed_live_max_tick_age_ms
+
+    def bullion_status(self) -> tuple[BullionState, int | None] | None:
+        """MCX session state for the BULLION tab, and since when prices are stale.
+
+        Display only (spec §6.6): it never stops signals or paper trades. None without bullion.
+        """
+        b = self.bullion
+        if b is None:
+            return None
+        market: MarketStatus = self.mcx_clock.status()
+        if market == "holiday":
+            return "holiday", None
+        if market != "live":
+            return "closed", None
+        last = b.last_tick_ts
+        fresh = (
+            self.health().state == "connected"
+            and last is not None
+            and self.clock.now_ms() - last <= self.settings.bullion_live_max_tick_age_ms
+        )
+        if fresh:
+            return "live", None
+        return "stale", b.gap_since or last
 
     # -- late start and outages --------------------------------------------
 
@@ -575,6 +621,7 @@ class FeedSession:
 
     def _track_gap(self) -> None:
         """Record when the feed goes quiet during the session, and for how long."""
+        self._track_bullion_gap()
         now = self.clock.now_ms()
         live = self.feed_live()
         if live:
@@ -590,7 +637,7 @@ class FeedSession:
         if self.gap_since is None:
             if not self._was_live or not self.expecting_ticks():
                 return
-            last = self.health().last_tick_ts
+            last = self.last_index_tick_ts
             self.gap_since = last if last is not None else now
             self.feed_log.write(epoch_ms_now(), "feed_gap_start", f"last_tick_ts={last}")
             log.warning("feed gap: no ticks since %s", last)
@@ -599,6 +646,30 @@ class FeedSession:
             self.feed_log.write(epoch_ms_now(), "feed_gap_end", "market_closed")
             self.gap_since = None
             self._was_live = False
+
+    def _track_bullion_gap(self) -> None:
+        """Log MCX outages to `feed_events`. Nothing else reacts: bullion is display only."""
+        b = self.bullion
+        status = self.bullion_status()
+        if b is None or status is None:
+            return
+        state = status[0]
+        if state == "live":
+            b.was_live = True
+            if b.gap_since is not None:
+                gap = self.clock.now_ms() - b.gap_since
+                self.feed_log.write(epoch_ms_now(), "bullion_gap_end", f"gap_ms={gap}")
+                b.gap_since = None
+        elif state == "stale":
+            if b.gap_since is None and b.was_live:
+                last = b.last_tick_ts
+                b.gap_since = last if last is not None else self.clock.now_ms()
+                self.feed_log.write(epoch_ms_now(), "bullion_gap_start", f"last_tick_ts={last}")
+        else:  # MCX closed: an outage in progress ends with the session
+            if b.gap_since is not None:
+                self.feed_log.write(epoch_ms_now(), "bullion_gap_end", "market_closed")
+            b.gap_since = None
+            b.was_live = False
 
     async def _apply_subscription_changes(self) -> None:
         while True:
@@ -651,6 +722,7 @@ class FeedSession:
             self.feed_live(),
             self.clock.status(),
             self.gap_since,
+            self.bullion_status(),
             self.auth.state() if self.auth is not None else None,
         )
         if key != self._health_key:

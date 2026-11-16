@@ -25,6 +25,13 @@ export interface BannerOut {
   since_ms: number | null
 }
 
+/** Bullion trades MCX hours (to 23:30), not NSE's; mirrors `BullionStatusOut`. */
+export interface BullionStatusOut {
+  status: 'live' | 'stale' | 'closed' | 'holiday'
+  /** when prices went stale */
+  since_ms: number | null
+}
+
 export interface HealthResponse {
   status: string
   app: string
@@ -39,6 +46,8 @@ export interface HealthResponse {
   feed_live: boolean
   /** why the screen is not live; null when all is well */
   banner: BannerOut | null
+  /** MCX session state for the BULLION tab; null without bullion. Display only. */
+  bullion: BullionStatusOut | null
   serves_frontend: boolean
 }
 

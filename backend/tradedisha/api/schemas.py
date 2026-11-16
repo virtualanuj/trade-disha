@@ -22,6 +22,13 @@ class BannerOut(BaseModel):
     since_ms: int | None = None
 
 
+class BullionStatusOut(BaseModel):
+    """MCX session state for the BULLION tab. Display only: it never gates trading."""
+
+    status: str  # live | stale | closed | holiday
+    since_ms: int | None = None  # when prices went stale
+
+
 class HealthResponse(BaseModel):
     status: str
     app: str
@@ -34,6 +41,7 @@ class HealthResponse(BaseModel):
     replay_day: str | None
     feed_live: bool = False
     banner: BannerOut | None = None
+    bullion: BullionStatusOut | None = None
     serves_frontend: bool = False
 
 

@@ -27,7 +27,8 @@ minimised to its title bar to make room for the others. Milestone E3: the panels
 up and down, with market view and signal moving as a pair. Milestone C1: the config is edited in the app and kept as
 numbered, tagged versions that can be reverted to, and every signal records its version. Milestone E4: a BULLION
 tab with live gold and silver (MCX futures): day range, liquidity, circuit limits, next month, the gold/silver ratio
-and a minute chart. See [docs/plan.md](docs/plan.md) for what comes next.
+and a minute chart. Milestone E5: bullion follows MCX hours with its own status banner, and index feed
+liveness counts NSE ticks only, so gold ticking never hides an index outage. See [docs/plan.md](docs/plan.md) for what comes next.
 
 ## Documents
 

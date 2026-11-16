@@ -185,6 +185,10 @@ class BullionTracker:
         keys = set(self._metal_of_near)
         keys.update(c.next.instrument_key for c in contracts.values() if c.next)
         self.keys: frozenset[str] = frozenset(keys)
+        # Liveness, judged by FeedSession against MCX hours; display only.
+        self.last_tick_ts: int | None = None
+        self.gap_since: int | None = None  # start of an MCX outage in progress
+        self.was_live = False
         for m, c in contracts.items():
             q = c.quote
             if q is not None:
@@ -196,6 +200,8 @@ class BullionTracker:
         t = st.tick
         if t.key not in self.keys:
             return
+        if self.last_tick_ts is None or t.ts > self.last_tick_ts:
+            self.last_tick_ts = t.ts
         self._latest[t.key] = merge_tick(self._latest.get(t.key), t)
         metal = self._metal_of_near.get(t.key)
         if metal is None:

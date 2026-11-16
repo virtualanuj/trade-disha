@@ -1,0 +1,11 @@
+# MCX trading calendar for bullion (display only, spec §6.6). Maintain each year from the
+# MCX holiday circular. Weekends are handled automatically.
+#   YYYY-MM-DD          closed all day
+#   YYYY-MM-DD HH:MM    morning session shut, opens at HH:MM (an evening-only session)
+# MCX often keeps its evening session on an NSE holiday, so this list differs from
+# nse-holidays.txt. The 2026 entries below are the fixed national holidays only; check them
+# and add the festival dates against the MCX circular.
+2026-01-26  # Republic Day
+2026-08-15  # Independence Day (a Saturday)
+2026-10-02  # Gandhi Jayanti
+2026-12-25 17:00  # Christmas: evening session only

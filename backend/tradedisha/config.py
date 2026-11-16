@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     market_open: time = time(9, 15)
     market_close: time = time(15, 30)
     pre_open_start: time = time(9, 0)
+    # MCX bullion (display only, spec §6.6). MCX closes at 23:55 while the US is on standard
+    # time (roughly November to March) and at 23:30 otherwise: change it with the season.
+    mcx_open: time = time(9, 0)
+    mcx_close: time = time(23, 30)
+    mcx_holidays_file: Path = REPO_ROOT / "config" / "mcx-holidays.txt"
+    bullion_live_max_tick_age_ms: int = 15_000
 
     feed_provider: FeedProviderName = "synthetic"
     # None = enforce unless the feed is synthetic (which ticks around the clock anyway)
