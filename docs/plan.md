@@ -357,6 +357,34 @@ yet run.
 
 **Design:** spec §13.2 (PanelFrame, SidePanel).
 
+## Milestone E3 — Re-ordering the main column
+
+**Goal:** the trader can put the panels of the main column in the order that suits them.
+
+- **Move buttons.** Up and down arrows on the title bar of each main-column panel, beside
+  minimise; the one with nowhere to go is disabled. No new library.
+- **Six units.** Index; market view with signal; price chart with its height divider;
+  evidence; open paper trades; signals today. Market view and signal move as one, from
+  either title bar, and keep sharing a row.
+- **Remembered** in the browser. "Restore panels" also puts the default order back, and
+  shows while the order is not the default.
+- Fixed: the index tabs at the top, the option chain in its own column.
+- Tests: reading a stored order (unknown, repeated and missing ids); moving a unit and the
+  ends; the pair moving together; two moves in the same moment; restore; the frame's move
+  buttons, disabled ends and the pair's label.
+
+**Demo:** move the chart to the top, the market view and signal pair below evidence, and
+signals today up twice; reload to find the order kept; "Restore panels" to get the
+default back.
+
+**Not in E3:** drag-and-drop; swapping market view and signal within their row; moving the
+option chain.
+
+**Status (2026-11-16):** built, with unit tests, and the demo run in a browser on the
+live feed, including the chart keeping its zoom and height divider when moved.
+
+**Design:** spec §13.2 (Panel order).
+
 ---
 
 ## Milestone S1 — Signal yardstick and order-flow recording

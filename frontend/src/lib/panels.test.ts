@@ -1,6 +1,17 @@
 import { act, renderHook } from '@testing-library/react'
 
-import { NONE_MINIMISED, PANELS_KEY, parsePanels, useOpenOnNew, usePanels } from './panels'
+import {
+  DEFAULT_ORDER,
+  NONE_MINIMISED,
+  ORDER_KEY,
+  PANELS_KEY,
+  moveUnit,
+  parseOrder,
+  parsePanels,
+  unitOf,
+  useOpenOnNew,
+  usePanels,
+} from './panels'
 
 describe('parsePanels', () => {
   it('reads stored minimised flags, treating anything missing as not minimised', () => {
@@ -21,6 +32,46 @@ describe('parsePanels', () => {
     expect(parsePanels(undefined, true).chain).toBe(false)
     // a stored value wins over the old key
     expect(parsePanels({ chain: false }, false).chain).toBe(false)
+  })
+})
+
+describe('panel order', () => {
+  it('market view and signal are one unit; the option chain is not movable', () => {
+    expect(unitOf('bias')).toBe('view')
+    expect(unitOf('signal')).toBe('view')
+    expect(unitOf('chart')).toBe('chart')
+    expect(unitOf('chain')).toBeNull()
+  })
+
+  it('reads a stored order, dropping unknown and repeated ids and adding missing ones', () => {
+    expect(parseOrder(['history', 'bogus', 'chart', 'history'])).toEqual([
+      'history',
+      'chart',
+      'tiles',
+      'view',
+      'evidence',
+      'trades',
+    ])
+  })
+
+  it('falls back to the default order for anything that is not a stored list', () => {
+    for (const bad of [undefined, null, 'x', 3, { chart: 1 }]) {
+      expect(parseOrder(bad)).toEqual(DEFAULT_ORDER)
+    }
+  })
+
+  it('moves a unit one place and leaves the ends alone', () => {
+    expect(moveUnit(DEFAULT_ORDER, 'chart', -1)).toEqual([
+      'tiles',
+      'chart',
+      'view',
+      'evidence',
+      'trades',
+      'history',
+    ])
+    expect(moveUnit(DEFAULT_ORDER, 'chart', 1).indexOf('chart')).toBe(3)
+    expect(moveUnit(DEFAULT_ORDER, 'tiles', -1)).toBe(DEFAULT_ORDER)
+    expect(moveUnit(DEFAULT_ORDER, 'history', 1)).toBe(DEFAULT_ORDER)
   })
 })
 
@@ -90,6 +141,60 @@ describe('usePanels', () => {
       result.current.restoreAll()
     })
     expect(result.current.minimised).toEqual(NONE_MINIMISED)
+    expect(result.current.changed).toBe(false)
+  })
+
+  it('starts in the default order, with the ends unable to move outwards', () => {
+    const { result } = renderHook(() => usePanels())
+    expect(result.current.order).toEqual(DEFAULT_ORDER)
+    expect(result.current.canMove('tiles', -1)).toBe(false)
+    expect(result.current.canMove('tiles', 1)).toBe(true)
+    expect(result.current.canMove('history', 1)).toBe(false)
+    expect(result.current.canMove('chain', 1)).toBe(false)
+  })
+
+  it('moves a panel, and remembers the order', () => {
+    const { result } = renderHook(() => usePanels())
+    act(() => {
+      result.current.move('chart', -1)
+    })
+    expect(result.current.order.slice(0, 3)).toEqual(['tiles', 'chart', 'view'])
+    expect(result.current.changed).toBe(true)
+    expect(JSON.parse(localStorage.getItem(ORDER_KEY) ?? '[]')).toEqual(result.current.order)
+    expect(renderHook(() => usePanels()).result.current.order).toEqual(result.current.order)
+  })
+
+  it('moving market view or signal moves both, as one unit', () => {
+    const { result } = renderHook(() => usePanels())
+    act(() => {
+      result.current.move('signal', 1)
+    })
+    expect(result.current.order.slice(0, 3)).toEqual(['tiles', 'chart', 'view'])
+    act(() => {
+      result.current.move('bias', -1)
+    })
+    expect(result.current.order).toEqual(DEFAULT_ORDER)
+    expect(result.current.changed).toBe(false)
+  })
+
+  it('two moves in the same moment both land', () => {
+    const { result } = renderHook(() => usePanels())
+    act(() => {
+      result.current.move('history', -1)
+      result.current.move('history', -1)
+    })
+    expect(result.current.order.indexOf('history')).toBe(3)
+  })
+
+  it('restoreAll puts the panels back in the default order', () => {
+    const { result } = renderHook(() => usePanels())
+    act(() => {
+      result.current.move('evidence', -1)
+    })
+    act(() => {
+      result.current.restoreAll()
+    })
+    expect(result.current.order).toEqual(DEFAULT_ORDER)
     expect(result.current.changed).toBe(false)
   })
 

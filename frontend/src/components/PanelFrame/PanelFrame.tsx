@@ -11,6 +11,13 @@ interface Props {
   minimised: boolean
   /** minimise, or expand again when already minimised */
   onToggle: () => void
+  /**
+   * shows the move up / down buttons; a direction with nowhere to go is null and its
+   * button is disabled
+   */
+  move?: { up: (() => void) | null; down: (() => void) | null } | undefined
+  /** what the move buttons say they move, when the panel moves with another */
+  moveLabel?: string | undefined
   /** keep the contents in the page (hidden) while minimised, so they keep their own state */
   keepMounted?: boolean
   /** take the full height of the parent, with the contents filling what the bar leaves */
@@ -22,9 +29,24 @@ interface Props {
   children: ReactNode
 }
 
+const ICON = {
+  viewBox: '0 0 12 12',
+  width: 12,
+  height: 12,
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.5,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+  'aria-hidden': true,
+} as const
+
+const BUTTON =
+  'flex h-6 w-6 shrink-0 items-center justify-center rounded text-fg-muted hover:bg-bg-row hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-fg-muted'
+
 /**
  * The frame every dashboard panel sits in: a title bar with a minimise button around the
- * panel's contents. Minimised, only the title bar is left, with a one-line summary, and
+ * panel's contents, and move up / down buttons for a panel that can be reordered. Minimised, only the title bar is left, with a one-line summary, and
  * the panels below move up.
  */
 export function PanelFrame({
@@ -33,6 +55,8 @@ export function PanelFrame({
   summary,
   minimised,
   onToggle,
+  move,
+  moveLabel,
   keepMounted = false,
   fill = false,
   border = 'border-border',
@@ -59,28 +83,37 @@ export function PanelFrame({
         {minimised && summary != null ? (
           <span className="min-w-0 truncate font-mono text-xs">{summary}</span>
         ) : null}
-        <button
-          type="button"
-          className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded text-fg-muted hover:bg-bg-row hover:text-fg"
-          aria-expanded={!minimised}
-          aria-label={`${action} ${name}`}
-          title={`${action} ${name}`}
-          onClick={onToggle}
-        >
-          <svg
-            viewBox="0 0 12 12"
-            width="12"
-            height="12"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
+        <span className="ml-auto flex shrink-0 items-center">
+          {move
+            ? (['up', 'down'] as const).map((dir) => (
+                <button
+                  key={dir}
+                  type="button"
+                  className={BUTTON}
+                  aria-label={`Move ${moveLabel ?? name} ${dir}`}
+                  title={`Move ${moveLabel ?? name} ${dir}`}
+                  disabled={move[dir] === null}
+                  onClick={move[dir] ?? undefined}
+                >
+                  <svg {...ICON}>
+                    <path d={dir === 'up' ? 'M6 9.5v-7M3 5.5l3-3 3 3' : 'M6 2.5v7M3 6.5l3 3 3-3'} />
+                  </svg>
+                </button>
+              ))
+            : null}
+          <button
+            type="button"
+            className={BUTTON}
+            aria-expanded={!minimised}
+            aria-label={`${action} ${name}`}
+            title={`${action} ${name}`}
+            onClick={onToggle}
           >
-            <path d={minimised ? 'M2.5 4.5 6 8l3.5-3.5' : 'M2.5 9.5h7'} />
-          </svg>
-        </button>
+            <svg {...ICON}>
+              <path d={minimised ? 'M2.5 4.5 6 8l3.5-3.5' : 'M2.5 9.5h7'} />
+            </svg>
+          </button>
+        </span>
       </div>
       {minimised ? (
         keepMounted ? (

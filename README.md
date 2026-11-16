@@ -23,7 +23,8 @@ banner says why the screen is not live (login, feed outage, market closed) and d
 last-known data; feed outages are logged; a Data panel deletes old raw ticks. After 1.0.0
 (Milestone E1): resizable panels, a hideable option-chain panel, DD/MM/YYYY dates, and a details view on the index tile
 (day and 52-week range, change on the day, futures premium, India VIX). Milestone E2: every panel can be
-minimised to its title bar to make room for the others. See [docs/plan.md](docs/plan.md) for what comes next.
+minimised to its title bar to make room for the others. Milestone E3: the panels of the main column can be moved
+up and down, with market view and signal moving as a pair. See [docs/plan.md](docs/plan.md) for what comes next.
 
 ## Documents
 

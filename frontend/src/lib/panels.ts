@@ -33,6 +33,49 @@ export const NONE_MINIMISED: Minimised = {
 }
 
 /**
+ * What moves up and down the left column. Market view and signal share a row, so they are
+ * one unit (`view`) and move together. The option chain has its own column and is not one.
+ */
+export const UNIT_IDS = ['tiles', 'view', 'chart', 'evidence', 'trades', 'history'] as const
+
+export type UnitId = (typeof UNIT_IDS)[number]
+export type Order = readonly UnitId[]
+
+export const ORDER_KEY = 'tradedisha.panelOrder'
+export const DEFAULT_ORDER: Order = UNIT_IDS
+
+/** The unit a panel moves with; null for a panel that does not move. */
+export function unitOf(id: PanelId): UnitId | null {
+  if (id === 'bias' || id === 'signal') return 'view'
+  return id === 'chain' ? null : id
+}
+
+/**
+ * A stored order, if that is what `v` is: unknown and repeated ids are dropped and any
+ * unit it does not mention is added at the end. Otherwise the default order.
+ */
+export function parseOrder(v: unknown): Order {
+  if (!Array.isArray(v)) return DEFAULT_ORDER
+  const known = new Set<unknown>(UNIT_IDS)
+  const out: UnitId[] = []
+  for (const id of [...(v as unknown[]), ...UNIT_IDS]) {
+    if (known.has(id) && !out.includes(id as UnitId)) out.push(id as UnitId)
+  }
+  return out.every((id, i) => id === DEFAULT_ORDER[i]) ? DEFAULT_ORDER : out
+}
+
+/** `order` with `unit` one place up (-1) or down (+1); `order` itself at either end. */
+export function moveUnit(order: Order, unit: UnitId, dir: -1 | 1): Order {
+  const from = order.indexOf(unit)
+  const other = order[from + dir]
+  if (from < 0 || other === undefined) return order
+  const next = [...order]
+  next[from] = other
+  next[from + dir] = unit
+  return next.every((id, i) => id === DEFAULT_ORDER[i]) ? DEFAULT_ORDER : next
+}
+
+/**
  * Stored minimised flags, if that is what `v` is; otherwise nothing minimised, except
  * that the option chain stays hidden when E1 had it hidden (`legacyChainOpen === false`).
  */
@@ -59,16 +102,22 @@ function parseStored(v: unknown): Minimised {
 
 export interface Panels {
   minimised: Minimised
-  /** true when any panel is minimised */
+  /** the left column's units, top to bottom */
+  order: Order
+  /** true when any panel is minimised or the order is not the default */
   changed: boolean
   toggleMinimise: (id: PanelId) => void
   /** expand a minimised panel; does nothing to one that is already showing */
   open: (id: PanelId) => void
-  /** every panel expanded again */
+  /** whether a panel can go up (-1) or down (+1); never for one that does not move */
+  canMove: (id: PanelId, dir: -1 | 1) => boolean
+  /** move a panel's unit one place; market view and signal go together */
+  move: (id: PanelId, dir: -1 | 1) => void
+  /** every panel expanded again, in the default order */
   restoreAll: () => void
 }
 
-/** Which panels are minimised, remembered in this browser. */
+/** Which panels are minimised and what order they are in, remembered in this browser. */
 export function usePanels(): Panels {
   const [minimised, store] = usePref(PANELS_KEY, parseStored)
   /** the flags as last written, so two changes in the same moment both land */
@@ -95,19 +144,49 @@ export function usePanels(): Panels {
     },
     [write],
   )
+
+  const [order, storeOrder] = usePref(ORDER_KEY, parseOrder)
+  const latestOrder = useRef(order)
+  const writeOrder = useCallback(
+    (next: Order) => {
+      if (next === latestOrder.current) return
+      latestOrder.current = next
+      storeOrder(next)
+    },
+    [storeOrder],
+  )
+  const move = useCallback(
+    (id: PanelId, dir: -1 | 1) => {
+      const unit = unitOf(id)
+      if (unit) writeOrder(moveUnit(latestOrder.current, unit, dir))
+    },
+    [writeOrder],
+  )
+  const canMove = useCallback(
+    (id: PanelId, dir: -1 | 1) => {
+      const unit = unitOf(id)
+      return unit !== null && moveUnit(order, unit, dir) !== order
+    },
+    [order],
+  )
+
   const restoreAll = useCallback(() => {
     write((m) => (PANEL_IDS.some((id) => m[id]) ? NONE_MINIMISED : m))
-  }, [write])
+    writeOrder(DEFAULT_ORDER)
+  }, [write, writeOrder])
 
   return useMemo(
     () => ({
       minimised,
-      changed: PANEL_IDS.some((id) => minimised[id]),
+      order,
+      changed: PANEL_IDS.some((id) => minimised[id]) || order !== DEFAULT_ORDER,
       toggleMinimise,
       open,
+      canMove,
+      move,
       restoreAll,
     }),
-    [minimised, toggleMinimise, open, restoreAll],
+    [minimised, order, toggleMinimise, open, canMove, move, restoreAll],
   )
 }
 

@@ -83,7 +83,22 @@ Decided with the owner on 2026-11-13:
   second last in the main column, just above signals today.
 - Built as one shared panel frame with no new library.
 
-Not included: full screen for a panel; dragging panels to re-order them.
+Not included: full screen for a panel; dragging panels to re-order them (re-ordering
+with buttons is item 5a).
+
+### 5a. Re-ordering the main column
+
+Asked for (2026-11-16): move the panels in the left view up and down.
+
+Status: built in Milestone E3 and checked in a browser on the live feed. Design in
+[spec.md](spec.md) §13.2 "Panel order"; planned in [plan.md](plan.md) Milestone E3.
+
+Decided with the owner on 2026-11-16:
+- Up and down buttons on each panel's title bar, beside minimise. No drag-and-drop and no
+  new library.
+- Market view and signal are a pair: moving either moves both, so they stay side by side.
+- The order is remembered in the browser, and "Restore panels" puts it back.
+- The index tabs stay at the top and the option chain stays in its own column.
 
 ## Signals
 

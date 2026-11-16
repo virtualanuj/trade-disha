@@ -184,6 +184,9 @@ These apply to the whole product, not to one feature.
   again with one click. The app remembers which.
 - Every panel can be minimised to a single line with a short summary, and expanded again
   where it was. The app remembers which are minimised.
+- The panels of the main area can be moved up and down into the order the trader
+  prefers; the market view and the recommendation move together. The app remembers the
+  order.
 - Open paper trades have their own panel that is always on the page, just above the list
   of the day's recommendations; it says so when none are open.
 - Dates are shown as DD/MM/YYYY everywhere on screen.
@@ -216,6 +219,10 @@ work.
    it was. A minimised recommendation panel opens itself when a new recommendation
    arrives. Minimised panels are remembered. The open paper trades panel is always on the
    page, second last, just above the day's recommendations.
+
+   **5a. Re-ordering.** The panels of the main area can be moved up and down with buttons
+   on each panel. The market view and the recommendation stay side by side and move as a
+   pair. The order is remembered, and one button puts the original layout back.
 
 6. **Earlier recommendations with fewer false ones.** Unlike the items above, this one
    changes how recommendations are made. Recommendations were too often wrong and too

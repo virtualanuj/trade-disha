@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 
 import { openPaperTrade } from './api/client'
 import type { SignalOut } from './api/types'
@@ -25,8 +26,8 @@ import { StatusBanner } from './components/StatusBanner/StatusBanner'
 import { TopBar } from './components/TopBar/TopBar'
 import { clampLayout, DEFAULT_LAYOUT, LIMITS, parseLayout } from './lib/layout'
 import type { Layout } from './lib/layout'
-import { useOpenOnNew, usePanels } from './lib/panels'
-import type { PanelId } from './lib/panels'
+import { unitOf, useOpenOnNew, usePanels } from './lib/panels'
+import type { PanelId, UnitId } from './lib/panels'
 import {
   biasSummary,
   chainSummary,
@@ -161,14 +162,24 @@ export default function App() {
   )
 
   const { open: openPanel } = panels
-  /** the props that give a panel its minimise control */
-  const frame = (id: PanelId) => ({
-    id,
-    minimised: panels.minimised[id],
-    onToggle: () => {
-      panels.toggleMinimise(id)
-    },
-  })
+  /** the props that give a panel its minimise control and, in the left column, its move buttons */
+  const frame = (id: PanelId) => {
+    const step = (dir: -1 | 1) =>
+      panels.canMove(id, dir)
+        ? () => {
+            panels.move(id, dir)
+          }
+        : null
+    return {
+      id,
+      minimised: panels.minimised[id],
+      onToggle: () => {
+        panels.toggleMinimise(id)
+      },
+      move: unitOf(id) ? { up: step(-1), down: step(1) } : undefined,
+      moveLabel: unitOf(id) === 'view' ? 'market view and signal' : undefined,
+    }
+  }
   // a new signal or a newly opened trade brings its minimised panel back, once
   const openSignalPanel = useCallback(() => {
     openPanel('signal')
@@ -208,6 +219,111 @@ export default function App() {
     () => signalHistory.filter((s) => s.index === selected && !s.shadow),
     [signalHistory, selected],
   )
+
+  /** the left column's units; drawn in the order the trader has put them in */
+  const units: Record<UnitId, ReactNode> = {
+    tiles: (
+      <PanelFrame
+        {...frame('tiles')}
+        title="Index"
+        summary={tilesSummary(prices[selected], stats[selected])}
+      >
+        <IndexTiles instruments={selectedInstruments} prices={prices} stats={stats} />
+      </PanelFrame>
+    ),
+    view: (
+      <div
+        className={`grid gap-3 ${
+          panels.minimised.bias || panels.minimised.signal ? '' : 'lg:grid-cols-2'
+        }`}
+      >
+        <PanelFrame {...frame('bias')} title="Market view" summary={biasSummary(bias)}>
+          <BiasMeter bias={bias} />
+        </PanelFrame>
+        <PanelFrame
+          {...frame('signal')}
+          title="Signal"
+          summary={signalSummary(signal, now)}
+          border={
+            signal
+              ? signal.direction === 'BUY_CE'
+                ? 'border-bull/60'
+                : 'border-bear/60'
+              : 'border-dashed border-border'
+          }
+        >
+          <SignalCard
+            signal={signal}
+            gate={gate}
+            now={now}
+            openTrades={openOnIndex}
+            blocked={feedLive ? undefined : 'Feed not live: no price to trade at'}
+            onPaperTrade={paperTrade}
+          />
+        </PanelFrame>
+      </div>
+    ),
+    chart: (
+      <>
+        <PanelFrame
+          {...frame('chart')}
+          title="Price chart"
+          summary={chartSummary(candles)}
+          keepMounted
+          bodyClassName=""
+        >
+          <PriceChart
+            candles={candles}
+            overlays={overlays}
+            signals={markers}
+            dataKey={selected}
+            theme={theme}
+            height={layout.chartHeight}
+          />
+        </PanelFrame>
+        {panels.minimised.chart ? null : (
+          <Divider
+            orientation="horizontal"
+            label="Chart height"
+            value={layout.chartHeight}
+            min={LIMITS.chartMin}
+            max={LIMITS.chartMax}
+            onDrag={(d) => {
+              setLayout({ chartHeight: layout.chartHeight + d })
+            }}
+            onReset={() => {
+              setLayout({ chartHeight: DEFAULT_LAYOUT.chartHeight })
+            }}
+          />
+        )}
+      </>
+    ),
+    evidence: (
+      <PanelFrame {...frame('evidence')} title="Evidence" summary={evidenceSummary(bias)}>
+        <EvidenceTable bias={bias} />
+        <FlowLine flow={flow} />
+      </PanelFrame>
+    ),
+    trades: (
+      <PanelFrame
+        {...frame('trades')}
+        title="Open paper trades"
+        summary={tradesSummary(openOnIndex)}
+        border={openOnIndex.length > 0 ? 'border-accent/50' : 'border-border'}
+      >
+        <OpenTrades trades={openOnIndex} now={now} canClose={feedLive} />
+      </PanelFrame>
+    ),
+    history: (
+      <PanelFrame
+        {...frame('history')}
+        title="Signals today"
+        summary={historySummary(signalHistory, selected)}
+      >
+        <SignalHistory signals={signalHistory} index={selected} />
+      </PanelFrame>
+    ),
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -249,93 +365,9 @@ export default function App() {
                 selected={selected}
                 onSelect={selectIndex}
               />
-              <PanelFrame
-                {...frame('tiles')}
-                title="Index"
-                summary={tilesSummary(prices[selected], stats[selected])}
-              >
-                <IndexTiles instruments={selectedInstruments} prices={prices} stats={stats} />
-              </PanelFrame>
-              <div
-                className={`grid gap-3 ${
-                  panels.minimised.bias || panels.minimised.signal ? '' : 'lg:grid-cols-2'
-                }`}
-              >
-                <PanelFrame {...frame('bias')} title="Market view" summary={biasSummary(bias)}>
-                  <BiasMeter bias={bias} />
-                </PanelFrame>
-                <PanelFrame
-                  {...frame('signal')}
-                  title="Signal"
-                  summary={signalSummary(signal, now)}
-                  border={
-                    signal
-                      ? signal.direction === 'BUY_CE'
-                        ? 'border-bull/60'
-                        : 'border-bear/60'
-                      : 'border-dashed border-border'
-                  }
-                >
-                  <SignalCard
-                    signal={signal}
-                    gate={gate}
-                    now={now}
-                    openTrades={openOnIndex}
-                    blocked={feedLive ? undefined : 'Feed not live: no price to trade at'}
-                    onPaperTrade={paperTrade}
-                  />
-                </PanelFrame>
-              </div>
-              <PanelFrame
-                {...frame('chart')}
-                title="Price chart"
-                summary={chartSummary(candles)}
-                keepMounted
-                bodyClassName=""
-              >
-                <PriceChart
-                  candles={candles}
-                  overlays={overlays}
-                  signals={markers}
-                  dataKey={selected}
-                  theme={theme}
-                  height={layout.chartHeight}
-                />
-              </PanelFrame>
-              {panels.minimised.chart ? null : (
-                <Divider
-                  orientation="horizontal"
-                  label="Chart height"
-                  value={layout.chartHeight}
-                  min={LIMITS.chartMin}
-                  max={LIMITS.chartMax}
-                  onDrag={(d) => {
-                    setLayout({ chartHeight: layout.chartHeight + d })
-                  }}
-                  onReset={() => {
-                    setLayout({ chartHeight: DEFAULT_LAYOUT.chartHeight })
-                  }}
-                />
-              )}
-              <PanelFrame {...frame('evidence')} title="Evidence" summary={evidenceSummary(bias)}>
-                <EvidenceTable bias={bias} />
-                <FlowLine flow={flow} />
-              </PanelFrame>
-              <PanelFrame
-                {...frame('trades')}
-                title="Open paper trades"
-                summary={tradesSummary(openOnIndex)}
-                border={openOnIndex.length > 0 ? 'border-accent/50' : 'border-border'}
-              >
-                <OpenTrades trades={openOnIndex} now={now} canClose={feedLive} />
-              </PanelFrame>
-              <PanelFrame
-                {...frame('history')}
-                title="Signals today"
-                summary={historySummary(signalHistory, selected)}
-              >
-                <SignalHistory signals={signalHistory} index={selected} />
-              </PanelFrame>
+              {panels.order.map((unit) => (
+                <Fragment key={unit}>{units[unit]}</Fragment>
+              ))}
             </section>
             {panels.minimised.chain ? null : (
               <Divider

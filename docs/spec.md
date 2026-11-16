@@ -795,7 +795,8 @@ A minimised panel is its title bar alone, with a one-line summary:
 
 Minimum supported width 1280 px. The chain panel and the price chart are resizable (see
 "Resizable layout" in §13.2). Every panel can be minimised ("PanelFrame" in §13.2).
-The main column scrolls; its panels come in the fixed order drawn above.
+The main column scrolls; its panels come in the order drawn above until the trader moves
+them ("Panel order" in §13.2).
 
 ### 13.2 Components
 - **TopBar**: market status pill (pre-open / live / closed, with clock), feed health with
@@ -838,6 +839,16 @@ The main column scrolls; its panels come in the fixed order drawn above.
   A minimised `signal` panel opens itself when an active signal id not seen in this page
   load arrives, and `trades` likewise for an open trade id; minimised again, it stays
   down until the next new id.
+- **Panel order** (Milestone E3): the main column is six units, drawn in a remembered
+  order: `tiles`, `view` (the bias meter and signal card, which share a row and move as
+  one), `chart` (with its height divider), `evidence`, `trades`, `history`. Each of their
+  PanelFrames has move-up and move-down buttons beside minimise; the button with nowhere
+  to go is disabled, and both panels of `view` carry the same pair of buttons. The index
+  tabs and the option chain do not move. The order is kept in `localStorage`
+  (`tradedisha.panelOrder`); a stored list is read tolerantly (unknown and repeated ids
+  dropped, missing units added at the end). "Restore panels" also resets the order and is
+  shown while it differs from the default. Units are keyed, so a moved chart is not
+  remounted and keeps its zoom. `lib/panels.ts` holds the order logic.
 - **SidePanel** (the right-hand column holding the option-chain PanelFrame): minimising
   the chain hides the column, leaving a 28 px strip on the right edge with a "show"
   button and the panel's name; the main column takes the freed width (the chart resizes
@@ -914,7 +925,8 @@ The main column scrolls; its panels come in the fixed order drawn above.
 - Per-browser preferences in `localStorage`, read through one small hook with a
   try/catch fallback to defaults: theme (existing), `layout` (`{chainWidth, chartHeight}`),
   `panels` (which panels are minimised; replaces E1's `chainOpen`, which is read once to
-  carry the choice over) and `detailsOpen`.
+  carry the choice over), `panelOrder` (the order of the main column's units) and
+  `detailsOpen`.
 - REST via TanStack Query for history, journal, and mutations (`POST /paper-trades`).
 - Optimistic UI is not used for paper trades; the button shows a spinner until the server
   confirms, because the fill price comes from the server.

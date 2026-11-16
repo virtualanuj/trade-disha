@@ -51,8 +51,45 @@ describe('PanelFrame', () => {
     expect(screen.getByText('candles')).not.toBeVisible()
   })
 
-  it('has one control only: there is no full-screen button', () => {
+  it('without move handlers there is one control only', () => {
     setup(false)
     expect(screen.getAllByRole('button')).toHaveLength(1)
+  })
+
+  function movable(up: (() => void) | null, down: (() => void) | null, moveLabel?: string) {
+    render(
+      <PanelFrame
+        id="chart"
+        title="Price chart"
+        minimised={false}
+        onToggle={vi.fn()}
+        move={{ up, down }}
+        moveLabel={moveLabel}
+      >
+        <div>candles</div>
+      </PanelFrame>,
+    )
+  }
+
+  it('movable: offers to move the panel up and down', () => {
+    const up = vi.fn()
+    const down = vi.fn()
+    movable(up, down)
+    fireEvent.click(screen.getByRole('button', { name: 'Move price chart up' }))
+    expect(up).toHaveBeenCalledTimes(1)
+    expect(down).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Move price chart down' }))
+    expect(down).toHaveBeenCalledTimes(1)
+  })
+
+  it('movable: a direction with nowhere to go is disabled', () => {
+    movable(null, vi.fn())
+    expect(screen.getByRole('button', { name: 'Move price chart up' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Move price chart down' })).toBeEnabled()
+  })
+
+  it('movable: a panel that moves with another says so', () => {
+    movable(vi.fn(), vi.fn(), 'market view and signal')
+    expect(screen.getByRole('button', { name: 'Move market view and signal up' })).toBeEnabled()
   })
 })
