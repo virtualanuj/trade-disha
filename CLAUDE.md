@@ -73,7 +73,8 @@ MarketDataProvider (feed/synthetic | replay | upstox)
             -> on 1-minute close -> BiasEngine -> SignalEngine -> PaperTradeManager
        -> ChainManager / ChainState (option chain, re-centring, subscription changes)
        -> PaperTradeManager.on_tick (target / stop)
-  -> listener lists on FeedSession (candle, bias, signal, trade)
+       -> BullionTracker (market/bullion.py; MCX gold/silver, upstox only, own CandleBuilder)
+  -> listener lists on FeedSession (candle, bias, signal, trade, bullion candle)
        -> api/ws.py:WsHub -> browser
 ```
 
@@ -108,7 +109,16 @@ Things that are easy to get wrong:
   `FeedSession` (`chains`, `bias`, `signals`, `paper`, `provider`) are `None` until then.
 - **Degraded mode.** When the feed is silent during market hours, signals stop,
   paper-trade entry and manual close are refused, and fills after the gap are marked. See
-  `feed_live()`, `_track_gap()` and spec §14.
+  `feed_live()`, `_track_gap()` and spec §14. Liveness means ticks arriving, and Upstox
+  stamps ticks with its send time, so a price frozen at the source (seen on 2026-11-16:
+  index spot stuck from 15:15 while futures traded) still counts as live. Check the
+  `ticks` table for distinct `ltp` per minute before blaming the app.
+- **Bullion is display only** (spec §6.6). GOLD and SILVER MCX futures come from the same
+  Upstox socket but must never reach the shared `CandleBuilder` (it drives the bias
+  engine) or `TickStore` (MCX trades until 23:30 and would stretch replays). Every bullion
+  load step fails soft so the index feed always starts. Upstox's full quote returns the
+  live price in `ohlc.close`, and an untraded future's daily candles carry placeholder
+  prices (`parse_range(..., traded_only=True)`).
 - **Generated code.** `feed/upstox_proto/` is protoc output and is excluded from ruff and
   mypy; do not edit it by hand.
 
@@ -116,8 +126,11 @@ Things that are easy to get wrong:
 
 - `api/ws.ts:MarketSocket` keeps one WebSocket with exponential reconnect and feeds the
   Zustand store in `state/store.ts`. The `hello` frame replaces all live state; later
-  frames (`tick`, `chain`, `candle`, `bias`, `signal`, `paper_trade`, `stats`, `health`,
-  `parameters`) update it. Live data is never polled.
+  frames (`tick`, `chain`, `candle`, `bias`, `signal`, `paper_trade`, `stats`, `flow`,
+  `bullion`, `bullion_candle`, `health`, `parameters`) update it. Live data is never polled.
+- `selectedIndex` is an index or `BULLION_TAB` (`state/store.ts`), which is not in
+  `instruments`; code keyed by the selected index must allow for it. The tab shows only
+  while bullion data exists.
 - `api/client.ts` is plain `fetch` for history, the journal and mutations. Paper-trade
   actions wait for the server (no optimistic UI) because the fill price comes from it.
 - `api/types.ts` is a hand-written mirror of `backend/tradedisha/api/schemas.py` and the
