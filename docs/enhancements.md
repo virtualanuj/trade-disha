@@ -9,9 +9,9 @@ specified point to where the requirement, the design and the milestone live.
 
 Make the panels resizable.
 
-Status: built in Milestone E1, awaiting the manual test. Requirement in [intent.md](intent.md) ("Enhancements after
-the first version"); design in [spec.md](spec.md) §13.2 "Resizable layout"; planned in
-[plan.md](plan.md) Milestone E1.
+Status: built in Milestone E1 and checked in a browser. Requirement in [intent.md](intent.md)
+("Enhancements after the first version"); design in [spec.md](spec.md) §13.2 "Resizable
+layout"; planned in [plan.md](plan.md) Milestone E1.
 
 Decided in the spec: two draggable dividers (main column / option chain, and under the
 price chart), with size limits, double-click to reset, and sizes remembered in the browser.
@@ -20,7 +20,7 @@ price chart), with size limits, double-click to reset, and sizes remembered in t
 
 Make the right-hand panel collapsible (show/hide).
 
-Status: built in Milestone E1, awaiting the manual test. Design in spec §13.2 "SidePanel".
+Status: built in Milestone E1 and checked in a browser. Design in spec §13.2 "SidePanel".
 
 Decided in the spec: shown by default, the choice remembered in the browser. Hidden, a
 narrow strip on the right edge brings it back at its previous width. The option chain
@@ -33,7 +33,8 @@ the strip and the remembered choice are unchanged.
 
 Use DD/MM/YYYY for dates on the UI.
 
-Status: built in Milestone E1, awaiting the manual test. Design in spec §13.3 "Dates"; planned in Milestone E1.
+Status: built in Milestone E1 and checked in a browser. Design in spec §13.3 "Dates";
+planned in Milestone E1.
 
 Decided in the spec: display only. The API, the config file and file names keep ISO
 dates. Native date pickers follow the browser's locale and are left alone.
@@ -50,8 +51,9 @@ Enhance the NIFTY top panel with a collapsible details view showing:
 
 The same view applies to BANK NIFTY through the index tabs.
 
-Status: built in Milestone E1, awaiting the manual test. Design in spec §7.4 (the statistics and their sources),
-§6.2 and §6.5 (new data), §13.2 "IndexTiles"; planned in Milestone E1.
+Status: built in Milestone E1 and checked on the live feed. Design in spec §7.4 (the
+statistics and their sources), §6.2 and §6.5 (new data), §13.2 "IndexTiles"; planned in
+Milestone E1.
 
 Data sources, confirmed against the Upstox documentation on 2026-11-13:
 - Upstox has no 52-week high/low field, on the feed or in the quote API. It is computed
@@ -59,8 +61,8 @@ Data sources, confirmed against the Upstox documentation on 2026-11-13:
   (`GET /v3/historical-candle/{key}/days/1/{to_date}/{from_date}`), one request per index
   at start, then widened by today's high and low.
 - India VIX is available as `NSE_INDEX|India VIX`.
-- Still to check on the live feed (spec §17): that the computed 52-week figures match
-  NSE's, and that VIX ticks on the websocket like the other indices.
+- Checked on the live feed (spec §17): the computed 52-week figures match NSE's, and VIX
+  ticks on the websocket like the other indices.
 
 ### 5. Minimisable panels
 
@@ -68,7 +70,7 @@ Asked for: view one panel full screen, restore it to the original layout, or min
 to make room for the others. Full screen was built and then dropped at the owner's
 request (2026-11-13); minimise-in-place is what remains.
 
-Status: built in Milestone E2, awaiting the manual test on a live or replayed day.
+Status: built in Milestone E2 and checked in a browser.
 Requirement in [intent.md](intent.md); design in [spec.md](spec.md) §13.2 "PanelFrame";
 planned in [plan.md](plan.md) Milestone E2.
 
@@ -189,20 +191,48 @@ Decided with the owner on 2026-11-16:
   - a 1-minute chart
   - the contract's range and circuit limits
   - the next month and calendar spread
-- Display only: no signals or paper trades.
+- Display only: no signals or paper trades. *(Superseded by item 10, Milestone E6.)*
 
 Builder's calls:
 - The contract rolls on expiry day.
 - Ticks and candles are not recorded (MCX trades until 23:30), so synthetic and replay
-  have no tab.
+  have no tab. *(Superseded by item 10: bullion ticks now go to their own table, and a
+  replay can include them.)*
 - The day's OI high and low are left out: Upstox sends 0 for MCX.
 - The previous close comes from the feed's `cp`, falling back to the quote's
   `last_price − net_change`.
+
+### 9a. NSE and MCX hours apart
+
+Found while checking item 9 on the live feed (2026-11-16): after 15:30 the feed pill went
+red although bullion was ticking, the BULLION tab showed "Market closed", and gold ticks
+kept the index feed counted as live, which would hide an index outage.
+
+Status: built in Milestone E5 and checked on the live feed, including a network drop on
+BULLION while MCX was open. Design in [spec.md](spec.md) §6.6 "Hours and liveness", §13.2
+and §14; planned in [plan.md](plan.md) Milestone E5.
+
+Decided with the owner on 2026-11-16:
+- MCX keeps its own hours and holidays; index liveness counts NSE ticks only.
+- The top bar follows the tab: on BULLION the market pill shows MCX status and the feed
+  pill's age is the newest bullion tick; a closed market's quiet feed is muted, not red.
+- Closed, holiday and pre-open banners are a prominent amber band with a bold title;
+  errors stay red.
+
+Builder's calls:
+- The MCX close is a setting changed by hand with the US season (23:30 or 23:55), not
+  worked out from daylight-saving rules.
+- An MCX outage is logged (`bullion_gap_start` / `bullion_gap_end`); at the time it changed
+  nothing else, and since E6 it also pauses bullion signals and trades.
 
 ### 10. Bullion signals and paper trades
 
 Asked for (2026-11-16): create signals and paper trades for bullion (gold, silver), with
 the bullion engines offset from the minute close so all engines do not run at once.
+
+Status: built in Milestone E6; the bias, evidence and panels were checked on the live
+feed. Design in [spec.md](spec.md) §6.6 and §9a, and [signal.md](signal.md) §13; planned in
+[plan.md](plan.md) Milestone E6.
 
 Decided with the owner on 2026-11-16:
 - The near-month GOLD and SILVER futures (the full contracts already on the tab), long or
@@ -222,6 +252,9 @@ Builder's calls:
 
 Asked for (2026-11-16): the signal panel should update entry, target and stop while the
 signal waits for the trader.
+
+Status: built in Milestone E7, with unit tests. Design in [spec.md](spec.md) §9.3 and
+§10.1, and [signal.md](signal.md) §7; planned in [plan.md](plan.md) Milestone E7.
 
 Decided with the owner on 2026-11-16:
 - Show both the fired levels and the live ones on the signal panel.

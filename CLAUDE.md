@@ -52,8 +52,12 @@ A milestone is not done while `make check` is red. The pre-commit hook runs ruff
   Tests use this through the `settings` / `client` fixtures in `backend/tests/conftest.py`.
 - `replay`: replays a recorded day from SQLite and drives the app clock from tick
   timestamps. `TRADEDISHA_REPLAY_SPEED=0` runs flat out; `TRADEDISHA_REPLAY_DROP` withholds
-  time ranges for fault injection. Replay does not re-record ticks.
-- `upstox`: live feed; needs API key/secret and a daily login through the app.
+  time ranges for fault injection; `TRADEDISHA_REPLAY_BULLION=true` also replays the day's
+  `bullion_ticks` (contracts from the cached MCX file, no network). Replay does not
+  re-record ticks.
+- `upstox`: live feed; needs API key/secret and a daily login through the app. MCX hours
+  are `TRADEDISHA_MCX_OPEN` / `TRADEDISHA_MCX_CLOSE` (23:30, or 23:55 while the US is on
+  standard time; changed by hand) and `config/mcx-holidays.txt`.
 
 Live recordings are kept in a separate file (`TRADEDISHA_DB_PATH=data/live.sqlite`)
 because synthetic and live data use the same instrument keys. `data/` is gitignored.
@@ -73,10 +77,16 @@ MarketDataProvider (feed/synthetic | replay | upstox)
             -> on 1-minute close -> BiasEngine -> SignalEngine -> PaperTradeManager
        -> ChainManager / ChainState (option chain, re-centring, subscription changes)
        -> PaperTradeManager.on_tick (target / stop)
-       -> BullionTracker (market/bullion.py; MCX gold/silver, upstox only, own CandleBuilder)
+       -> BullionTracker (market/bullion.py; MCX gold/silver, own CandleBuilder)
+            -> bullion_tick_store (bullion_ticks; skipped in replay)
+            -> BullionDesk (engine/bullion_desk.py), on mcx_clock:
+                 candle close queued -> eval_offset_seconds later
+                 -> BullionBiasEngine -> BullionSignalEngine -> its own PaperTradeManager
   -> listener lists on FeedSession (candle, bias, signal, trade, bullion candle)
        -> api/ws.py:WsHub -> browser
 ```
+
+Bullion is loaded with the `upstox` provider, or in replay with `replay_bullion`.
 
 Things that are easy to get wrong:
 
@@ -106,7 +116,8 @@ Things that are easy to get wrong:
 - **Starting can be deferred.** With `upstox` and no valid token the app comes up without
   a feed and `FeedSession.start()` is called from the login callback (`api/auth.py`); it
   is idempotent, and `_start()` does all network work before wiring anything. Parts of
-  `FeedSession` (`chains`, `bias`, `signals`, `paper`, `provider`) are `None` until then.
+  `FeedSession` (`chains`, `bias`, `signals`, `paper`, `provider`, `bullion`,
+  `bullion_desk`) are `None` until then.
 - **Degraded mode.** When the feed is silent during market hours, signals stop,
   paper-trade entry and manual close are refused, and fills after the gap are marked. See
   `feed_live()`, `_track_gap()` and spec §14. Liveness means NSE ticks arriving: bullion
@@ -138,7 +149,11 @@ Things that are easy to get wrong:
   data is never polled.
 - `selectedIndex` is an index or `BULLION_TAB` (`state/store.ts`), which is not in
   `instruments`; code keyed by the selected index must allow for it. The tab shows only
-  while bullion data exists.
+  while bullion data exists. The main-column panels show the **focus** (`App.tsx`): the
+  selected index, or on BULLION the metal picked by `MetalSwitch`
+  (`lib/useBullionMetal.ts`); bias, signals and gates are keyed by that name.
+- A waiting signal carries `live` levels (entry, target, stop at the current price); the
+  `signal_live` frame refreshes them once a second and never revives an ended signal.
 - `api/client.ts` is plain `fetch` for history, the journal and mutations. Paper-trade
   actions wait for the server (no optimistic UI) because the fill price comes from it.
 - `api/types.ts` is a hand-written mirror of `backend/tradedisha/api/schemas.py` and the
@@ -154,16 +169,17 @@ Things that are easy to get wrong:
 ## Documents and how work is organised
 
 - `docs/intent.md` requirements, `docs/spec.md` design (section numbers are cited in code
-  comments), `docs/plan.md` milestones, `docs/dd.md` data dictionary,
-  `docs/enhancements.md` post-1.0 requests.
+  comments), `docs/plan.md` milestones, `docs/signal.md` how a signal is worked out
+  (indices and bullion), `docs/dd.md` data dictionary, `docs/enhancements.md` post-1.0
+  requests.
 - Work is done in milestones; each ends with a runnable demo, one commit
   (`Milestone N: ...`) and a README status update. A behaviour change is reflected in the
   spec and plan as well as the code.
 - Trading logic (indicators, signal rules, paper-trade exits) is written test-first, with
   table-driven lifecycle tests and hypothesis property tests for score bounds.
 
-The spec and plan name some tools that were not adopted. Trust `pyproject.toml` and
-`package.json`: there is no SQLAlchemy, numpy, orjson, import-linter, TanStack Query,
+The original plan named some tools that were not adopted (plan.md "Stack" lists them).
+Trust `pyproject.toml` and `package.json`: there is no SQLAlchemy, numpy, orjson, import-linter, TanStack Query,
 TanStack Virtual, Playwright test suite or OpenAPI type generation. The layering rule
 still holds by convention: `api` depends on `engine` / `market`, which depend on `store`;
 `indicators` imports nothing from `api`, `feed` or `store`.

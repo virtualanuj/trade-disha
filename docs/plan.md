@@ -24,23 +24,53 @@ direction can be corrected early rather than at the end.
 | Latency | tick arrival at app to painted < 250 ms p95 (broker→app hop reported separately); detected minute close to bias/signal painted < 100 ms p95; UI frame time < 16 ms while the chain is updating | built-in latency metrics from Milestone 1; measured in every milestone demo |
 | UI | dark trading-terminal default, light toggle; no jank, no flicker, no manual refresh | visual check each demo; frame-time overlay in dev |
 | Clean code | ruff + mypy strict + pre-commit on backend; ESLint strict + Prettier + `tsc --noEmit` on frontend; tests for all trading logic | CI-style check script runs green before a milestone is called done |
-| Tunability | every signal-shaping parameter in one TOML file; "Reload config" in the app validates and applies it at the next minute | Milestone 3 onward |
+| Tunability | every signal-shaping parameter editable in the app, validated, applied at the next minute and kept as numbered versions (`config/params.toml` only seeds a new database) | Milestone 3 (file and reload), replaced by C1 (versions in the database) |
 
-## Stack (decided)
+## Stack
 
-- Backend: Python 3.12 managed with uv; FastAPI + uvicorn (uvloop, orjson); websockets and
-  httpx for the broker; SQLite via SQLAlchemy Core; numpy for indicators; pytest,
-  hypothesis; ruff, mypy, pre-commit.
-- Frontend: Vite + React + TypeScript (strict); TanStack Query; Zustand for live stores;
-  TradingView `lightweight-charts`; TanStack Virtual for the chain; Tailwind with a
-  design-token theme; ESLint, Prettier, Vitest, Playwright.
+As built (the source of truth is `backend/pyproject.toml` and `frontend/package.json`):
+
+- Backend: Python 3.12 managed with uv; FastAPI + uvicorn; `websockets`, `httpx` and
+  `protobuf` for the broker; SQLite through the standard `sqlite3` module; pure-Python
+  indicator maths; pytest, hypothesis; ruff, mypy strict, pre-commit.
+- Frontend: Vite + React 19 + TypeScript (strict); Zustand for live stores; plain `fetch`
+  for REST; TradingView `lightweight-charts`; Tailwind v4 with a design-token theme;
+  ESLint, Prettier, Vitest.
 - Layout: `backend/` and `frontend/` under the repository root; `docs/` for intent, plan,
-  and design notes.
+  spec, signal walkthrough, enhancements and the data dictionary.
+
+Planned at the start and **not adopted**: orjson, SQLAlchemy Core, numpy, TanStack Query,
+TanStack Virtual, import-linter, Playwright and OpenAPI-generated types. Each turned out
+unnecessary at this size (the chain is 21 rows; the indicator windows are a few hundred
+bars).
 
 ## Prerequisite (owner: Anuj)
 
 Open an Upstox account and register an API application to obtain an API key, secret, and
-redirect URI. Milestone 1 can be built without these, but cannot be verified live.
+redirect URI. Milestone 1 can be built without these, but cannot be verified live. (Done:
+the live feed has been in daily use since 2026-11-13.)
+
+## Milestones at a glance
+
+In the order they were built. The sections below keep their original grouping (first
+version, then enhancements, configuration and signal quality).
+
+| Milestone | What | Built | Status |
+|---|---|---|---|
+| 0–4 | Skeleton, live feed, option chain, candles and bias, signals | 2026-11-12 | built; demoed on synthetic, now in daily use on the live feed |
+| 5 | Paper trading and journal | 2026-11-13 | built |
+| 6 | Hardening for daily use | 2026-11-13 | built; demo and soak run |
+| E1 | Layout, dates and index details | 2026-11-13 | built; checked on the live feed |
+| S1 | Signal yardstick and order-flow recording | 2026-11-13 | built |
+| S2 | Order-flow trigger, in shadow | 2026-11-14 | built; waiting for shadow data |
+| E2 | Minimisable panels | 2026-11-13 | built; checked in a browser |
+| E3 | Re-ordering the main column | 2026-11-16 | built; checked on the live feed |
+| C1 | Editable, versioned config | 2026-11-16 | built; checked in a browser |
+| E4 | BULLION tab | 2026-11-16 | built; checked on the live feed |
+| E5 | NSE and MCX hours apart | 2026-11-16 | built; checked on the live feed |
+| E6 | Bullion signals and paper trades | 2026-11-16 | built; bias and panels checked live, a live bullion trade still to see |
+| E7 | Live signal levels | 2026-11-16 | built, with unit tests |
+| S3 | Switch the trigger on, on evidence | — | planned: after five live sessions of shadow data |
 
 ---
 
@@ -135,7 +165,8 @@ evidence.
 - **Tunable config file**: all signal-shaping parameters in `config/params.toml`;
   validated on load; "Reload config" in the top bar re-reads it and
   applies at the next minute close, or reports the validation error and keeps the old
-  values.
+  values. *(Replaced in Milestone C1 by versions edited in the app; the file now only
+  seeds a new database.)*
 - Browser: candlestick chart with EMA and VWAP overlays; bias meter; evidence breakdown
   table showing each indicator's score, weight, and contribution.
 
@@ -243,7 +274,8 @@ and click-through from a journal row to the signal's evidence.
 **Demo:** start late, kill the network, restore it, and the dashboard recovers without a
 restart or a misleading screen.
 
-**Status (2026-11-13):** built; the demo and the soak are manual and not yet run.
+**Status (2026-11-13):** built. The demo and the full-day soak have since been run by the
+owner.
 - Degraded states: `/api/health` carries one `banner` (login missing/expired, feed not
   started, feed gap with "since", holiday, pre-open, market closed); the UI shows it under
   the top bar and dims last-known data. A lost backend connection is shown the same way.
@@ -308,12 +340,13 @@ whether India VIX ticks on the feed like the other indices (spec §17).
 
 **Not in E1:** zoom-in and zoom-out buttons on the charts (deferred).
 
-**Status (2026-11-13):** built; the demo is manual and not yet run. All four parts are in
-place with unit tests. Two things differ from, or add to, the note above: previous close
+**Status (2026-11-13):** built, and since checked by the owner on the live feed, including
+the 52-week figures against NSE's and India VIX ticking. All four parts are in place with
+unit tests. Two things differ from, or add to, the note above: previous close
 is now stored with recorded ticks (once per instrument when it changes), so a replayed day
 shows change on the day — days recorded before this have none; and the details toggle
-shows the day's change beside it while closed. The two risks above are still open until
-the view is compared with NSE's figures on the live feed.
+shows the day's change beside it while closed. The two risks above were closed on the
+live feed.
 
 **Design:** spec §6.2 (VIX), §6.5 step 3 (52-week fetch), §7.4 (index statistics),
 §12 (API), §13.2–13.4 (details view, resizable layout, date format, preferences).
@@ -351,9 +384,8 @@ deferred).
 
 **Status (2026-11-13):** built, with unit tests, and checked in a browser on the synthetic
 feed: minimise, summaries, reload, expand, "Restore panels", the chart recovering its
-size, and the open paper trades panel in its place with none open. Not yet seen in a browser: a panel opening itself on a real signal or trade (unit
-tests only; no signal fired during the check). The demo on a replayed or live day is not
-yet run.
+size, and the open paper trades panel in its place with none open. The demo on a live day
+has since been run by the owner.
 
 **Design:** spec §13.2 (PanelFrame, SidePanel).
 
@@ -448,7 +480,8 @@ month. Switch the chart; reload to find the tab and switch kept.
 shows live prices with no banner. Drop the network for half a minute: BULLION says prices
 are stale from the last tick, and `feed_events` has the bullion gap rows.
 
-**Status (2026-11-16):** built, with unit tests; not yet checked on the live feed.
+**Status (2026-11-16):** built, with unit tests, and checked on the live feed: the closed
+banner, the top-bar pills by tab, and a network drop on BULLION while MCX was open.
 
 **Design:** spec §6.6 (Hours and liveness) and §14.
 
@@ -633,14 +666,17 @@ Not planned in detail yet; listed so the design keeps room for them.
 
 1. **News and FII/DII inputs** as additional evidence groups with their own slower pollers.
 2. **Replay and tuning tools**: step through a past day, change weights, see how signals
-   would have changed.
+   would have changed. (Partly there: `tools/score.py` replays recorded days with trial
+   parameters and prints the scorecard.)
 3. **Back-testing** over the stored history.
-4. **Further instruments**: FINNIFTY, MIDCPNIFTY, SENSEX, BANKEX, then stock options.
+4. **Further instruments**: FINNIFTY, MIDCPNIFTY, SENSEX, BANKEX, then stock options. (MCX
+   gold and silver were added in E4/E6.)
 
 ## Working agreements
 
 - Each milestone starts with a short written note of what will be built and ends with a
   demo against the goal above; anything that fails the demo is fixed before moving on.
-- Defaults chosen by the builder (weights, thresholds, strike width, costs) are kept in one
-  configuration file and listed in the README, so they are visible and easy to change.
+- Defaults chosen by the builder (weights, thresholds, strike width, costs) live in the
+  parameter model with a description each, so they are visible and easy to change in the
+  app's config editor; `config/params.toml` seeds a new database with them.
 - No real-order code path is ever added, even behind a flag.

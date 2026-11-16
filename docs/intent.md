@@ -2,8 +2,9 @@
 
 ## Purpose
 
-TradeDisha is a personal trading assistant for NSE index options. During market hours it
-watches the market continuously, forms a view on whether the market is turning bullish or
+TradeDisha is a personal trading assistant for NSE index options (and, since the
+enhancements below, MCX gold and silver futures). During market hours it watches the
+market continuously, forms a view on whether the market is turning bullish or
 bearish, and when that view is strong enough it recommends a specific option to buy. Every
 recommendation comes with the reasons behind it, so the trader can judge it rather than
 follow it blindly.
@@ -57,10 +58,9 @@ These apply to the whole product, not to one feature.
    behaviour.
 4. **Tunable signal algorithm.** Everything that shapes a recommendation — the weight of
    each kind of evidence, the thresholds, the indicator settings, targets and stops,
-   time cut-offs — lives in one plain configuration file that the trader edits. The app
-   runs from that single file. If the file is changed during a session, the trader can
-   reload it from the app without restarting, and the new values take effect from the
-   next minute.
+   time cut-offs — can be changed by the trader in the app, without restarting; the new
+   values take effect from the next minute. Every saved set is kept as a numbered version
+   that can be brought back (see "Configuration" under "The screen").
 
 ## Scope of the first version
 
@@ -109,7 +109,7 @@ These apply to the whole product, not to one feature.
   specific call option (bullish) or a specific put option (bearish), at the strike closest
   to the current index level.
 - The first version recommends buying options only. No selling, no spreads, no multi-leg
-  strategies.
+  strategies. (Bullion, added later, buys or sells a future; see enhancement 7.)
 - A recommendation states: the index, the exact option (strike, expiry, call or put), a
   suggested entry price, a target, a stop, the time it was issued, and a breakdown of the
   evidence that produced it.
@@ -132,13 +132,15 @@ These apply to the whole product, not to one feature.
 - Every active recommendation has a "Paper trade" action. Nothing happens unless the
   trader uses it.
 - A paper trade opens at the price prevailing at the moment of the click, and records how
-  far that was from the recommended entry.
+  far that was from the recommended entry. While a recommendation waits, it shows both the
+  entry, target and stop it was issued with and the same levels worked out from the price
+  now; the paper trade takes the levels at its own fill.
 - An open paper trade is tracked live and closes automatically when it reaches its target,
   hits its stop, or the end-of-day square-off time arrives. The trader can also close it
   by hand at any time.
-- Only trades the trader actually clicked are tracked. Recommendations that lapse untraded
-  are kept as a record of the recommendation only; the app does not work out what would
-  have happened to them.
+- Only trades the trader actually clicked become paper trades. Separately, every index
+  recommendation, taken or not, is scored by what its option did next, so the quality of
+  the recommendations can be judged apart from which ones the trader chose (enhancement 6).
 - A paper trade cannot be opened while the live feed is unavailable, because there is no
   honest price to open it at.
 - If the feed drops while a trade is open, target and stop are checked again from the
@@ -157,7 +159,8 @@ These apply to the whole product, not to one feature.
 ### The screen
 - **Top bar**: whether the market is open, whether the live data feed is healthy and how
   fresh it is, and whether the daily broker login has been done, with a way to do it.
-- **Main area**, switchable between NIFTY and BANK NIFTY:
+- **Main area**, switchable between NIFTY, BANK NIFTY and, when gold and silver data is
+  available, BULLION (where the same panels follow the chosen metal):
   - a summary of the index with a details view that can be opened and closed, showing the
     day's open, high and low and where the price sits in that range, the 52-week high and
     low, the previous close and the change on the day, the futures premium over the index,
@@ -194,16 +197,20 @@ These apply to the whole product, not to one feature.
 - Dates are shown as DD/MM/YYYY everywhere on screen.
 
 ### Operating hours
-- The app is active from market open to market close on NSE trading days.
-- Outside those hours it shows the last known state and makes clear the market is closed.
+- The app is active from market open to market close on NSE trading days, and for gold and
+  silver through MCX's hours (to 23:30, later in winter) on MCX trading days. Each market
+  is judged by its own hours: a market that has closed is not treated as a broken feed,
+  and one market's ticks never make the other look live.
+- Outside those hours it shows the last known state and makes clear, prominently, that the
+  market is closed.
 - The broker feed requires a fresh login each day. When that login is missing or expired,
   the app says so clearly and keeps working with whatever it can, rather than failing.
 
 ## Enhancements after the first version
 
-Requested once the first version was in daily use. They change how the screen looks and
-what it shows; they do not change how the market view, recommendations or paper trades
-work.
+Requested once the first version was in daily use. Items 1 to 5 change how the screen
+looks and what it shows. Items 6 to 9 also change how recommendations and paper trades
+work, as each says.
 
 1. **Resizable panels.** The borders between the main area and the option chain, and
    under the price chart, can be dragged. The layout is remembered.
@@ -242,7 +249,16 @@ work.
    (buy or sell the near-month future), worked out from price trend alone, and can be
    paper-traded through the MCX evening session. They play no part in the index market
    view or recommendations, and the journal keeps their results apart from the index
-   options'.
+   options'. This is the one place the app recommends selling: a short future, when the
+   view on a metal is bearish.
+
+8. **Separate market hours.** NSE and MCX keep their own hours and holidays. The top bar
+   and the banner follow the tab being looked at, a closed market's quiet feed is shown as
+   expected rather than as a fault, and the closed-market banner is hard to miss.
+
+9. **Live levels while a recommendation waits.** The recommendation shows the entry,
+   target and stop it was issued with and the same levels at the current price, updated
+   every second. A paper trade opened from it takes the live levels at its fill.
 
 Considered and left for later: zoom-in and zoom-out buttons on the charts; showing one
 panel full screen (built, then removed at the owner's request); dragging panels to
@@ -275,6 +291,11 @@ These were set by the planner, not the trader, and can be changed:
   back to its original position.
 - The 52-week high and low are worked out from a year of daily prices from the broker and
   include today.
+- Bullion (enhancement 7): a recommendation needs a stronger view than for the indices
+  (0.60 against 0.50), because it rests on price trend alone; target and stop are 0.40 %
+  and 0.20 % of the future's price; recommendations from 09:15 to 22:45, square-off at
+  23:00; the view is worked out 20 seconds after each minute so it never competes with the
+  index work.
 
 ## Before building can be tested live
 - The trader opens a broker account with a free, official data API (Upstox is the chosen

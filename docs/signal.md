@@ -63,7 +63,9 @@ ticks ─┬─> 1-minute candles ─┐
 
 In one sentence: **nine indicators each vote between −1 and +1, the votes are averaged
 into a bias, and when the bias is strong enough (and a few safety checks pass) the engine
-raises a signal to buy the call or the put nearest the current index level.**
+raises a signal to buy the call or the put nearest the current index level.** Sections 1
+to 12 describe this index engine; gold and silver run a smaller engine of their own that
+buys or sells a future (section 13).
 
 Three properties hold throughout:
 
@@ -499,8 +501,9 @@ Once a signal ends, the index is free and the next qualifying evaluation can fir
 one. Ending a signal has no effect on a paper trade already opened from it: the trade
 runs on its own target, stop and the 15:15 square-off.
 
-**Degraded feed.** If ticks stop for more than 5 seconds during market hours, the feed is
-not live: no signal fires (`feed_down`), paper-trade entry and manual close are refused,
+**Degraded feed.** If **index (NSE)** ticks stop for more than 5 seconds during NSE market
+hours, the feed is not live (gold and silver ticks on the same connection do not count,
+and silence after the close is not an outage): no signal fires (`feed_down`), paper-trade entry and manual close are refused,
 and the first fill after the gap is marked as such. Signals resume by themselves when
 ticks return.
 
@@ -536,7 +539,7 @@ change and takes effect at the next minute close.
 > - **Late share**: how much of the favourable index move had already happened before the
 >   signal fired. 0 means it fired at the very start of the move, 1 at the very end.
 
-Every signal, live or shadow, traded or not, and however it ended, is followed by
+Every index signal, live or shadow, traded or not, and however it ended, is followed by
 `OutcomeTracker` (`engine/outcomes.py`) from the moment it fires until the earlier of the
 horizon (`outcome_horizon_minutes = 30`) and the square-off time.
 
@@ -552,6 +555,9 @@ horizon (`outcome_horizon_minutes = 30`) and the square-off time.
 Also recorded: the best and worst option price over the whole horizon (followed even
 after the result is decided, so "stopped out just before a run to target" is visible),
 the option price 1, 5 and 15 minutes after firing, and the index move.
+
+Bullion signals are not scored this way: the yardstick measures NSE spot moves (section
+13).
 
 **Late share** = `pre-move / (pre-move + best move after)`, where pre-move is how far spot
 had already gone in the signal's direction over the 10 minutes before firing, and best
@@ -607,9 +613,13 @@ values and highlights the ones that differ from the current config.
 | `signal.expiry_points.<INDEX>` | 40/20, 100/50 | expiry-day target and stop in index points |
 | `signal.outcome_horizon_minutes` | 30 | how long each signal is scored for |
 | `signal.last_signal_time` / `_expiry` | 15:00 / 13:00 | last time a signal may fire |
+| `chain.strike_window` / `recenter_strikes` | 10 / 2 | strikes either side of the chain's centre, and how far spot moves before it re-centres (this decides the "ATM" strike, section 2) |
+| `paper.square_off_time` | 15:15 | open index paper trades close |
+| `paper.cost_per_trade` | ₹60 | round-trip cost per lot |
+| `paper.lots` | 1 | lots per paper trade |
 
 The `[trend]`, `[oi]` and `[premium]` tables hold the periods and full-strength values
-quoted in section 3.
+quoted in section 3. The `bullion` section is in 13.10.
 
 ---
 
@@ -622,6 +632,7 @@ quoted in section 3.
 | Running indicators each minute, storing the bias | `backend/tradedisha/engine/bias_engine.py` |
 | Order-flow score | `backend/tradedisha/market/flow.py` |
 | Entry rules, gates, target and stop, signal life cycle | `backend/tradedisha/engine/signals.py` |
+| Live levels while a signal waits | `engine/signals.py` (`rescale_levels`, `SignalEngine.live`), `api/signals.py` (`live_out`), the `signal_live` frame in `api/ws.py` |
 | Outcomes and the scorecard | `backend/tradedisha/engine/outcomes.py` |
 | Wiring (live and shadow engines, flow, outcomes) | `backend/tradedisha/market/session.py` |
 | Option chain, build-up, PCR, max pain | `backend/tradedisha/market/chain.py` |

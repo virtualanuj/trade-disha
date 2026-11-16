@@ -9,29 +9,41 @@ order.
 
 ## Status
 
-Milestones 0 to 6 complete: provider interface with synthetic and replay
-feeds, instrument resolution, tick recording, WebSocket push with latency stamps, a live
-option chain panel, 1-minute candles with EMA/VWAP/supertrend overlays, nine indicators
-combined into a per-minute bias with a visible evidence breakdown, a tunable
-config edited and versioned in the app, and signals (buy ATM call or put with entry, target
-and stop, expiry-day point targets via delta) with a signal card, chart markers and a
-daily history; one-click paper trades tracked to target, stop, 15:15 square-off or manual
-close, with net-of-cost P&L and a Journal page (hit rate, average win/loss, net result,
-overall and per index). The live Upstox feed (daily login, real instrument master, websocket
-adapter) is in place; starting after the open backfills today's candles and the opening-OI baseline. A status
-banner says why the screen is not live (login, feed outage, market closed) and dims
-last-known data; feed outages are logged; a Data panel deletes old raw ticks. After 1.0.0
-(Milestone E1): resizable panels, a hideable option-chain panel, DD/MM/YYYY dates, and a details view on the index tile
-(day and 52-week range, change on the day, futures premium, India VIX). Milestone E2: every panel can be
-minimised to its title bar to make room for the others. Milestone E3: the panels of the main column can be moved
-up and down, with market view and signal moving as a pair. Milestone C1: the config is edited in the app and kept as
-numbered, tagged versions that can be reverted to, and every signal records its version. Milestone E4: a BULLION
-tab with live gold and silver (MCX futures): day range, liquidity, circuit limits, next month, the gold/silver ratio
-and a minute chart. Milestone E5: bullion follows MCX hours with its own status banner, and index feed
-liveness counts NSE ticks only, so gold ticking never hides an index outage. Milestone E6: bullion signals
-(buy or sell the GOLD/SILVER future on a trend-only bias, run 20 s after each minute close) and long/short
-paper trades through the MCX session, with their own Journal rows. Milestone E7: a waiting signal shows its fired
-and live entry, target and stop, and a paper trade takes the live levels at its fill. See [docs/plan.md](docs/plan.md) for what comes next.
+Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by milestone.
+[docs/plan.md](docs/plan.md) has the detail and what comes next.
+
+- **0–6 (1.0.0):**
+  - Market data: a provider interface with synthetic and replay feeds, instrument
+    resolution, tick recording, and the live Upstox feed (daily login, real instrument
+    master, websocket adapter). Starting after the open backfills today's candles and the
+    opening-OI baseline.
+  - Screen: WebSocket push with latency stamps, a live option chain, and 1-minute candles
+    with EMA/VWAP/supertrend.
+  - Signals: nine indicators combined into a per-minute bias with a visible evidence
+    breakdown. A signal says which ATM call or put to buy, with entry, target and stop
+    (index points via delta on expiry day). There's a signal card, chart markers and a daily
+    history.
+  - Paper trades: one click to open; they close at target, stop, the 15:15 square-off or by
+    hand. P&L is net of costs, and a Journal page shows the results.
+  - Running it: a status banner explains why the screen isn't live, feed outages are logged,
+    and a Data panel deletes old raw ticks.
+- **E1:** resizable panels, a hideable option chain, DD/MM/YYYY dates, and an index details
+  view (day and 52-week range, change, futures premium, India VIX).
+- **E2 / E3:** every panel can be minimised, and moved up and down (market view and signal
+  move as a pair).
+- **C1:** the config is edited in the app and kept as numbered, tagged versions you can
+  revert to. Each signal records the version it fired under.
+- **S1 / S2:** every signal is scored by what its option did next. An order-flow trigger
+  runs in shadow beside the minute-close rule.
+- **E4:** a BULLION tab with live MCX gold and silver: day range, liquidity, circuit limits,
+  next month, the gold/silver ratio and a minute chart.
+- **E5:** bullion follows MCX hours with its own status, and index feed liveness counts NSE
+  ticks only. A closed market's quiet feed shows muted, not red, under an amber banner.
+- **E6:** bullion signals (buy or sell the GOLD/SILVER future on a trend-only bias, worked
+  out 20 s after each minute close) and long/short paper trades through the MCX session,
+  with their own Journal rows.
+- **E7:** a waiting signal shows its fired and live entry, target and stop, and a paper
+  trade takes the live levels at its fill.
 
 ## Documents
 
@@ -40,7 +52,9 @@ and live entry, target and stop, and a paper trade takes the live levels at its 
 | [docs/intent.md](docs/intent.md) | Requirements: purpose, scope, behaviour, qualities. No technical detail. |
 | [docs/plan.md](docs/plan.md) | Development plan: iterative milestones, each ending in a runnable demo. |
 | [docs/spec.md](docs/spec.md) | Architecture and detailed design: components, data model, indicators, signal engine, API, frontend, performance budget, code standards. |
-| [docs/dd.md](docs/dd.md) | Data dictionary: every domain and technical term used above. |
+| [docs/signal.md](docs/signal.md) | How a signal is worked out, end to end, for the indices and for bullion, with worked examples. |
+| [docs/enhancements.md](docs/enhancements.md) | Requests made after 1.0.0, with what was decided and where each was built. |
+| [docs/dd.md](docs/dd.md) | Data dictionary: every domain and technical term used in these documents. |
 
 ## Stack
 
@@ -62,7 +76,7 @@ cp .env.example .env       # Upstox key and secret are needed only for the live 
 
 ```bash
 make backend               # FastAPI on http://127.0.0.1:8000 (reload on change)
-make frontend              # Vite on http://localhost:5173 (proxies /api to the backend)
+make frontend              # Vite on http://localhost:5173 (proxies /api and /ws to the backend)
 ```
 
 For daily use, one command builds the web app and serves everything from the backend:
@@ -82,14 +96,17 @@ Set `TRADEDISHA_FEED_PROVIDER` in `.env`:
 |---|---|
 | `synthetic` (default) | Random-walk prices for both indices, ticking regardless of market hours. Ticks are recorded to SQLite. `TRADEDISHA_SYNTHETIC_TREND_PER_TICK=0.02` adds an upward drift (in strike steps per spot tick) to exercise re-centring. |
 | `replay` | Replays a recorded day from SQLite, driving the app clock from tick timestamps. `TRADEDISHA_REPLAY_DATE=YYYY-MM-DD` picks the day (default: latest); `TRADEDISHA_REPLAY_SPEED=0` runs as fast as possible. `TRADEDISHA_REPLAY_DROP='["10:05:00-10:07:30"]'` withholds the ticks in those IST time ranges, to see how the app behaves through a feed outage. |
-| `upstox` | Live market data. Needs `TRADEDISHA_UPSTOX_API_KEY` / `_SECRET` in `.env` and an Upstox app whose redirect URL is `http://127.0.0.1:8000/api/auth/callback`. Press **Login** in the top bar once a day (the token ends at 03:30 IST). Set `TRADEDISHA_DB_PATH=data/live.sqlite` so live recordings stay apart from synthetic ones; replay with the same path replays a live day against that day's real instruments. The BULLION tab (MCX gold and silver) appears only with this feed. |
+| `upstox` | Live market data. Needs `TRADEDISHA_UPSTOX_API_KEY` / `_SECRET` in `.env` and an Upstox app whose redirect URL is `http://127.0.0.1:8000/api/auth/callback`. Press **Login** in the top bar once a day (the token ends at 03:30 IST). Set `TRADEDISHA_DB_PATH=data/live.sqlite` so live recordings stay apart from synthetic ones; replay with the same path replays a live day against that day's real instruments. The BULLION tab (MCX gold and silver) comes from this feed; a replay shows it only with `TRADEDISHA_REPLAY_BULLION=true`, which also replays that day's recorded bullion ticks. MCX closes at 23:30, or 23:55 while the US is on standard time: set `TRADEDISHA_MCX_CLOSE=23:55` for those months. |
 
-Trading holidays are read from `config/nse-holidays.txt`. Signal hours (09:15 to the
-`last_signal_time` cut-off) are enforced for replay and Upstox feeds; the synthetic feed
-ignores them so signals can be seen at any hour. The same switch governs paper trades:
-with hours enforced, a trade opens only while the market is live and before
-`square_off_time`, and open trades are squared off at that time. Set `TRADEDISHA_ENFORCE_SIGNAL_HOURS`
-to override either way.
+Trading holidays are read from `config/nse-holidays.txt`, and MCX's (which differ, and
+include evening-only days) from `config/mcx-holidays.txt`. Signal hours are enforced for
+replay and Upstox feeds; the synthetic feed ignores them so signals can be seen at any
+hour. For the indices that is 09:15 to `signal.last_signal_time` (15:00), with paper
+trades squared off at `paper.square_off_time` (15:15). For bullion it is
+`bullion.first_signal_time` to `last_signal_time` (09:15–22:45) while MCX is open, squared
+off at `bullion.square_off_time` (23:00). With hours enforced, a trade opens only while its
+market is live and before its square-off. Set `TRADEDISHA_ENFORCE_SIGNAL_HOURS` to override
+either way.
 
 ### Tuning the signal
 
@@ -125,18 +142,19 @@ has beaten the live one over several sessions.
 ## Check
 
 ```bash
-make check                 # ruff, mypy, pytest, tsc, eslint, prettier, vitest
+make check                 # ruff check, ruff format --check, mypy, pytest, tsc, eslint, prettier, vitest
 ```
 
-A milestone is not done while `make check` is red. The pre-commit hook runs the same
-gates on each commit.
+A milestone is not done while `make check` is red. The pre-commit hook runs the lint,
+format and type gates (ruff, ruff format, mypy, ESLint, Prettier, tsc) on each commit, but
+not the tests, so run `make check` before calling something done.
 
 ## Layout
 
 ```
 backend/    Python package `tradedisha`, tests
 frontend/   React app
-config/     NSE holiday list; tunable signal parameters from Milestone 3
-docs/       intent, plan, spec, data dictionary
+config/     NSE and MCX holiday lists; params.toml, the starting parameters for a new database
+docs/       intent, plan, spec, signal, enhancements, data dictionary
 scripts/    check.sh
 ```

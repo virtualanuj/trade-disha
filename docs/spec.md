@@ -1,37 +1,40 @@
 # TradeDisha — Architecture and Design Specification
 
-Requirements: [intent.md](intent.md). Milestones: [plan.md](plan.md).
-This document describes how the first version is built. Values marked *(default)* live in
-configuration and can be changed without code changes.
+Requirements: [intent.md](intent.md). Milestones: [plan.md](plan.md). A walkthrough of how
+a signal is worked out, with examples: [signal.md](signal.md). Terms: [dd.md](dd.md).
+This document describes how the application is built, including the enhancements after
+1.0.0 (milestones are named where a section came from one). Values marked *(default)* live
+in configuration and can be changed without code changes.
 
 ---
 
 ## 1. System overview
 
 ```
-                    ┌──────────────────────────────────────────────────────┐
-                    │                    Backend (Python)                   │
-                    │                                                       │
- Upstox REST  ─────►│  Auth ─┐                                              │
- Upstox WS    ─────►│  Feed Adapter ──► Tick Bus ──┬─► Candle Builder ──┐   │
-                    │     ▲                        ├─► Chain State ─────┤   │
-                    │     │ (swap)                 └─► Tick Store       │   │
-                    │  Replay Adapter                                   ▼   │
-                    │                                            Signal Engine
-                    │                                          (every 1-min close)
-                    │                                                  │    │
-                    │                               Paper Trade Manager ◄───┤    │
-                    │                                                  │    │
-                    │  SQLite ◄──────────── Repositories ◄─────────────┘    │
-                    │                                                       │
-                    │  FastAPI: REST + WebSocket push ◄─── Event Bus        │
-                    └───────────────────────────┬───────────────────────────┘
-                                                │ HTTP + WS (localhost)
-                    ┌───────────────────────────▼───────────────────────────┐
-                    │              Frontend (React, single page)            │
-                    │  Top bar │ Index tabs: meter, chart, signal, evidence  │
-                    │          │ Right panel: option chain │ Journal page    │
-                    └───────────────────────────────────────────────────────┘
+ Upstox REST ──► Auth, instruments, quotes, candles (backfill)
+ Upstox WS ────► Feed adapter ─┐            (or Replay / Synthetic provider)
+                               ▼
+                           Tick bus (synchronous fan-out)
+          ┌───────────────┬────┴──────────┬───────────────┬──────────────────┐
+          ▼               ▼               ▼               ▼                  ▼
+     Tick store      Candle builder   Chain state    Order flow       Bullion tracker
+   (ticks; bullion        │          (NSE options)  (futures, ATM)   (MCX GOLD/SILVER,
+    to bullion_ticks)     ▼ minute close   │              │           own candles)
+                      Bias engine ◄────────┘              │                 │ +20 s
+                          │                               │                 ▼
+                          ▼                               │           Bullion desk:
+                      Signal engine (live + shadow) ◄─────┘           bias → signals →
+                          │                                           paper trades
+                          ▼                                                 │
+                      Paper trade manager, outcome tracker                  │
+                          │                                                 │
+                          ▼                                                 ▼
+          listener lists on FeedSession (candle, bias, signal, trade, bullion) ──► WS hub
+          EventBus (low-rate state: feed health, auth, window, parameters) ─────► WS hub
+                                                                                 │
+                                                       HTTP + WS (localhost)     ▼
+              Frontend (React, single page): top bar, NIFTY / BANKNIFTY / BULLION tabs,
+              panels, option chain, Journal page
 ```
 
 Single process, single user, runs on the trader's Mac. All state is in memory during the
@@ -43,8 +46,10 @@ session and persisted to one SQLite file. The frontend never talks to Upstox dir
   interchangeable.
 - **Pure computation.** Indicators, aggregation, and signal rules are pure functions of
   their inputs. Side effects (persistence, push) happen in thin orchestrators.
-- **Event-driven push.** The backend publishes domain events on an in-process event bus;
-  the WebSocket layer forwards them to the browser. The frontend never polls for live data.
+- **Event-driven push.** Per-tick and per-minute data (candles, bias, signals, trades,
+  bullion) reaches the WebSocket hub through callback lists on `FeedSession`; low-rate
+  state changes (feed health, auth, strike window, parameters) go through the in-process
+  `EventBus`. The frontend never polls for live data.
 - **Explainability is data.** Every bias and signal carries its full indicator breakdown
   as a structured object, persisted alongside it.
 - **No real-order code path.** There is no module, flag, or endpoint that can place an
@@ -59,42 +64,41 @@ TradeDisha/
 ├── backend/
 │   ├── pyproject.toml
 │   ├── tradedisha/
-│   │   ├── config.py            # pydantic-settings; all defaults live here
-│   │   ├── main.py              # FastAPI app factory, lifespan wiring
-│   │   ├── auth/                # Upstox OAuth
-│   │   ├── instruments/         # master download, resolution, expiry rules
-│   │   ├── feed/                # provider interface, upstox, replay, tick bus
-│   │   ├── market/              # candle builder, chain state, derived values
-│   │   ├── indicators/          # pure indicator functions
-│   │   ├── engine/              # aggregator, signal lifecycle, expiry-day mode
-│   │   ├── parameters/          # ParameterSet model, versioned parameter service
+│   │   ├── config.py            # Settings (pydantic-settings, TRADEDISHA_* from .env)
+│   │   ├── main.py              # app factory; build_state() wires every long-lived object
+│   │   ├── app_state.py         # AppState, hung on app.state.td
+│   │   ├── clock.py             # MarketClock (NSE and MCX), DrivenClock for replay
+│   │   ├── events.py            # EventBus for low-rate state changes
+│   │   ├── auth/                # Upstox OAuth, token store
+│   │   ├── instruments/         # master download and parsing, resolution, expiry rules
+│   │   ├── feed/                # provider interface, upstox (+ protobuf), replay, synthetic, tick bus
+│   │   ├── market/              # FeedSession, candles, chain, flow, backfill, bullion tracker
+│   │   ├── indicators/          # pure indicator functions, series maths, delta
+│   │   ├── engine/              # bias, aggregator, signals, outcomes, paper trades, bullion desk
+│   │   ├── parameters/          # ParameterSet model, field schema, versioned service
 │   │   ├── metrics/             # latency samples, event-loop lag
-│   │   ├── paper/               # paper trade manager, exits, journal stats
-│   │   ├── store/               # SQLite schema, repositories
-│   │   ├── api/                 # REST routers, WS hub, DTOs
-│   │   └── events.py            # event bus and event types
-│   └── tests/
-│       ├── fixtures/            # recorded tick/chain samples
-│       └── ...
+│   │   ├── store/               # SQLite connection, migrations, tick store
+│   │   ├── tools/               # score.py: replay recorded days into a scorecard
+│   │   └── api/                 # REST routers, WS hub, schemas
+│   └── tests/                   # mirrors the package; replay and API tests at the top level
 ├── frontend/
 │   ├── package.json
 │   └── src/
-│       ├── api/                 # REST client, WS client, types
-│       ├── state/               # stores for market, signals, trades
-│       ├── components/
-│       │   ├── TopBar/
-│       │   ├── BiasMeter/
-│       │   ├── PriceChart/
-│       │   ├── SignalCard/
-│       │   ├── EvidenceTable/
-│       │   ├── OptionChain/
-│       │   ├── Journal/
-│       │   ├── ConfigControl/   # Reload config, View config drawer
-│       │   └── DebugOverlay/    # latency per hop, frame time (?debug=1)
-│       └── pages/               # Dashboard, Journal
+│       ├── api/                 # REST client, WS client, hand-written types
+│       ├── state/               # Zustand store
+│       ├── lib/                 # formatting, panels, prefs, latency, direction, summaries
+│       ├── theme/               # dark/light theme
+│       └── components/          # one folder per component, test beside it: TopBar,
+│                                # IndexTabs, IndexTiles, BullionView, BiasMeter, PriceChart,
+│                                # SignalCard, EvidenceTable, OpenTrades, SignalHistory,
+│                                # OptionChain, Journal, ConfigControl, DataPanel,
+│                                # StatusBanner, PanelFrame, SidePanel, Divider, DebugOverlay, …
 ├── config/
-│   └── params.toml              # starting parameters for a new database
-├── data/                        # tradedisha.sqlite, instrument cache (gitignored)
+│   ├── params.toml              # starting parameters for a new database
+│   ├── nse-holidays.txt         # NSE trading holidays
+│   └── mcx-holidays.txt         # MCX holidays and evening-only days
+├── data/                        # SQLite files, instrument caches (gitignored)
+├── scripts/check.sh             # every gate, run by `make check`
 └── docs/
 ```
 
@@ -113,15 +117,29 @@ Two kinds of configuration, deliberately separated:
 
 ### 3.1 Static settings
 
-| Key | Default | Notes |
+Fields of `config.py:Settings`, set as `TRADEDISHA_<NAME>` in the environment or `.env`.
+
+| Setting | Default | Notes |
 |---|---|---|
-| `UPSTOX_API_KEY`, `UPSTOX_API_SECRET`, `UPSTOX_REDIRECT_URI` | — | required for live |
-| `DB_PATH` | `data/tradedisha.sqlite` | |
-| `INDICES` | `NIFTY, BANKNIFTY` | |
-| `MARKET_OPEN`, `MARKET_CLOSE` | 09:15, 15:30 | IST |
-| `BIND` | `127.0.0.1:8000` | |
-| `CANDLE_SECONDS` | 60 | |
-| `RISK_FREE_RATE` | 6.5 % | for computed IV only |
+| `upstox_api_key`, `upstox_api_secret`, `upstox_redirect_uri` | —, —, `http://127.0.0.1:8000/api/auth/callback` | required for the live feed |
+| `feed_provider` | `synthetic` | `synthetic`, `replay` or `upstox` |
+| `db_path`, `data_dir` | `data/tradedisha.sqlite`, `data/` | live recordings usually use `data/live.sqlite` |
+| `indices` | `NIFTY, BANKNIFTY` | |
+| `market_open`, `market_close`, `pre_open_start` | 09:15, 15:30, 09:00 | NSE, IST |
+| `holidays_file` | `config/nse-holidays.txt` | |
+| `mcx_open`, `mcx_close` | 09:00, 23:30 | MCX; set the close to 23:55 while the US is on standard time |
+| `mcx_holidays_file` | `config/mcx-holidays.txt` | `YYYY-MM-DD` closed, `YYYY-MM-DD HH:MM` opens late |
+| `enforce_signal_hours` | unset | unset = enforce unless the feed is synthetic |
+| `feed_live_max_tick_age_ms` | 5000 | index liveness (§14) |
+| `bullion_live_max_tick_age_ms` | 15000 | bullion liveness (§6.6) |
+| `risk_free_rate` | 0.065 | for computed delta |
+| `strike_window`, `recenter_strikes` | 10, 2 | starting values; the `chain` parameters (§3.2) govern |
+| `replay_date`, `replay_speed`, `replay_drop`, `replay_bullion` | latest, 1.0, none, false | §6.3, §9a |
+| `synthetic_ticks_per_second`, `synthetic_seed`, `synthetic_trend_per_tick` | 2.0, none, 0.0 | synthetic feed |
+| `ws_tick_hz`, `ws_chain_hz` | 20, 2 | WebSocket throttles (§12.2) |
+| `bind_host`, `bind_port` | 127.0.0.1, 8000 | |
+| `serve_frontend`, `frontend_dist`, `frontend_url`, `reload`, `cors_origins` | false, `frontend/dist`, `http://localhost:5173`, true, Vite's origins | how the app is served (`make start` vs `make backend`) |
+| `params_path` | `config/params.toml` | seeds version 1 of the parameters |
 
 All times are IST. The backend runs with `Asia/Kolkata` as its working timezone and stores
 UTC epoch milliseconds.
@@ -129,12 +147,12 @@ UTC epoch milliseconds.
 ### 3.2 Tunable parameters (`ParameterSet`)
 
 A single pydantic model with validation (weights sum to 1, thresholds in range, fast EMA <
-slow EMA, …), grouped as in the Group column below. Each field carries a one-line
-description, which the editor shows as help text.
+slow EMA, …). Names below are the model's paths (`weights.trend`, `bullion.lots`, …), grouped
+by section. Each field carries a one-line description, which the editor shows as help text.
 
 | Group | Parameter | Default |
 |---|---|---|
-| Weights | `w_trend`, `w_oi`, `w_premium` | 0.40, 0.35, 0.25 |
+| Weights | `trend`, `oi`, `premium` | 0.40, 0.35, 0.25 |
 | Weights | `expiry_oi_weight_factor` | 0.5 |
 | Bias | `entry_threshold` | 0.50 |
 | Bias | `neutral_band` | 0.20 |
@@ -162,6 +180,12 @@ description, which the editor shows as help text.
 | Paper | `square_off_time` | 15:15 |
 | Paper | `cost_per_trade` | ₹60 |
 | Paper | `lots` | 1 |
+| Bullion | `signals` | `on` (`off` = no bullion signals) |
+| Bullion | `entry_threshold`, `neutral_band`, `rearm_hysteresis` | 0.60, 0.20, 0 |
+| Bullion | `signal_ttl_seconds`, `eval_offset_seconds` | 300, 20 |
+| Bullion | `first_signal_time`, `last_signal_time`, `square_off_time` | 09:15, 22:45, 23:00 |
+| Bullion | `target_pct`, `stop_pct` | 0.40, 0.20 (% of the future's price) |
+| Bullion | `lots`, `cost_fixed_per_lot`, `cost_pct_of_value` | 1, ₹60, 0.012 % |
 
 **Versions (Milestone C1).** The database is the source of truth. Table
 `config_versions` holds every saved set: `version` (1, 2, 3, …), `tag` (typed by the
@@ -276,9 +300,15 @@ class Tick:
     iv: float | None      # if the feed provides it
     delta: float | None   # if the feed provides it
     close_prev: float | None
+    # order flow (Milestone S1)
+    bid_qty, ask_qty, bid_qty5, ask_qty5, tbq, tsq: int | None
+    atp: float | None; ltq: int | None
+    # the feed's day candle, sent for MCX futures (§6.6)
+    day_open, day_high, day_low: float | None
 ```
 
-`FeedHealth = {state: connecting|connected|disconnected, last_tick_ts, reconnects, subscribed}`.
+`FeedHealth = {state: connecting|connected|disconnected, last_tick_ts, reconnects,
+subscribed, provider}`. Each provider also has a `name`.
 
 ### 6.2 Upstox provider
 - Obtains a websocket authorisation URL via REST, connects, sends a binary subscribe
@@ -304,13 +334,19 @@ but it has no candles, no futures and no chain. It feeds the index details view 
 
 ### 6.3 Replay provider
 - Reads `ticks` rows for a given date, emits them in timestamp order at `speed` ×
-  real-time (or as fast as possible when `speed = 0`). Used by tests, after-hours demos,
-  and Milestone 6 fault injection (it can be told to drop or delay ranges).
+  real-time (or as fast as possible when `speed = 0`), setting the driven market clock
+  from each tick. Used by tests, after-hours demos, and Milestone 6 fault injection: it can
+  be told to drop (withhold) time ranges (`replay_drop`).
+- With `replay_bullion`, the day's `bullion_ticks` are merged in by time and the bullion
+  desk runs on them (§9a).
 
 ### 6.4 Tick bus and store
-- One `asyncio` fan-out: every `Tick` goes to Candle Builder, Chain State, Paper Trade
-  Manager, and Tick Store.
-- Tick Store batches inserts (every 500 ms or 500 rows) into `ticks`.
+- `TickBus` is a synchronous fan-out: each `StampedTick` (tick plus ingest time) is handed
+  to every subscriber in turn: the session (prices, tick store, candles), chain manager,
+  order flow, outcome tracker, paper trades, and the bullion tracker and desk.
+  Subscribers must not block.
+- The tick store batches inserts (500 rows, and a flush twice a second) into `ticks`;
+  bullion ticks go to `bullion_ticks` instead (§6.6). Nothing is recorded in replay.
 
 ### 6.5 Late start and backfill
 On startup (or after login) when the market is already open:
@@ -409,7 +445,8 @@ or the `ticks` table, and there is no real-order path for it.
   `floor(ts / 60_000)`. Volume per candle is the delta of cumulative day volume.
 - On minute boundary (driven by the exchange timestamp, not wall clock, with a 2 s
   wall-clock fallback when ticks are sparse), the candle is closed, persisted to
-  `candles_1m`, and `CandleClosed(key, candle)` is published.
+  `candles_1m`, and handed to the builder's close listeners (the bias engine and the
+  session's candle listeners).
 - Gaps (no ticks in a minute) produce a carry-forward candle (O=H=L=C=prev close, V=0)
   flagged `synthetic=True`, so indicator windows stay aligned.
 - VWAP is maintained on the futures stream from session open: `Σ(price×vol) / Σvol`.
@@ -437,10 +474,11 @@ A `ChainSnapshotMinute` is appended on each minute close and persisted to
 `chain_minutes` (one row per strike per minute) for replay and tuning.
 
 ### 7.3 IV and Greeks
-If the feed provides IV and delta per option, they are used as-is. If not (decided in
-Milestone 2), IV is computed by Black-Scholes bisection from LTP, spot, strike, time to
-expiry, and a flat rate *(default 6.5%)*; delta follows from that. The source is recorded
-on each `LegState` (`greeks_source = feed | computed`).
+IV and delta are taken from the feed where it sends them. Delta is needed for expiry-day
+targets and for live levels; when the feed has none it is computed with Black-Scholes
+(`indicators/greeks.py:bs_delta`) from spot, strike, time to the 15:30 close on expiry
+day, the option's IV from the feed (15 % if unknown) and `risk_free_rate` *(default
+6.5 %)*. IV itself is never solved for; the IV-change indicator uses the feed's IV only.
 
 ### 7.4 Index day statistics
 
@@ -590,23 +628,33 @@ evidence behind them yet; the shadow scorecard is how they get tuned.)*
 - Feed live: feed health `connected` and last tick age < 5 s *(my call)*; otherwise the
   engine still computes bias (greyed) but fires nothing.
 - Each evaluation records a `Gate` per index (fired or the reason it did not:
-  below_threshold, active_exists, outside_hours, feed_down, no_price, rearm) so the signal
-  card can explain an empty state.
+  `below_threshold`, `active_exists`, `rearm`, `outside_hours`, `feed_down`, `no_price`; in
+  trigger mode also `no_setup`, `flow_not_confirmed`, `spread_wide`; for bullion also
+  `disabled`) so the signal card can explain an empty state.
 
 ### 9.2 Signal content
 
 ```python
-class Signal:
-    id, index, ts_fired, direction: BUY_CE | BUY_PE
-    instrument_key, trading_symbol, strike, expiry, lot_size
-    entry_price          # ATM option LTP at fire time
-    target_price, stop_price
-    target_basis         # "pct" | "points"
-    bias, strength, breakdown
-    expires_at           # ts_fired + signal_ttl_seconds
-    status: active | traded | lapsed | reversed
-    open_trades_on_index: list[PaperTradeBrief]   # filled when any exist
+class Signal:                       # engine/signals.py; table `signals`
+    id, index                       # index is NIFTY / BANKNIFTY, or GOLD / SILVER (§9a)
+    minute_ts, ts_fired             # the minute evaluated; the moment it fired
+    direction: BUY_CE | BUY_PE | BUY_FUT | SELL_FUT
+    instrument_key, trading_symbol, strike, expiry
+    lot_size                        # bullion: rupees per point per lot
+    entry_price                     # option LTP (or ask, trigger rule); future's LTP (bullion)
+    target_price, stop_price        # as fired; never changed
+    target_basis                    # "pct" | "points"
+    target_points, stop_points, delta_used   # expiry day
+    bias, strength, breakdown_json
+    expires_at                      # ts_fired + signal_ttl_seconds
+    status: active | traded | lapsed | reversed; status_ts
+    entry_ask, spread_pct           # the quote at firing
+    entry_mode: minute_close | trigger; shadow: bool; flow_score
+    config_version                  # parameters in force when it fired
 ```
+
+The API adds `outcome` (§9.5) and, while the signal is active, `live` = {ltp, target,
+stop} (§9.3).
 
 ### 9.3 Target and stop
 - **Normal day**: `target = entry × (1 + target_pct/100)`, `stop = entry × (1 + stop_pct/100)`.
@@ -624,16 +672,17 @@ class Signal:
   signal card shows the Fired and Live rows side by side.
 
 ### 9.4 Interaction with open paper trades
-Open trades never block signals. When a signal fires on an index with open trades,
-`open_trades_on_index` is populated (symbol, direction, entry, current P&L, minutes open)
-and the frontend renders it prominently inside the signal card, regardless of whether
-those trades agree or disagree with the new signal.
+Open trades never block signals. When a signal is shown on an index with open trades,
+the signal card lists them prominently (option, entry, current P&L, time open, and
+"opposite side" when they disagree with the signal). The frontend takes them from the open
+trades it already holds; the signal itself carries nothing about them.
 
 Independently of signals, on every `BiasComputed` the `PaperTradeManager` sets
 `warning = "bias_reversed"` on each open trade whose direction opposes the new label
 (CE trade with `Bearish` label, PE trade with `Bullish` label) and clears the warning when
-the label no longer opposes it. Each change publishes `PaperTradeUpdated`. The warning is
-informational; it never closes a trade.
+the label no longer opposes it (for bullion: a long future while Bearish, a short while
+Bullish). Each change goes to the trade listeners and out as a `paper_trade` frame. The
+warning is informational; it never closes a trade.
 
 ### 9.5 Outcomes and the scorecard (Milestone S1)
 
@@ -740,10 +789,11 @@ GOLD and SILVER MCX near-month futures, run by `engine/bullion_desk.py:BullionDe
 
 ```
 POST /paper-trades {signal_id}
-  → validate signal is ACTIVE, market open, feed live (else 409 with reason)
+  → validate signal is ACTIVE (and not shadow), its market open (NSE, or MCX for
+    bullion), before its square-off time, its feed live (else 409 with reason)
   → open at current LTP of signal.instrument_key (not signal.entry_price)
   → slippage = fill − signal.entry_price
-  → quantity = lot_size × lots
+  → quantity = lot_size × lots (bullion: point value × bullion.lots)
   → status OPEN; target/stop = the signal's live levels at the fill price (§9.3), so the
     trade gets what the card's Live row showed; signal_entry keeps the fired entry
 ```
@@ -781,7 +831,7 @@ net   = gross − cost
 cost  = cost_per_trade × lots                                   index options
 cost  = cost_fixed_per_lot × lots
         + cost_pct_of_value / 100 × entry × quantity × 2        bullion futures
-pct   = (exit − entry) / entry × 100
+pct   = side × (exit − entry) / entry × 100
 ```
 Hit = `net > 0`. Bullion's cost has a part that scales with value because a GOLD lot is
 worth over a crore. Each market has its own `PaperTradeManager` (`PaperRules`: clock,
@@ -795,13 +845,14 @@ net total, gross total, average duration, breakdown by exit reason, count of non
 fills. Computed on request from `paper_trades`; small enough not to cache.
 
 ### 10.4 Tick pruning
-`POST /data/prune-ticks {until_date}` deletes rows from `ticks` with
+`POST /data/prune-ticks {until_date}` deletes rows from `ticks` and `bullion_ticks` with
 `ts < start of (until_date + 1 day) IST`, so the chosen date is included (Anuj's decision).
 Nothing else is deleted; `candles_1m`, `chain_minutes`, `bias_minutes`, `signals`, and
 `paper_trades` are untouched, so replay from candles remains possible. The call first
-returns a preview (`GET /data/usage?until_date=`: day count, row count, estimated MB) and
-the UI requires confirmation. Deletion runs in the DB writer task in batches of 50 k rows
-so the hot path is not blocked, followed by `PRAGMA incremental_vacuum`. Pruning the
+returns a preview (`GET /data/usage?until_date=`: day count, row count, estimated MB, both
+tables together) and the UI requires confirmation. Deletion runs in batches of 50 k rows,
+yielding to the event loop between batches so the feed keeps flowing, followed by
+`PRAGMA incremental_vacuum`. Pruning the
 current day while the feed is live is allowed; the tick store simply continues appending.
 A `feed_events` row (`ticks_pruned`, with the date and row count) is written.
 
@@ -809,21 +860,25 @@ A `feed_events` row (`ticks_pruned`, with the date and row count) is written.
 
 ## 11. Persistence (SQLite)
 
-WAL mode, single writer task, batched inserts. All timestamps epoch ms UTC.
+One shared `sqlite3` connection in autocommit mode with WAL; tick inserts are batched. All
+timestamps epoch ms UTC. The schema is plain numbered SQL files in `store/migrations/`,
+applied in order at startup and tracked by `PRAGMA user_version`.
 
 | Table | Key columns | Purpose |
 |---|---|---|
 | `sessions` | id, token, obtained_at, expires_at | daily auth |
 | `instruments` | instrument_key, symbol, exchange, type, expiry, strike, lot_size, step, loaded_on | daily master subset |
-| `ticks` | key, ts, ltp, volume, oi, bid, ask, iv, delta, close_prev, bid_qty, ask_qty, bid_qty5, ask_qty5, tbq, tsq, atp, ltq | raw feed, replay source |
-| `candles_1m` | key, minute_ts, o, h, l, c, v, synthetic | |
+| `ticks` | key, ts, ltp, volume, oi, bid, ask, iv, delta, close_prev, bid_qty, ask_qty, bid_qty5, ask_qty5, tbq, tsq, atp, ltq | raw NSE feed, replay source |
+| `bullion_ticks` | the `ticks` columns plus day_open, day_high, day_low | raw MCX bullion feed (E6), kept apart so evening ticks never stretch an NSE replay |
+| `candles_1m` | key, minute_ts, o, h, l, c, v, synthetic | index and bullion candles, keyed by instrument |
 | `chain_minutes` | index, minute_ts, strike, ce_*, pe_* | per-strike per-minute chain snapshot |
-| `bias_minutes` | index, minute_ts, bias, label, strength, breakdown_json | evidence history |
-| `signals` | id, index, ts_fired, direction, instrument_key, entry, target, stop, basis, bias, strength, breakdown_json, status, status_ts, entry_ask, spread_pct, entry_mode, shadow, flow_score | |
-| `signal_outcomes` | signal_id, end_ts, result, result_ts, best/worst price and ts, px_1m/5m/15m, spot_at_fire, spot_pre_move, spot_best_move, final | what each signal's option did next (§9.5) |
-| `paper_trades` | id, signal_id, index, instrument_key, direction, qty, entry, entry_ts, slippage, target, stop, exit, exit_ts, exit_reason, exit_fill_quality, exit_price_age_ms, gross, net, warning | |
-| `app_state` | key, value | schema version |
-| `feed_events` | ts, kind, detail | disconnects, gaps, recentres, backfills, config reloads, tick prunes |
+| `bias_minutes` | index, minute_ts, bias, label, strength, breakdown_json | evidence history (indices and GOLD / SILVER) |
+| `signals` | the `Signal` fields (§9.2), with `index` stored as `idx` | every signal, live and shadow, index and bullion |
+| `signal_outcomes` | signal_id, end_ts, result, result_ts, best/worst price and ts, px_1m/5m/15m, spot_at_fire, spot_pre_move, spot_best_move, final | what each index signal's option did next (§9.5) |
+| `config_versions` | version, tag, created_ts, source, reverted_from, params_json | every saved parameter set (§3.2) |
+| `paper_trades` | id, signal_id, index, instrument_key, direction, qty, entry, entry_ts, slippage, target, stop, cost, exit, exit_ts, exit_reason, exit_fill_quality, exit_price_age_ms, gross, net, warning | |
+| `app_state` | key, value | small application state |
+| `feed_events` | ts, kind, detail | session starts, disconnects, gaps, bullion gaps, recentres, backfills, tick prunes |
 | `latency_samples` | ts, hop, p50, p95, p99, n | one row per hop per minute |
 
 Indexes on `(key, ts)` for ticks and candles, `(index, minute_ts)` for chain and bias.
@@ -842,7 +897,7 @@ is reclaimable without a full rewrite.
 
 | Method | Path | Returns |
 |---|---|---|
-| GET | `/health` | app, db, auth state, feed health, market status |
+| GET | `/health` | app, auth state, feed health, NSE market status, feed live, the banner, and the `bullion` status (§6.6) |
 | GET | `/auth/login` | 302 to Upstox |
 | GET | `/auth/callback` | handles code, 302 to `/` |
 | GET | `/instruments` | resolved spot/futures/expiry/window per index |
@@ -851,14 +906,18 @@ is reclaimable without a full rewrite.
 | GET | `/candles/{index}?minutes=375` | today's spot candles with EMA/VWAP/supertrend series |
 | GET | `/bias/{index}` | latest bias + breakdown |
 | GET | `/bias/{index}/history?date=` | per-minute bias for a day |
-| GET | `/signals?index=&status=&date=` | signals |
+| GET | `/signals?index=&status=&day=` | signals of a day (index and bullion) |
+| GET | `/signals/active` | signals that can still be paper-traded, with their `live` levels |
+| GET | `/signals/gates` | the last gate result per index and metal |
 | GET | `/signals/scorecard?from=&to=&index=` | how the signals of a date range turned out, per entry rule (§9.5); today by default |
 | GET | `/flow` | latest order-flow reading per index (§8.5) and whether it is live or shadow |
 | GET | `/signals/{id}` | one signal with breakdown and outcome |
 | POST | `/paper-trades` | body `{signal_id}` → trade |
 | POST | `/paper-trades/{id}/close` | manual close |
 | GET | `/paper-trades?index=&date=&status=` | trades |
-| GET | `/journal/stats?from=&to=` | summary stats |
+| GET | `/journal/stats?from=&to=` | summary stats: overall (index options), per index, `bullion` and per metal |
+| GET | `/bullion` | the GOLD / SILVER snapshot (§6.6) |
+| GET | `/bullion/{metal}/candles` | today's bullion candles with VWAP |
 | GET | `/parameters` | the config in force: version, tag, created_ts and the `ParameterSet` |
 | GET | `/parameters/schema` | one entry per editable value: path, group, kind (number, integer, choice, time), limits, choices, help |
 | PUT | `/parameters` | `{tag, params}`: saves a new version; 200 with it, or 422 with field errors (nothing saved) |
@@ -867,11 +926,13 @@ is reclaimable without a full rewrite.
 | POST | `/parameters/versions/{n}/revert` | `{tag?}`: saves version n's values as a new version; 422 if n is unknown or already in force |
 | GET | `/data/usage?until_date=` | DB size, tick rows/days total, and what a prune up to `until_date` would remove |
 | POST | `/data/prune-ticks` | body `{until_date}` → deletes ticks up to and including that date; returns rows removed |
-| GET | `/metrics` | latency p50/p95/p99 per hop (last 1 and 15 min), event-loop lag, queue depths |
-| GET | `/config` | effective static settings (read-only, secrets redacted) |
+| GET | `/metrics` | latency p50/p95/p99 per hop (last 1 and 15 min), event-loop lag |
+| POST | `/metrics/client` | the browser's per-minute latency summary (receive and paint hops) |
 
-Errors: RFC 7807 problem JSON. 409 when a paper trade is requested for a non-active
-signal, outside market hours, or while the feed is not live; the `detail` says which.
+Errors: FastAPI's JSON `{"detail": "…"}`. 404 for an unknown signal or trade; 409 when a
+paper trade is requested for a signal that is no longer active or is shadow, outside its
+market's hours or after its square-off, or while its feed is not live; the `detail` says
+which.
 
 ### 12.2 WebSocket (`/ws`)
 
@@ -879,21 +940,24 @@ Server → client JSON frames `{type, ts, payload}`:
 
 | type | cadence | payload |
 |---|---|---|
-| `hello` | on connect | full snapshot: health, instruments, chain per index, latest candles, bias, active signals, open trades, index stats |
+| `hello` | on connect | full snapshot: health, instruments, prices, chain per index, candles, bias (indices and metals), parameters, active signals, today's signals, gates, flow, today's trades, index stats, bullion snapshot and candles |
 | `stats` | leading-edge throttle, max 1/s per index | `IndexStats` |
 | `tick` | leading-edge throttle, max 20/s per index | `{index, spot_ltp, spot_ts, fut_ltp, fut_ts}` |
 | `chain` | leading-edge throttle, max 2/s per index | full window (21 rows) + derived values; small enough that diffs are not worth it |
 | `candle` | per minute | closed candle + indicator series point |
 | `bias` | per minute | bias + breakdown |
-| `signal` | on change | full `Signal`, shadow ones included (flagged) |
+| `signal` | on change | full `Signal` with the current gates, shadow ones included (flagged) |
+| `signal_live` | 1/s while any signal is active | the active signals with their `live` levels (§9.3) |
 | `flow` | about 1/s per index | order-flow score and its three parts (§8.5) |
 | `paper_trade` | on change, and 1/s while open | trade with live P&L |
-| `health` | on change | feed/auth/market status |
+| `health` | on change | feed/auth/market status, banner, bullion status |
+| `bullion` | leading-edge throttle like `tick` | the GOLD / SILVER snapshot |
+| `bullion_candle` | per closed bullion minute | `{metal, candle, overlay}` |
 | `parameters` | on a save or revert | version, tag, created_ts, the set, effective-from minute |
 
 Every frame carries `t_src` (exchange ts), `t_in` (backend ingest), `t_out` (backend send)
-so the client can compute per-hop latency. Frames are serialised with orjson; one frame
-may batch several events of the same type produced in the same throttle window.
+so the client can compute per-hop latency. Frames are serialised with pydantic and the
+standard `json` module; throttled channels send only the latest state of the window.
 
 Client → server: `{"type":"ping"}` only. All mutations go through REST.
 
@@ -945,9 +1009,17 @@ The main column scrolls; its panels come in the order drawn above until the trad
 them ("Panel order" in §13.2).
 
 ### 13.2 Components
-- **TopBar**: market status pill (pre-open / live / closed, with clock), feed health with
-  tick age colour (green < 2 s, amber < 10 s, red otherwise), auth state with Login button,
-  Journal link.
+- **TopBar**: market status pill (pre-open / live / closed / holiday, with clock), feed
+  health with tick age colour (green < 2 s, amber < 10 s, red otherwise), auth state with
+  Login button, Journal link. Both pills follow the tab (E5): on an index tab they read NSE
+  status and the newest index tick; on BULLION they read `MCX LIVE` / `MCX CLOSED` and the
+  newest bullion tick. While that market is closed, a quiet feed is shown muted instead of
+  amber or red; a dropped connection is always red.
+- **StatusBanner**: one band under the top bar. Errors (login, feed gap, lost backend) are
+  red with ⚠. A market's session state (closed, holiday, pre-open; NSE, or MCX on
+  BULLION) is an amber band with ⏸ and a bold title such as "NSE MARKET CLOSED", so it
+  is never mistaken for a quiet feed (E5). On BULLION the bullion status decides the
+  banner; login and connection problems still come first.
 - **IndexTabs**: NIFTY / BANKNIFTY, and BULLION while there is bullion data (§6.6);
   selection drives chart, meter, signal, evidence, and chain panel. A selected BULLION
   survives a reconnect, and falls back to the first index if bullion goes away.
@@ -1023,9 +1095,10 @@ them ("Panel order" in §13.2).
   resizable). `lightweight-charts` candlestick; EMA9, EMA21, VWAP line series;
   supertrend as coloured line; signal markers (▲ CE, ▼ PE) with tooltips; paper-trade
   entry/exit markers.
-- **SignalCard**: direction, symbol, entry/target/stop (with points shown on expiry day),
-  countdown, open-trades block when `open_trades_on_index` non-empty (each with direction,
-  entry, live P&L and minutes open; closing is done from the OpenTrades panel), Paper
+- **SignalCard**: direction, symbol, the Fired and Live rows of entry/target/stop (E7;
+  points shown on expiry day; a future shows its rupees per point), countdown, an
+  open-trades block when there are open trades on that index or metal (each with
+  direction, entry, live P&L and minutes open; closing is done from the OpenTrades panel), Paper
   trade button (disabled with reason when market closed, feed not live, or signal not
   active), link to full breakdown. With no active signal it says so, with the reason the
   last minute did not fire.
@@ -1094,14 +1167,18 @@ them ("Panel order" in §13.2).
 
 ### 13.4 State and data flow
 - WS client with exponential reconnect; on `hello` replaces all live stores.
-- Per-index stores: `chain`, `candles` (ring buffer of 375), `bias`, `activeSignal`,
-  `openTrades`, `stats`.
+- One Zustand store (`state/store.ts`), keyed by index name where it varies: `prices`,
+  `chains`, `candles`, `overlays`, `bias`, `signals` (the active one, with `live` levels),
+  `gates`, `flow`, `stats`; plus `trades`, `signalHistory`, `health`, `parameters`,
+  `bullion`, `bullionCandles`, `bullionOverlays`. GOLD and SILVER use the same per-name
+  maps as the indices.
 - Per-browser preferences in `localStorage`, read through one small hook with a
   try/catch fallback to defaults: theme (existing), `layout` (`{chainWidth, chartHeight}`),
   `panels` (which panels are minimised; replaces E1's `chainOpen`, which is read once to
   carry the choice over), `panelOrder` (the order of the main column's units) and
   `detailsOpen`.
-- REST via TanStack Query for history, journal, and mutations (`POST /paper-trades`).
+- REST via plain `fetch` (`api/client.ts`) for history, the journal and mutations
+  (`POST /paper-trades`).
 - Optimistic UI is not used for paper trades; the button shows a spinner until the server
   confirms, because the fill price comes from the server.
 
@@ -1110,16 +1187,22 @@ them ("Panel order" in §13.2).
 ## 14. Time, calendar, and operating modes
 
 - `MarketClock` provides `now()` and `status()` ∈ `pre_open | live | closed | holiday`
-  from IST time and an NSE holiday list (static file for the year, editable).
+  from IST time and an NSE holiday list (static file for the year, editable). A second
+  `MarketClock` on the same time source, `FeedSession.mcx_clock`, does the same for MCX
+  with its own hours and calendar, including evening-only days (§6.6).
 - **Clock source.** `MarketClock` is injected everywhere time is read (engine, paper
   manager, square-off timer, signal TTL). In live mode it reads the wall clock. In replay
   mode it is driven by the replayed tick timestamps, so a session replayed at 21:00 still
   sees "09:15–15:30" and the engine, cut-offs, and square-off behave exactly as they did
-  live. No component reads `datetime.now()` directly (enforced by a lint rule).
+  live. No component reads the wall clock directly; the only exception is `main.py`, which
+  seeds the replay clock at start. This is a convention kept in review (no lint rule
+  enforces it).
 - Modes:
   - **live**: auth valid, market live → feed connected, engine running.
-  - **standby**: market closed or holiday → no feed; UI shows last known state with a
-    "Market closed" banner; replay can be started from `/api/replay` (dev only).
+  - **standby**: NSE closed or holiday → no index ticks expected; the UI shows the last
+    known state under an amber "NSE market closed" (or holiday) banner, and a quiet index
+    feed is not an outage. With the live feed the socket stays up for MCX bullion until
+    MCX closes. Replay is started by restarting with `feed_provider=replay`.
   - **degraded**: market live but auth missing/expired or feed disconnected → banner with
     the reason; last-known data shown with greyed timestamps; bias still computed from
     whatever candles exist but shown greyed; no new signals; paper-trade entry and manual
@@ -1155,14 +1238,13 @@ wall-clock fallback when ticks are sparse; the detection delay is reported separ
 `minute_close_lag`.
 
 ### Backend techniques
-- `uvloop` event loop; `orjson` for all JSON; protobuf decode in the feed task only.
-- The tick bus is in-process `asyncio` queues; consumers never block. Anything that can
-  take more than ~1 ms (SQLite writes, indicator maths over full windows) runs off the hot
-  path: the DB writer is a separate task with batched commits; indicators keep incremental
-  state (running EMA, rolling sums) so a minute-close evaluation is O(indicators), not
-  O(window).
-- Chain derived values are incremental per tick (update one row's contribution to the
-  sums) rather than recomputed over the window.
+- uvicorn's standard event loop (uvloop where installed); JSON through pydantic and the
+  standard library; protobuf decode in the feed task only.
+- The tick bus is a synchronous fan-out; consumers never block. SQLite writes are kept
+  off the per-tick path: ticks are buffered and written in batches (500 rows, or the
+  twice-a-second flush).
+- Chain derived values are recomputed over the window on each tick that changes OI or
+  LTP (§7.2); with at most 21 rows this is cheap.
 - WS push is throttled per channel (§12.2) on the leading edge and coalesced: a dirty
   index is pushed as soon as its minimum gap has elapsed and the latest state wins, so a
   slow client never builds a backlog. Candle, bias and parameter frames bypass the throttle
@@ -1171,14 +1253,14 @@ wall-clock fallback when ticks are sparse; the detection delay is reported separ
   than carrying incremental state; measured cost is microseconds and the functions stay
   pure. Revisit only if the instrument count grows by orders of magnitude. A client that falls behind by > 2 s is
   disconnected and reconnects to a fresh `hello`.
-- Event-loop lag is sampled every 100 ms; if p95 lag exceeds 20 ms for a minute, a
-  `feed_events` warning is written and shown in the dev overlay.
+- Event-loop lag is sampled every 100 ms and reported as the `loop_lag` hop in `/metrics`
+  and the dev overlay.
 - Replay at `speed=0` is used as the load test: a full day must process in under 60 s on
   the development Mac.
 
 ### Frontend techniques
 See §13.3 Performance. Additionally: WS parsing in the main thread (frames are small);
-React 18 automatic batching; no state in context that changes per tick; `React.memo` on
+React 19 automatic batching; no state in context that changes per tick; `React.memo` on
 chain rows keyed by strike; chart updates via `series.update()` not `setData()`.
 
 ### Measurement
@@ -1191,21 +1273,25 @@ chain rows keyed by strike; chart updates via `series.update()` not `setData()`.
 
 ## 14b. Code quality standards
 
-- **Python**: ruff (lint + format, strict rule set incl. `B`, `UP`, `SIM`, `PL`), mypy
-  `--strict`, no `Any` in public signatures, pydantic models at every boundary (feed,
-  API, DB), pure functions for all trading maths, max ~300 lines per module, docstrings on
-  public functions stating units and conventions (IST vs UTC, % vs fraction).
+- **Python**: ruff (lint + format; rules `E F W I N UP B SIM PL RUF ANN ASYNC T20 PT`,
+  at most 8 arguments, line length 100), mypy `--strict` with the pydantic plugin over the
+  package and the tests, no `Any` in public signatures, pydantic models at the API and
+  settings boundaries, pure functions for all trading maths, docstrings on public
+  functions stating units and conventions (IST vs UTC, % vs fraction). Modules are aimed at
+  ~300 lines; `market/session.py` (~800) and `engine/signals.py` (~520) are over it and are
+  candidates to split.
 - **TypeScript**: `strict: true`, ESLint (typescript-eslint strict + react-hooks +
-  jsx-a11y), Prettier; API types generated from the backend's OpenAPI schema so DTOs
-  cannot drift; no `any`.
-- **Structure**: dependencies point inward: `api` → `engine`/`paper`/`market` → `store`;
-  `indicators` and `engine` import nothing from `api`, `feed`, or `store`. Enforced with
-  import-linter.
-- **Tests**: see §15. Trading logic (indicators, engine, paper) is held at 100 % branch
-  coverage; the rest at a sane level without chasing numbers.
-- **Automation**: pre-commit runs ruff, mypy, ESLint, Prettier, tsc on changed files; a
-  single `make check` (or `uv run check`) runs everything plus tests; a milestone is not
-  "done" with it red.
+  jsx-a11y) with zero warnings, Prettier, no `any`. API types are a hand-written mirror of
+  `api/schemas.py` and the WS frames in `frontend/src/api/types.ts`; both sides change
+  together.
+- **Structure**: dependencies point inward: `api` → `engine`/`market` → `store`;
+  `indicators` imports nothing from `api`, `feed` or `store`. Kept by convention (no tool
+  enforces it).
+- **Tests**: see §15. Trading logic is written test-first, with table-driven lifecycle
+  tests and property tests for score bounds. Coverage is not measured.
+- **Automation**: pre-commit runs ruff (with `--fix`), ruff format, mypy, ESLint, Prettier
+  and tsc over the whole project (not the tests); `make check` (`scripts/check.sh`) runs
+  every gate plus the backend and frontend tests; a milestone is not "done" with it red.
 - **Conventions**: one way to do each thing (one HTTP client, one time helper, one event
   bus); no feature flags for dead code; TODOs carry a milestone reference or are not
   committed.
@@ -1220,9 +1306,10 @@ chain rows keyed by strike; chart updates via `series.update()` not `setData()`.
 | Signal engine | table-driven lifecycle tests: fire, lapse, reversal, hysteresis, time cut-offs, expiry-day mode, open-trade interaction |
 | Paper trading | every exit path, slippage recording, cost netting, square-off timer, degraded-mode behaviour (entry refused, `after_gap` and `stale` fills), warning set/clear on bias change |
 | Tick pruning | preview matches deletion; derived tables untouched; prune during live append; vacuum reclaims space |
-| Integration | replay a recorded session through the full pipeline; assert persisted signals/trades match a golden file |
-| API | FastAPI test client for REST contracts; WS `hello` snapshot shape |
-| Frontend | component tests for SignalCard states and EvidenceTable; one Playwright smoke test against a replay backend |
+| Integration | replay recorded ticks through the full session (fault injection, a recorded live day, a bullion evening) and assert the persisted results; there is no golden-file comparison |
+| API | FastAPI test client for REST contracts; WS `hello` and per-second frames |
+| Frontend | Vitest component tests beside each component (SignalCard states, EvidenceTable, TopBar, StatusBanner, BullionView, …) and store tests; no browser end-to-end suite |
+| Bullion | parameters, trend-only aggregation, the offset queue, the signal gates and lifecycle, short P&L, MCX square-off, ownership on restore, recording and replay |
 | Fault injection | replay provider configured to drop/delay ranges; assert reconnect, re-subscribe, and degraded-mode behaviour |
 
 Live verification per milestone is described in plan.md.
@@ -1241,16 +1328,17 @@ Live verification per milestone is described in plan.md.
 
 ## 17. Open items to resolve during build
 
-| Item | Resolve in | Fallback |
-|---|---|---|
-| Exact Upstox WS protobuf schema, `full` mode fields, subscription cap | M1 | reduce `strike_window` |
-| Whether IV/delta arrive on the feed | M2 | compute via Black-Scholes (§7.3) |
-| Whether option-chain REST provides day OI change for opening-OI backfill | M2 | `oi_baseline=partial` flag |
-| Intraday candle REST availability for same-day minutes | M3 | warm-up period with `quality=warming` |
-| Indicator constants (k, bands) | M3 review point | tune on recorded days |
-| 52-week high/low from daily candles matches NSE's published figures | E1 demo | show the values with their source dates on hover |
-| India VIX arrives on the feed in `full` mode like the other indices | E1 demo | poll the quote API once a minute |
-| `tbq`, `tsq`, `atp` and all five book levels arrive in `full` mode for index futures and the option window | S1 live day | build the trigger on whichever of them do arrive |
-| Growth of the `ticks` table with the eight order-flow columns | S1 live day (Data panel) | record them only for the futures and the strikes near ATM |
-| Whether order flow leads price on these contracts at all | S2 shadow scorecard | keep the minute-close rule; try enhancement 6's other options |
-| MCX ticks (and the `1d` OHLC row) arrive for this account in `full` mode | E4 live check: the tab checked live by the owner, 2026-11-16 | poll the full quote once a few seconds |
+| Item | Resolve in | Fallback | Status |
+|---|---|---|---|
+| Exact Upstox WS protobuf schema, `full` mode fields, subscription cap | M1 | reduce `strike_window` | resolved: live feed in use |
+| Whether IV/delta arrive on the feed | M2 | compute via Black-Scholes (§7.3) | resolved: delta computed when absent; IV from the feed |
+| Whether option-chain REST provides day OI change for opening-OI backfill | M2 | `oi_baseline=partial` flag | resolved in M6 backfill |
+| Intraday candle REST availability for same-day minutes | M3 | warm-up period with `quality=warming` | resolved: used for backfill |
+| Indicator constants (k, bands) | M3 review point | tune on recorded days | open: tuned with `tools/score.py` as days accumulate |
+| 52-week high/low from daily candles matches NSE's published figures | E1 demo | show the values with their source dates on hover | resolved: checked live |
+| India VIX arrives on the feed in `full` mode like the other indices | E1 demo | poll the quote API once a minute | resolved: checked live |
+| `tbq`, `tsq`, `atp` and all five book levels arrive in `full` mode for index futures and the option window | S1 live day | build the trigger on whichever of them do arrive | resolved: recorded live |
+| Growth of the `ticks` table with the eight order-flow columns | S1 live day (Data panel) | record them only for the futures and the strikes near ATM | watch: prune from the Data panel |
+| Whether order flow leads price on these contracts at all | S2 shadow scorecard | keep the minute-close rule; try enhancement 6's other options | open: S3, after five live sessions |
+| MCX ticks (and the `1d` OHLC row) arrive for this account in `full` mode | E4 live check | poll the full quote once a few seconds | resolved: checked live 2026-11-16 |
+| A live bullion signal and paper trade behave as the tests say | E6 live check | tune `bullion.*` | open: bias and panels checked live, a trade still to see |
