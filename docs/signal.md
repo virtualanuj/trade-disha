@@ -3,7 +3,8 @@
 This document explains, end to end, how TradeDisha decides to raise a "buy call" or "buy
 put" signal: what data goes in, how it becomes a single bias number each minute, the two
 entry rules, how targets and stops are set, how a signal ends, and how every signal is
-scored afterwards.
+scored afterwards. Section 13 explains the separate engine for gold and silver, which
+buys or sells a future instead of an option.
 
 It describes the code as it stands. The design reference is `docs/spec.md` §8 (indicators)
 and §9 (signal engine); every tunable number mentioned here is a config parameter
@@ -25,6 +26,7 @@ Each section starts with a **Note** that explains the terms it is about to use.
 10. [Scoring every signal](#10-scoring-every-signal)
 11. [Parameters](#11-parameters)
 12. [Where the code is](#12-where-the-code-is)
+13. [Bullion signals: gold and silver](#13-bullion-signals-gold-and-silver)
 
 ---
 
@@ -462,6 +464,15 @@ the risk-free rate. Example: NIFTY call at ₹60 with delta 0.5 gives target 60 
 | `config_version` | the config version in force when it fired (section 11) |
 | `status`, `status_ts` | where it is in its life (next section) |
 
+**Live levels while the signal waits.** The three prices above are the **fired** levels
+and are never changed. While the signal is active, the card also shows **live** levels:
+the same rule applied to the option's price now. A percentage signal keeps the
+target/entry and stop/entry ratios it fired with (so editing the config later does not move
+it); an expiry-day signal re-applies its index points through the option's **current**
+delta. They are sent once a second. When you paper-trade the signal, the trade opens at
+the price then and takes the live target and stop at that price (`rescale_levels` in
+`engine/signals.py`).
+
 ---
 
 ## 8. Step 6: how a signal ends
@@ -616,3 +627,278 @@ quoted in section 3.
 | Option chain, build-up, PCR, max pain | `backend/tradedisha/market/chain.py` |
 | Parameters | `backend/tradedisha/parameters/model.py` (the fields), `parameters/service.py` (versions), `config/params.toml` (starting values) |
 | Tests | `backend/tests/test_signals.py`, `test_outcomes.py`, `tests/market/test_flow.py`, `tests/indicators/` |
+
+---
+
+## 13. Bullion signals: gold and silver
+
+> **Note: terms used in this section**
+>
+> - **MCX**: Multi Commodity Exchange of India, where gold and silver futures trade. It is a
+>   different exchange from NSE, open 09:00 to 23:30 IST (23:55 while the US is on
+>   standard time), with its own holidays.
+> - **Future (here)**: a contract to buy or sell 1 kg of gold or 30 kg of silver on a later
+>   date at today's agreed price. Unlike an option it gains and loses one-for-one with the
+>   metal's price, in either direction.
+> - **Near month**: the future with the nearest expiry strictly after today. It is the most
+>   traded, and TradeDisha switches (**rolls**) to the next one on expiry day.
+> - **Long / short**: buying (gains when the price rises) or selling (gains when it falls).
+>   `BUY_FUT` is a long signal, `SELL_FUT` a short one.
+> - **Point value** (`qty_multiplier`): rupees gained or lost per one-rupee move in the
+>   quoted price, per lot. GOLD is quoted per 10 g but a lot is 1 kg, so **₹100**; SILVER is
+>   quoted per kg on a 30 kg lot, so **₹30**.
+> - **Bullion live**: the feed is connected, MCX is open and a gold or silver tick has
+>   arrived in the last 15 seconds. It is judged apart from the index feed.
+
+The bullion engine is a smaller, separate copy of the pipeline above, run by
+`BullionDesk` (`engine/bullion_desk.py`). It shares the candle maths, the trend
+indicators, the aggregator and the signal and trade tables with the index engine, and
+nothing else: no index bias, signal or trade ever reads bullion, and bullion never reads
+the option chain, order flow or NSE hours.
+
+```
+MCX GOLD / SILVER ticks ─> BullionTracker (its own 1-minute candles)
+        │                          │ candle closes
+        │                          v
+        │          queued; worked out 20 s after the minute closes
+        │                          │
+        │                          v
+        │      3 trend indicators ─> bias (−1..+1) ─> gates ─> BUY_FUT / SELL_FUT
+        │                                                         │
+        └──────────── live price ─────────────────────> live levels, paper trade
+```
+
+### 13.1 How it differs from the index engine
+
+| | Index (NIFTY, BANK NIFTY) | Bullion (GOLD, SILVER) |
+|---|---|---|
+| What a signal trades | buy the ATM call or put | buy or sell the near-month future |
+| Evidence | 9 indicators: trend, OI, premium | 3 indicators: trend only (there is no option chain) |
+| Candles the trend reads | spot (EMAs, supertrend), future (VWAP) | the near-month future for all three |
+| When it is worked out | at the minute close | 20 s after the minute close |
+| Entry threshold | \|bias\| ≥ 0.50 | \|bias\| ≥ 0.60 |
+| Entry rules | `minute_close` and `trigger`, with a shadow engine | `minute_close` only, no shadow |
+| Signal hours | 09:15 to 15:00 (13:00 on expiry day), NSE days | 09:15 to 22:45, MCX open |
+| Target / stop | +30 % / −15 % of the option premium, or index points on expiry day | ±0.40 % / 0.20 % of the future's price |
+| Square-off | 15:15 | 23:00 |
+| Scored by the outcome yardstick | yes | no (it measures NSE spot moves) |
+
+### 13.2 Inputs
+
+> **Note:** a **contract roll** is the switch from the expiring future to the next one.
+
+For each metal, from the MCX instrument file of the day:
+
+| Input | Built from | Used for |
+|---|---|---|
+| Near-month candles | the near contract's ticks, 1-minute bars, kept for 900 minutes (a full MCX day) | all three indicators |
+| VWAP | running close × volume over those candles, from the day's first candle | `vwap_position` |
+| Latest tick | the near contract | entry price, live levels, paper-trade fills |
+| Next-month price | the next contract | display only (calendar spread) |
+
+At start the live feed backfills today's 1-minute candles from 09:00, so the indicators
+are not cold. A bullion candle closes on the first tick of the next minute, or 2 seconds
+after the minute ends if no tick comes. These candles live in the tracker's own builder
+and are stored under the MCX key; they never reach the index candle builder.
+
+### 13.3 Step 1: three trend indicators vote
+
+> **Note:** the indicators are the same functions, with the same settings, as the index
+> trend group (section 3.1). Only the candles differ: here every input is the gold or
+> silver near-month future.
+
+| Indicator | What it measures | Score |
+|---|---|---|
+| `ema_cross` | Gap between EMA 9 and EMA 21 of the future's closes, as % of the slow EMA | `tanh(8 × gap%)`. A gap of +0.10 % scores about +0.66. Needs 21 bars. |
+| `vwap_position` | The future's last close against its VWAP, in % | `clamp(distance% / 0.3)`. 0.3 % above VWAP is full strength. |
+| `supertrend` | Side of the supertrend line (period 10, multiplier 3) the price is on | +1 above, −1 below, ramped over 3 bars after a flip. Needs 11 bars. |
+
+Only candles up to and including the minute being worked out are used, even though the
+evaluation runs 20 seconds into the next minute.
+
+### 13.4 Step 2: the votes become one bias
+
+> **Note:** with one group there is nothing to weigh against: the trend group is the whole
+> bias (`BULLION_WEIGHTS` = trend 1, OI 0, premium 0).
+
+`aggregate()` is the same function as for the indices, given those weights and the
+bullion neutral band:
+
+1. **Average** the indicators whose quality is `ok`. Warming ones are left out, not
+   counted as zero.
+2. **Bias** = that average, clamped to −1..+1.
+3. **Label**: ≥ +0.20 Bullish, ≤ −0.20 Bearish, otherwise Neutral (`bullion.neutral_band`).
+   Strength is `round(|bias| × 100)`.
+
+Because three trend votes are not diluted by OI and premium, a bullion bias swings
+further than an index bias. That is why its entry threshold is higher, 0.60 against 0.50.
+
+**Worked example** (GOLD, seen live on 16/11/2026 at 18:37):
+
+| Indicator | Reading | Score |
+|---|---|---|
+| `ema_cross` | EMA 9 above EMA 21 by 0.02 % | +0.15 |
+| `vwap_position` | future above VWAP by 0.14 % | +0.48 |
+| `supertrend` | price above supertrend for 4 bars | +1.00 |
+| | **Bias** (the average) | **+0.54** |
+
+Bullish, strength 54: below 0.60, so no signal, and the card says "bias below the entry
+threshold". Had the EMA gap been 0.10 % (+0.66) and the price 0.25 % above VWAP (+0.83),
+the bias would have been (0.66 + 0.83 + 1.00) / 3 = **+0.83**, and a long signal would fire.
+
+Each minute's bias is stored in `bias_minutes` under `GOLD` or `SILVER`, with its full
+breakdown, and shown in the Market view and Evidence panels of the BULLION tab.
+
+### 13.5 When it is worked out: the 20-second offset
+
+> **Note:** the **offset** (`bullion.eval_offset_seconds`, default 20, range 0–50) is how
+> long after a minute closes the bullion bias and signal are worked out.
+
+The index engines run at the minute close, where their latency budget is measured. So that
+bullion never competes with them for the same instant, a bullion candle close only
+**queues** the minute with a due time of `minute start + 60 s + offset`. The queue is
+checked on every bullion tick and twice a second, on the market clock. A minute is
+evaluated once, when its due time has passed. In replay the market clock follows the
+recorded ticks, so a replayed signal fires at the same moment it did live. A changed offset
+applies from the next minute queued. The actual delay is recorded as the latency hop
+`bullion_eval_lag`.
+
+The signal then carries two times: `minute_ts`, the minute evaluated, and `ts_fired`, the
+evaluation instant (about 20 s after that minute closed). The entry price and the TTL
+come from `ts_fired`.
+
+### 13.6 Step 3: the gates
+
+At each evaluation `BullionSignalEngine.on_bias()` first lapses an expired signal, checks
+for a reversal (13.8) and does the re-arm bookkeeping, as in section 6.1. It then checks,
+in order, and the first failure is the reason shown on the card:
+
+| # | Gate | Reason code if it fails |
+|---|---|---|
+| 1 | Bullion signals are on (`bullion.signals`) | `disabled` |
+| 2 | \|bias\| ≥ `bullion.entry_threshold` (0.60) | `below_threshold` |
+| 3 | No signal is active on this metal | `active_exists` |
+| 4 | Not blocked by re-arm (`bullion.rearm_hysteresis`, off by default) | `rearm` |
+| 5 | MCX is open, and the time is from `first_signal_time` (09:15) to before `last_signal_time` (22:45) | `outside_hours` |
+| 6 | Bullion is live (connected, MCX open, a bullion tick in the last 15 s) | `feed_down` |
+| 7 | The near future has a price | `no_price` |
+
+Direction is the sign of the bias: positive fires `BUY_FUT`, negative fires `SELL_FUT`.
+GOLD and SILVER are independent: each has its own bias, active signal and gates. Hours
+are enforced on the live and replay feeds; there is no bullion on the synthetic feed.
+
+The index feed plays no part: an NSE outage does not stop bullion signals, and a bullion
+outage does not put the index engines into degraded mode.
+
+### 13.7 Step 4: building the signal
+
+> **Note:** the **mid price** is halfway between the best bid and the best ask.
+
+**Entry** is the near future's last traded price at the evaluation instant.
+
+**Target and stop** are percentages of the entry, on the signal's side:
+
+| | Long (`BUY_FUT`) | Short (`SELL_FUT`) |
+|---|---|---|
+| Target | entry × (1 + 0.40 %) | entry × (1 − 0.40 %) |
+| Stop | entry × (1 − 0.20 %) | entry × (1 + 0.20 %) |
+
+(`bullion.target_pct = 0.40`, `bullion.stop_pct = 0.20`, both rounded to the paisa.) That is
+risking 1 to make 2, as with the index options.
+
+**Examples, one lot:**
+
+| | GOLD long | SILVER short |
+|---|---|---|
+| Entry | ₹1,35,000 per 10 g | ₹1,70,000 per kg |
+| Target | ₹1,35,540 (+540) | ₹1,69,320 (−680) |
+| Stop | ₹1,34,730 (−270) | ₹1,70,340 (+340) |
+| Point value | ₹100 | ₹30 |
+| Gross at target | +₹54,000 | +₹20,400 |
+| Gross at stop | −₹27,000 | −₹10,200 |
+| Cost (13.9) | ₹3,300 | ₹1,284 |
+
+**What the signal records** (the same `signals` table as the indices):
+
+| Field | Bullion value |
+|---|---|
+| `index` | `GOLD` or `SILVER` |
+| `direction` | `BUY_FUT` or `SELL_FUT` |
+| `trading_symbol`, `expiry` | the near-month future, e.g. `GOLD FUT 04 DEC 26` |
+| `strike` | 0 (a future has none) |
+| `lot_size` | the point value: 100 for GOLD, 30 for SILVER |
+| `entry_price`, `target_price`, `stop_price` | as above |
+| `target_basis` | `pct` |
+| `entry_ask`, `spread_pct` | the ask for a long or the bid for a short, and the spread as % of mid, when the feed sends a quote |
+| `entry_mode`, `shadow` | always `minute_close`, `false` |
+| `bias`, `strength`, `breakdown_json`, `config_version` | as for the indices |
+| `expires_at` | `ts_fired` + `bullion.signal_ttl_seconds` (300 s) |
+
+**Live levels.** While the signal waits, the card shows the fired levels and the live
+ones: the same ratios applied to the future's price now (for the short above, at
+₹1,69,000 the live target is ₹1,68,324 and stop ₹1,69,338).
+
+### 13.8 Step 5: how a bullion signal ends
+
+The same three endings as section 8:
+
+| Ending | When |
+|---|---|
+| `traded` | you open a paper trade from it |
+| `lapsed` | 300 s pass since it fired (checked at each evaluation and twice a second) |
+| `reversed` | at an evaluation the bias has the opposite sign, or \|bias\| < 0.20 |
+
+### 13.9 Paper trades on bullion
+
+> **Note:** **CTT** (Commodity Transaction Tax) is charged on the sale value of commodity
+> futures; with exchange charges, stamp duty and GST it scales with the value traded.
+
+- **Opening** is refused unless MCX is open, the time is before the 23:00 square-off and
+  bullion is live. The trade fills at the future's price at your click, with the live
+  target and stop at that price.
+- **Quantity** = point value × lots (`bullion.lots`, default 1).
+- **P&L** = side × (exit − entry) × quantity, where side is +1 for a long and −1 for a
+  short.
+- **Exits**: target, stop (mirrored for a short: its target is below the entry), the
+  23:00 square-off on the MCX clock (`bullion.square_off_time`), or by hand.
+- **Cost**, fixed at entry: `cost_fixed_per_lot × lots + cost_pct_of_value / 100 × entry
+  × quantity × 2` = ₹60 per lot + 0.012 % of the round-trip value. A GOLD lot at
+  ₹1,35,000 is worth ₹1.35 crore, so 60 + 0.012 % × 2.7 crore = **₹3,300**.
+- A separate paper-trade manager owns bullion trades, so they square off on MCX time and
+  survive a restart without touching the index trades. In the Journal they appear as
+  GOLD, SILVER and a Bullion total; "Index options" (the overall line) leaves them out.
+
+### 13.10 Bullion parameters
+
+All in the `bullion` section of the config editor:
+
+| Parameter | Default | Effect |
+|---|---|---|
+| `bullion.signals` | `on` | `off` stops bullion signals (gate `disabled`) |
+| `bullion.entry_threshold` | 0.60 | \|bias\| to fire |
+| `bullion.neutral_band` | 0.20 | below this the bias is Neutral, and an active signal is reversed |
+| `bullion.rearm_hysteresis` | 0.0 | 0 = off |
+| `bullion.signal_ttl_seconds` | 300 | time before an untraded signal lapses |
+| `bullion.eval_offset_seconds` | 20 | seconds after the minute close the bias and signal run |
+| `bullion.first_signal_time` / `last_signal_time` | 09:15 / 22:45 | signal hours |
+| `bullion.square_off_time` | 23:00 | open bullion paper trades close |
+| `bullion.target_pct` / `stop_pct` | 0.40 / 0.20 | % of the future's price |
+| `bullion.lots` | 1 | lots per paper trade |
+| `bullion.cost_fixed_per_lot` / `cost_pct_of_value` | ₹60 / 0.012 % | paper-trade cost |
+
+The indicator periods come from the `[trend]` table, shared with the indices. MCX hours
+and holidays are process settings (`mcx_open`, `mcx_close`, `config/mcx-holidays.txt`), not
+parameters.
+
+### 13.11 Where the bullion code is
+
+| Part | File |
+|---|---|
+| Contracts, ticks, candles, day range | `backend/tradedisha/market/bullion.py` (`BullionTracker`) |
+| Trend-only bias and the offset queue | `backend/tradedisha/engine/bullion_bias.py` |
+| Gates, building the signal, its life cycle, live levels | `backend/tradedisha/engine/bullion_signals.py` |
+| Bias, signals and paper trades wired together | `backend/tradedisha/engine/bullion_desk.py` |
+| Side-aware P&L, bullion cost and square-off rules | `backend/tradedisha/engine/paper.py` (`bullion_rules`) |
+| Bullion liveness, recording, replay | `backend/tradedisha/market/session.py` |
+| Tests | `backend/tests/test_bullion_trading.py`, `test_live_levels.py`, `tests/market/test_bullion_replay.py` |
+
