@@ -35,6 +35,7 @@ function signal(id: string, outcome: Partial<OutcomeOut> | null, index = 'NIFTY'
     entry_mode: 'minute_close',
     shadow: false,
     flow_score: null,
+    config_version: null,
     outcome:
       outcome === null
         ? null
@@ -142,5 +143,20 @@ describe('SignalHistory outcomes', () => {
     expect(screen.getByTestId('shadow-scorecard')).toHaveTextContent(
       'shadow (trigger): 1 of 1 scored · 1 target · 0 stop · 0 neither',
     )
+  })
+
+  it('shows the config version a signal fired under, and nothing for older signals', () => {
+    render(
+      <SignalHistory
+        index="NIFTY"
+        signals={[
+          { ...signal('new', null), config_version: 3 },
+          { ...signal('old', null), config_version: null },
+        ]}
+      />,
+    )
+    expect(screen.getByRole('columnheader', { name: 'Config' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /Config version/ })).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Config version 3' })).toHaveTextContent('v3')
   })
 })

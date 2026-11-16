@@ -147,6 +147,28 @@ evidence; the scoring tool will say more as days accumulate.
 
 Status: built. Design in [spec.md](spec.md) §8.2.
 
+## Configuration
+
+### 8. Editable, versioned config
+
+Asked for (2026-11-16): edit the config in the app; version it with a number and a tag
+the trader types; revert to an old version; keep it in a database table; link each signal
+to its version and show the values on hover.
+
+Status: built in Milestone C1 and checked in a browser on the synthetic feed. Design in
+[spec.md](spec.md) §3.2 and §13.2; planned in [plan.md](plan.md) Milestone C1.
+
+Decided with the owner on 2026-11-16:
+- The database is the source of truth; `config/params.toml` only starts a new database
+  off, and the "Reload config" button is gone.
+- A revert saves the old values as a new version, so history is never rewritten.
+- Each database (live, synthetic) has its own history, because a signal and its config
+  version must be in the same database.
+- Signals from before this change have no version.
+
+Not included: a scorecard split by config version; comparing two versions side by side;
+scoring a stored version with the offline tool.
+
 ## Deferred
 
 ### Chart zoom buttons

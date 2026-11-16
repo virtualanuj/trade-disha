@@ -47,7 +47,7 @@ async def test_replay_uses_the_recorded_days_master_and_first_spot(tmp_path: Pat
         holidays=frozenset(),
         source=driven,
     )
-    params = ParameterService(settings.params_path)
+    params = ParameterService(conn, settings.params_path)
     params.load()
     session = FeedSession(
         settings,

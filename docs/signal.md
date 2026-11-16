@@ -6,8 +6,8 @@ entry rules, how targets and stops are set, how a signal ends, and how every sig
 scored afterwards.
 
 It describes the code as it stands. The design reference is `docs/spec.md` §8 (indicators)
-and §9 (signal engine); every tunable number mentioned here lives in `config/params.toml`
-and the values quoted are the shipped defaults.
+and §9 (signal engine); every tunable number mentioned here is a config parameter
+(section 11) and the values quoted are the shipped defaults.
 
 Each section starts with a **Note** that explains the terms it is about to use.
 
@@ -459,6 +459,7 @@ the risk-free rate. Example: NIFTY call at ₹60 with delta 0.5 gives target 60 
 | `expires_at` | `ts_fired` + TTL (300 s) |
 | `entry_ask`, `spread_pct` | the ask and spread at firing, whichever rule fired |
 | `entry_mode`, `shadow`, `flow_score` | which rule fired it, whether it was the shadow rule, and the flow score for a trigger signal |
+| `config_version` | the config version in force when it fired (section 11) |
 | `status`, `status_ts` | where it is in its life (next section) |
 
 ---
@@ -563,9 +564,18 @@ Where to see it:
 
 ## 11. Parameters
 
-Everything below is in `config/params.toml`, validated by `parameters/model.py`, and
-reloadable from the app with "Reload config". A reload applies from the next minute
-close. An invalid file is rejected and the previous values stay in force.
+> **Note:** a **config version** is one saved set of all the parameters, with a number
+> and a tag you type. The highest version is the one in force.
+
+Everything below is edited in the app (the **Config** button in the top bar) and
+validated by `parameters/model.py`. Each save is a new numbered version that applies from
+the next minute close; an invalid save is rejected and the previous values stay in force.
+Any earlier version can be reverted to. Versions are stored in the `config_versions`
+table; `config/params.toml` only supplies version 1 for a new database.
+
+Each signal records the version in force when it fired (`config_version`). It appears as
+a small `v7` on the signal card and in "Signals today"; hovering it shows that version's
+values and highlights the ones that differ from the current config.
 
 | Parameter | Default | Effect |
 |---|---|---|
@@ -604,5 +614,5 @@ quoted in section 3.
 | Outcomes and the scorecard | `backend/tradedisha/engine/outcomes.py` |
 | Wiring (live and shadow engines, flow, outcomes) | `backend/tradedisha/market/session.py` |
 | Option chain, build-up, PCR, max pain | `backend/tradedisha/market/chain.py` |
-| Parameters | `config/params.toml`, `backend/tradedisha/parameters/model.py` |
+| Parameters | `backend/tradedisha/parameters/model.py` (the fields), `parameters/service.py` (versions), `config/params.toml` (starting values) |
 | Tests | `backend/tests/test_signals.py`, `test_outcomes.py`, `tests/market/test_flow.py`, `tests/indicators/` |

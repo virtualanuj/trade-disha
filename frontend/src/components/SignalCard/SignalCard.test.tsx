@@ -47,6 +47,7 @@ const signal: SignalOut = {
   entry_mode: 'minute_close',
   shadow: false,
   flow_score: null,
+  config_version: null,
   outcome: null,
 }
 

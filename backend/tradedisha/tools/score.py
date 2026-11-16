@@ -98,9 +98,11 @@ async def _replay(settings: Settings, day: date) -> tuple[list[Signal], dict[str
         holidays=load_holidays(settings.holidays_file),
         source=driven,
     )
-    params = ParameterService(settings.params_path)
-    params.load()
     conn = connect(settings.db_path)
+    params = ParameterService(
+        conn, settings.params_path
+    )  # a scratch database: seeded from the file
+    params.load()
     session = FeedSession(
         settings,
         conn,
@@ -110,6 +112,7 @@ async def _replay(settings: Settings, day: date) -> tuple[list[Signal], dict[str
         params=lambda: params.params,
         driven_clock=driven,
     )
+    session.config_version = lambda: params.current.version
     try:
         await session.start()
         await session.feed_ended.wait()

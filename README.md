@@ -13,7 +13,7 @@ Milestones 0 to 6 complete: provider interface with synthetic and replay
 feeds, instrument resolution, tick recording, WebSocket push with latency stamps, a live
 option chain panel, 1-minute candles with EMA/VWAP/supertrend overlays, nine indicators
 combined into a per-minute bias with a visible evidence breakdown, a tunable
-`config/params.toml` with live reload, and signals (buy ATM call or put with entry, target
+config edited and versioned in the app, and signals (buy ATM call or put with entry, target
 and stop, expiry-day point targets via delta) with a signal card, chart markers and a
 daily history; one-click paper trades tracked to target, stop, 15:15 square-off or manual
 close, with net-of-cost P&L and a Journal page (hit rate, average win/loss, net result,
@@ -24,7 +24,8 @@ last-known data; feed outages are logged; a Data panel deletes old raw ticks. Af
 (Milestone E1): resizable panels, a hideable option-chain panel, DD/MM/YYYY dates, and a details view on the index tile
 (day and 52-week range, change on the day, futures premium, India VIX). Milestone E2: every panel can be
 minimised to its title bar to make room for the others. Milestone E3: the panels of the main column can be moved
-up and down, with market view and signal moving as a pair. See [docs/plan.md](docs/plan.md) for what comes next.
+up and down, with market view and signal moving as a pair. Milestone C1: the config is edited in the app and kept as
+numbered, tagged versions that can be reverted to, and every signal records its version. See [docs/plan.md](docs/plan.md) for what comes next.
 
 ## Documents
 
@@ -86,10 +87,15 @@ to override either way.
 
 ### Tuning the signal
 
-Every parameter that shapes the bias lives in `config/params.toml`, commented. Edit it and
-click **Reload config** in the top bar: a valid file applies from the next minute close; an
-invalid one is rejected with the failing fields and the previous values stay in force. The
-**Config** button opens a read-only view of the active values.
+Every parameter that shapes the bias is edited in the app. The **Config** button in the top
+bar shows the version in force and opens the editor: change values, type a tag, and save. A
+valid save becomes the next numbered version and applies from the next minute close; an
+invalid one is rejected with the failing fields and nothing changes. The **History** tab
+lists every version and can revert to any of them (as a new version). Each signal shows the
+config version it fired under; hover it for that version's values.
+
+Versions are kept in the database, so the live and synthetic databases each have their own
+history. `config/params.toml` only supplies version 1 for a new database.
 
 Every signal is scored by what its option did next (target first, stop first or neither
 within `outcome_horizon_minutes`), whether or not it was paper-traded; "Signals today"

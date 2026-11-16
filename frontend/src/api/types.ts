@@ -253,10 +253,44 @@ export interface BiasOut {
   indicators: IndicatorOut[]
 }
 
+export type ParamValues = Record<string, Record<string, unknown>>
+
+/** The config in force: a numbered, tagged version of the tunable parameters. */
 export interface ParametersOut {
-  loaded_at: number
+  version: number
+  tag: string
+  created_ts: number
+  params: ParamValues
+}
+
+/** One editable value, as `GET /api/parameters/schema` describes it. */
+export interface ParameterField {
+  /** "bias.entry_threshold", "signal.expiry_points.NIFTY.target" */
   path: string
-  params: Record<string, Record<string, unknown>>
+  group: string
+  /** the path without its group */
+  key: string
+  kind: 'number' | 'integer' | 'choice' | 'time'
+  help: string
+  ge: number | null
+  gt: number | null
+  le: number | null
+  lt: number | null
+  choices: string[] | null
+}
+
+export interface ConfigVersionOut {
+  version: number
+  tag: string
+  created_ts: number
+  source: 'seed' | 'edit' | 'revert'
+  reverted_from: number | null
+  active: boolean
+}
+
+export interface ConfigVersionDetail extends ConfigVersionOut {
+  /** as stored; an old version may not have today's fields */
+  params: ParamValues
 }
 
 export interface CandleFrame extends FrameBase {
@@ -309,6 +343,8 @@ export interface SignalOut {
   /** fired by the rule that is not live: scored for comparison, never tradable */
   shadow: boolean
   flow_score: number | null
+  /** the config version in force when it fired; null for signals from before versions */
+  config_version: number | null
   /** null for signals fired before outcomes were scored */
   outcome: OutcomeOut | null
 }

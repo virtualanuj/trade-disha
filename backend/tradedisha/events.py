@@ -35,7 +35,7 @@ class WindowChanged:
 
 @dataclass(frozen=True)
 class ParametersChanged:
-    loaded_at: int
+    version: int
     effective_from_minute_ts: int
 
 

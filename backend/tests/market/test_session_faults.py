@@ -58,7 +58,7 @@ async def test_replayed_outage_is_logged_and_recentre_resubscribes(tmp_path: Pat
         pre_open_start=settings.pre_open_start,
         source=driven,
     )
-    params = ParameterService(settings.params_path)
+    params = ParameterService(conn, settings.params_path)
     params.load()
     session = FeedSession(
         settings,

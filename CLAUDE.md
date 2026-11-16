@@ -88,10 +88,14 @@ Things that are easy to get wrong:
   `epoch_ms_now()` is for wall-clock stamps (latency, log rows). Timestamps are epoch
   milliseconds; market times are IST.
 - **Parameters vs settings.** `config.py:Settings` is process configuration and needs a
-  restart. Everything that shapes the bias and signals is in `config/params.toml`,
-  validated by `parameters/model.py:ParameterSet` and reloadable from the UI. Components
-  take `params` as a callable so a reload applies at the next minute close. A new tunable
-  goes in the TOML and the model, not in `Settings`.
+  restart. Everything that shapes the bias and signals is a `ParameterSet`
+  (`parameters/model.py`), edited in the UI and stored as numbered, tagged versions in the
+  `config_versions` table; the highest version is in force and `parameters/service.py`
+  never rewrites one (a revert is a new version). `config/params.toml` only seeds version
+  1 for a database that has none. Components take `params` as a callable so a save applies
+  at the next minute close, and each signal stores the `config_version` it fired under. A
+  new tunable goes in the model (with a `description`, which is the editor's help text) and
+  the TOML, not in `Settings`.
 - **Pure maths.** `indicators/` holds pure functions over candle and chain series. The
   engines in `engine/` orchestrate them and do the persistence. Each bias and signal is
   stored with its full evidence breakdown.

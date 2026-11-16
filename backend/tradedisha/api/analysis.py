@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict
 from datetime import date
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -16,6 +18,8 @@ from tradedisha.events import ParametersChanged
 from tradedisha.market.candles import Candle
 from tradedisha.parameters import ParameterValidationError
 from tradedisha.parameters.model import ParameterSet
+from tradedisha.parameters.schema import describe
+from tradedisha.store.config_versions import ConfigVersion
 from tradedisha.store.ticks import day_bounds_ms
 
 router = APIRouter()
@@ -81,9 +85,45 @@ class BiasPoint(BaseModel):
 
 
 class ParametersOut(BaseModel):
-    loaded_at: int
-    path: str
+    version: int
+    tag: str
+    created_ts: int
     params: ParameterSet
+
+
+class ParameterFieldOut(BaseModel):
+    path: str
+    group: str
+    key: str
+    kind: str
+    help: str
+    ge: float | None
+    gt: float | None
+    le: float | None
+    lt: float | None
+    choices: list[str] | None
+
+
+class ParametersIn(BaseModel):
+    tag: str
+    params: dict[str, Any]
+
+
+class RevertIn(BaseModel):
+    tag: str | None = None
+
+
+class ConfigVersionOut(BaseModel):
+    version: int
+    tag: str
+    created_ts: int
+    source: str
+    reverted_from: int | None
+    active: bool
+
+
+class ConfigVersionDetail(ConfigVersionOut):
+    params: dict[str, Any]  # as stored; an old version may not match today's fields
 
 
 class ReloadError(BaseModel):
@@ -143,7 +183,27 @@ def candles_response(state: AppState, index: str, minutes: int) -> CandlesRespon
 
 def parameters_out(state: AppState) -> ParametersOut:
     cur = state.params.current
-    return ParametersOut(loaded_at=cur.loaded_at, path=str(cur.path), params=cur.params)
+    return ParametersOut(
+        version=cur.version, tag=cur.tag, created_ts=cur.created_ts, params=cur.params
+    )
+
+
+def _version_out(state: AppState, v: ConfigVersion) -> ConfigVersionOut:
+    return ConfigVersionOut(
+        version=v.version,
+        tag=v.tag,
+        created_ts=v.created_ts,
+        source=v.source,
+        reverted_from=v.reverted_from,
+        active=v.version == state.params.current.version,
+    )
+
+
+async def _announce(state: AppState) -> ParametersOut:
+    """Tell the screens; engines read the new set themselves at the next minute close."""
+    next_minute = (epoch_ms_now() // 60_000 + 1) * 60_000
+    await state.events.publish(ParametersChanged(state.params.current.version, next_minute))
+    return parameters_out(state)
 
 
 def _index(state: AppState, index: str) -> str:
@@ -187,16 +247,49 @@ def parameters(state: State) -> ParametersOut:
     return parameters_out(state)
 
 
-@router.post(
-    "/parameters/reload",
+@router.get("/parameters/schema", response_model=list[ParameterFieldOut])
+def parameters_schema(state: State) -> list[ParameterFieldOut]:
+    return [ParameterFieldOut(**asdict(f)) for f in describe(state.params.params)]
+
+
+@router.put(
+    "/parameters",
     response_model=ParametersOut,
     responses={422: {"model": list[ReloadError]}},
 )
-async def reload_parameters(state: State) -> ParametersOut:
+async def save_parameters(body: ParametersIn, state: State) -> ParametersOut:
+    """Save edited values as a new version; it applies from the next minute close."""
     try:
-        loaded = state.params.reload()
+        state.params.save_values(body.params, body.tag)
     except ParameterValidationError as e:
         raise HTTPException(status_code=422, detail=e.errors) from e
-    next_minute = (epoch_ms_now() // 60_000 + 1) * 60_000
-    await state.events.publish(ParametersChanged(loaded.loaded_at, next_minute))
-    return parameters_out(state)
+    return await _announce(state)
+
+
+@router.get("/parameters/versions", response_model=list[ConfigVersionOut])
+def parameter_versions(state: State) -> list[ConfigVersionOut]:
+    return [_version_out(state, v) for v in state.params.versions()]
+
+
+@router.get("/parameters/versions/{version}", response_model=ConfigVersionDetail)
+def parameter_version(version: int, state: State) -> ConfigVersionDetail:
+    v = state.params.get(version)
+    if v is None:
+        raise HTTPException(status_code=404, detail=f"there is no config version {version}")
+    return ConfigVersionDetail(
+        **_version_out(state, v).model_dump(), params=json.loads(v.params_json)
+    )
+
+
+@router.post(
+    "/parameters/versions/{version}/revert",
+    response_model=ParametersOut,
+    responses={422: {"model": list[ReloadError]}},
+)
+async def revert_parameters(version: int, body: RevertIn, state: State) -> ParametersOut:
+    """Put an old version's values back in force, as a new version."""
+    try:
+        state.params.revert(version, body.tag)
+    except ParameterValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors) from e
+    return await _announce(state)

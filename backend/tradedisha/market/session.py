@@ -115,6 +115,8 @@ class FeedSession:
         self.events = bus
         self.latency = latency
         self.params = params
+        # The version number of `params()`, when whoever built the session versions them.
+        self.config_version: Callable[[], int | None] = lambda: None
         self.tick_bus = TickBus()
         self.tick_store = TickStore(conn)
         self.feed_log = FeedEventLog(conn)
@@ -384,6 +386,7 @@ class FeedSession:
             risk_free_rate=self.settings.risk_free_rate,
             on_signal=self._on_signal,
             shadow=shadow,
+            config_version=self.config_version,
         )
 
     def _on_flow(self, reading: FlowReading) -> None:

@@ -172,9 +172,11 @@ These apply to the whole product, not to one feature.
   build-up is visually emphasised. The put-call ratio and max-pain level are shown at the
   top of the panel.
 - **Journal page**: the paper-trade list and summary.
-- **Configuration**: the top bar shows when the configuration was last loaded and a
-  "Reload config" action. Reloading validates the file first; if it is invalid the app
-  says what is wrong and keeps the previous values.
+- **Configuration**: the top bar shows which version of the configuration is in force.
+  The trader edits the values in the app and saves them under a tag of their own; each
+  save is a numbered version. An invalid value is refused with the reason and the
+  previous values stay. Any earlier version can be brought back. Every recommendation
+  shows the version it was made under, and hovering it shows that version's values.
 - **Data**: an action to delete raw tick data up to and including a chosen date, which
   first shows how many days and how much space will be freed and asks for confirmation.
 - Everything on screen updates live without the trader refreshing the page.

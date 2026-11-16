@@ -56,8 +56,8 @@ def build_state(settings: Settings) -> AppState:
     conn = connect(settings.db_path)
     events = EventBus()
     latency = LatencyTracker()
-    params = ParameterService(settings.params_path)
-    params.load()  # invalid file -> refuse to start, with the field errors in the traceback
+    params = ParameterService(conn, settings.params_path)
+    params.load()  # nothing saved yet and an invalid file -> refuse to start
     auth = AuthService(
         required=settings.feed_provider == "upstox", settings=settings, conn=conn, events=events
     )
@@ -71,6 +71,7 @@ def build_state(settings: Settings) -> AppState:
         driven_clock=driven,
         auth=auth,
     )
+    session.config_version = lambda: params.current.version
     return AppState(
         settings=settings,
         conn=conn,

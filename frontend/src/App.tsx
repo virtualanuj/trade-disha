@@ -346,7 +346,7 @@ export default function App() {
           <ConfigControl
             parameters={parameters}
             effectiveFrom={parametersEffectiveFrom}
-            onReloaded={applyParameters}
+            onSaved={applyParameters}
           />
         }
       />

@@ -1,9 +1,13 @@
 import type {
+  ConfigVersionDetail,
+  ConfigVersionOut,
   HealthResponse,
   JournalOut,
   MetricsResponse,
   PaperTradeOut,
+  ParameterField,
   ParametersOut,
+  ParamValues,
   PruneOut,
   UsageOut,
 } from './types'
@@ -36,27 +40,76 @@ export async function postClientLatency(body: {
   })
 }
 
-export interface ReloadError {
+export interface ConfigError {
+  /** a field path, a group ("weights"), "tag", or a marker such as "<params>" */
   field: string
   message: string
 }
 
-export class ReloadFailed extends Error {
-  constructor(public readonly errors: ReloadError[]) {
+/** The server refused a config change; nothing was saved. */
+export class ConfigRejected extends Error {
+  constructor(public readonly errors: ConfigError[]) {
     super('config invalid')
   }
 }
 
-export async function reloadParameters(): Promise<ParametersOut> {
-  const res = await fetch('/api/parameters/reload', { method: 'POST' })
+async function sendConfig(path: string, method: string, body: unknown): Promise<ParametersOut> {
+  const res = await fetch(path, {
+    method,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
   if (res.status === 422) {
-    const body = (await res.json()) as { detail: ReloadError[] }
-    throw new ReloadFailed(body.detail)
+    const detail = ((await res.json()) as { detail: unknown }).detail
+    throw new ConfigRejected(
+      Array.isArray(detail)
+        ? detail.map((d: { field?: unknown; message?: unknown; loc?: unknown; msg?: unknown }) => ({
+            field: typeof d.field === 'string' ? d.field : '<request>',
+            message:
+              typeof d.message === 'string' ? d.message : typeof d.msg === 'string' ? d.msg : '',
+          }))
+        : [{ field: '<request>', message: String(detail) }],
+    )
   }
   if (!res.ok) {
-    throw new Error(`reload ${String(res.status)}`)
+    throw new Error(`${path} ${String(res.status)}`)
   }
   return (await res.json()) as ParametersOut
+}
+
+export function fetchParameterSchema(): Promise<ParameterField[]> {
+  return getJson<ParameterField[]>('/api/parameters/schema')
+}
+
+/** Save edited values as a new config version; rejects with ConfigRejected if invalid. */
+export function saveParameters(tag: string, params: ParamValues): Promise<ParametersOut> {
+  return sendConfig('/api/parameters', 'PUT', { tag, params })
+}
+
+export function listConfigVersions(): Promise<ConfigVersionOut[]> {
+  return getJson<ConfigVersionOut[]>('/api/parameters/versions')
+}
+
+const versionCache = new Map<number, Promise<ConfigVersionDetail>>()
+
+/** One version with its values. A version never changes, so each is fetched once. */
+export function getConfigVersion(version: number): Promise<ConfigVersionDetail> {
+  let hit = versionCache.get(version)
+  if (!hit) {
+    hit = getJson<ConfigVersionDetail>(`/api/parameters/versions/${String(version)}`)
+    versionCache.set(version, hit)
+    hit.catch(() => versionCache.delete(version))
+  }
+  return hit
+}
+
+/** Put an old version's values back in force, as a new version. */
+export function revertConfigVersion(version: number, tag?: string): Promise<ParametersOut> {
+  return sendConfig(
+    `/api/parameters/versions/${String(version)}/revert`,
+    'POST',
+    tag ? { tag } : {},
+  )
 }
 
 /** The server refused; `message` is its reason, fit to show the trader. */

@@ -81,6 +81,7 @@ class Signal:
     entry_mode: EntryMode = "minute_close"  # the rule that fired it
     shadow: bool = False  # fired by the rule that is not live: scored, never offered
     flow_score: float | None = None  # order-flow score when a trigger signal fired
+    config_version: int | None = None  # the parameters in force when it fired
 
     @property
     def is_active(self) -> bool:
@@ -155,6 +156,7 @@ class SignalEngine:
         risk_free_rate: float,
         on_signal: Callable[[Signal], None] | None = None,
         shadow: bool = False,
+        config_version: Callable[[], int | None] | None = None,
     ) -> None:
         self._clock = clock
         self._params = params
@@ -171,6 +173,7 @@ class SignalEngine:
         self.gates: dict[str, Gate] = {}
         self._rearm_block: dict[str, Direction] = {}  # index -> direction needing re-arm
         self.shadow = shadow
+        self._config_version = config_version
         self._setup: dict[str, BiasComputed] = {}  # trigger mode: the bias that set a side up
         self._agree_since: dict[str, int] = {}  # trigger mode: when the flow began agreeing
 
@@ -400,6 +403,7 @@ class SignalEngine:
             entry_mode="trigger" if at_ask else "minute_close",
             shadow=self.shadow,
             flow_score=flow_score,
+            config_version=self._config_version() if self._config_version else None,
         )
         self.active[index] = s
         self.store.upsert(s)

@@ -10,6 +10,7 @@ import {
   fmtPrice,
   pnlColour,
 } from '../../lib/format'
+import { ConfigVersionChip } from '../ConfigVersionChip/ConfigVersionChip'
 
 const REASON_TEXT: Record<NonNullable<GateOut['reason']>, string> = {
   below_threshold: 'bias below the entry threshold',
@@ -74,6 +75,11 @@ export function SignalCard({ signal, gate, now, openTrades = [], blocked, onPape
         </span>
         <span className="font-mono text-fg-muted">
           fired {fmtIstTime(signal.ts_fired)} · bias {signal.strength}
+          {signal.config_version != null ? (
+            <span className="ml-2">
+              <ConfigVersionChip version={signal.config_version} />
+            </span>
+          ) : null}
           {signal.target_basis === 'points' ? (
             <span className="ml-2 text-warn">expiry day</span>
           ) : null}

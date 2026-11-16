@@ -84,6 +84,7 @@ class SignalOut(BaseModel):
     entry_mode: str
     shadow: bool
     flow_score: float | None
+    config_version: int | None
     outcome: OutcomeOut | None
 
 

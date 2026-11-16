@@ -42,7 +42,10 @@ class Harness:
         enforce_hours: bool = True,
         shadow: bool = False,
         entry_mode: str = "minute_close",
+        config_version: int | None = None,
     ) -> None:
+        self.conn = connect(":memory:")
+        self.version = config_version
         master = build_synthetic_master(TODAY)
         self.r = resolve_index(master, "NIFTY", day, 25_000.0, strike_window=3)
         self.chain = ChainState.from_resolved(self.r)
@@ -60,8 +63,9 @@ class Harness:
             params=lambda: self.params,
             resolved={"NIFTY": self.r},
             chains={"NIFTY": self.chain},
-            conn=connect(":memory:"),
+            conn=self.conn,
             feed_live=lambda: self.feed_live,
+            config_version=lambda: self.version,
             enforce_hours=enforce_hours,
             market_open=time(9, 15),
             market_close=time(15, 30),
@@ -209,6 +213,34 @@ def test_params_reload_mid_session_changes_targets() -> None:
     h.minute(10, 1, 0.7)
     second = h.engine.active["NIFTY"]
     assert (second.target_price, second.stop_price) == (225.0, 135.0)
+
+
+def test_a_signal_records_the_config_version_in_force_when_it_fired() -> None:
+    h = Harness(config_version=1)
+    for version in (1, 2):
+        h.conn.execute(
+            "INSERT INTO config_versions (version, tag, created_ts, source, params_json)"
+            " VALUES (?, 't', 1, 'edit', '{}')",
+            (version,),
+        )
+    h.minute(10, 0, 0.7)
+    first = h.engine.active["NIFTY"]
+    assert first.config_version == 1
+    h.engine.mark_traded(first.id, first.ts_fired + 1)
+    h.version = 2
+    h.minute(10, 1, 0.7)
+    second = h.engine.active["NIFTY"]
+    assert second.config_version == 2
+    # ending the first signal did not move it to the newer version
+    stored = h.engine.store.get(first.id)
+    assert stored is not None
+    assert (stored.status, stored.config_version) == ("traded", 1)
+
+
+def test_a_signal_fired_with_no_version_known_has_none() -> None:
+    h = Harness()
+    h.minute(10, 0, 0.7)
+    assert h.engine.active["NIFTY"].config_version is None
 
 
 def test_bs_delta_sanity() -> None:

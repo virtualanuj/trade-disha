@@ -385,6 +385,39 @@ live feed, including the chart keeping its zoom and height divider when moved.
 
 **Design:** spec §13.2 (Panel order).
 
+## Milestone C1 — Editable, versioned config
+
+**Goal:** the trader tunes the parameters in the app, can always get back to an earlier
+set, and can see which set produced each signal.
+
+- **Versions in the database.** Table `config_versions` (migration 010); the highest
+  version is in force; a new database takes version 1 from `config/params.toml`.
+- **Edit.** A form in the Config control built from a field list the server describes
+  (kind, limits, help). A save needs a tag and a change, is validated as a whole, and
+  applies from the next minute close.
+- **History and revert.** Every version listed; reverting saves the old values as a new
+  version.
+- **Signals carry the version** (`signals.config_version`), shown as a chip on the signal
+  card and in "Signals today"; hovering it shows that version's values, with those that
+  differ from the config in force highlighted.
+- "Reload config" and `POST /parameters/reload` are removed.
+- Tests: the service (seed, save, tag and no-change refusals, revert, a stored version
+  the model no longer accepts, surviving a restart); the field list; the stamp on live
+  signals; the six routes and the websocket frame; the editor (save, server errors,
+  discard, new version resets the form), history and revert; the chip and its panel.
+
+**Demo:** change the entry threshold and save with a tag; see the version in the top bar
+and in History; try an invalid value and see it refused; wait for a signal and hover its
+chip; revert to version 1; restart and find the history intact.
+
+**Not in C1:** scorecard split by config version; comparing two versions; scoring a stored
+version offline.
+
+**Status (2026-11-16):** built, with unit tests, and the demo run in a browser on the
+synthetic feed with a scratch database.
+
+**Design:** spec §3.2 (Versions), §12, §13.2 (Config control, ConfigVersionChip).
+
 ---
 
 ## Milestone S1 — Signal yardstick and order-flow recording

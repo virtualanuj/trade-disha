@@ -1,6 +1,6 @@
-# TradeDisha tunable parameters. Edit, then click "Reload config" in the app.
-# Changes apply from the next minute close. An invalid file is rejected and the previous
-# values stay in force. Unknown keys are errors, so typos surface immediately.
+# TradeDisha starting parameters. A database with no saved config takes version 1 from
+# this file; after that the config is edited and versioned in the app (the Config button)
+# and this file is not read again. Unknown keys are errors, so typos surface immediately.
 #
 # Units: percentages are percent (30 = 30 %), times are IST "HH:MM", durations are
 # minutes unless the key says seconds, prices are rupees, index moves are index points.

@@ -1,5 +1,6 @@
 import type { OutcomeResult, SignalOut, SignalStatus } from '../../api/types'
 import { fmtIstTime, fmtPrice, fmtSigned } from '../../lib/format'
+import { ConfigVersionChip } from '../ConfigVersionChip/ConfigVersionChip'
 
 const STATUS_CLS: Record<SignalStatus, string> = {
   active: 'text-accent',
@@ -81,6 +82,12 @@ export function SignalHistory({ signals, index }: { signals: SignalOut[]; index:
               <th className="text-right font-normal">Target</th>
               <th className="text-right font-normal">Stop</th>
               <th className="text-right font-normal">Bias</th>
+              <th
+                className="text-right font-normal"
+                title="The config version in force when the signal fired; hover one for its values"
+              >
+                Config
+              </th>
               <th className="text-right font-normal">Status</th>
               <th className="text-right font-normal">Outcome</th>
             </tr>
@@ -102,6 +109,9 @@ export function SignalHistory({ signals, index }: { signals: SignalOut[]; index:
                 <td className="text-right">{fmtPrice(s.target_price)}</td>
                 <td className="text-right">{fmtPrice(s.stop_price)}</td>
                 <td className="text-right">{s.strength}</td>
+                <td className="text-right">
+                  <ConfigVersionChip version={s.config_version} />
+                </td>
                 <td className={`text-right ${STATUS_CLS[s.status]}`}>
                   {s.status}
                   {s.status !== 'active' ? (

@@ -67,7 +67,7 @@ TradeDisha/
 │   │   ├── market/              # candle builder, chain state, derived values
 │   │   ├── indicators/          # pure indicator functions
 │   │   ├── engine/              # aggregator, signal lifecycle, expiry-day mode
-│   │   ├── parameters/          # ParameterSet model, TOML load/reload service
+│   │   ├── parameters/          # ParameterSet model, versioned parameter service
 │   │   ├── metrics/             # latency samples, event-loop lag
 │   │   ├── paper/               # paper trade manager, exits, journal stats
 │   │   ├── store/               # SQLite schema, repositories
@@ -93,7 +93,7 @@ TradeDisha/
 │       │   └── DebugOverlay/    # latency per hop, frame time (?debug=1)
 │       └── pages/               # Dashboard, Journal
 ├── config/
-│   └── params.toml              # tunable parameters
+│   └── params.toml              # starting parameters for a new database
 ├── data/                        # tradedisha.sqlite, instrument cache (gitignored)
 └── docs/
 ```
@@ -107,10 +107,9 @@ Two kinds of configuration, deliberately separated:
 - **Static settings** (`config.py`, pydantic-settings, from environment / `.env`): things
   that need a restart and are not about the algorithm. Credentials, paths, which indices,
   market hours, bind address.
-- **Tunable parameters** (`ParameterSet`, loaded from one TOML file
-  `config/params.toml`): everything that shapes a recommendation. Edited by the user
-  outside the app; reloaded on demand and applied at the next minute close.
-  See §3.2.
+- **Tunable parameters** (`ParameterSet`, stored as numbered versions in the database):
+  everything that shapes a recommendation. Edited in the app; each save is a new version
+  applied at the next minute close. See §3.2.
 
 ### 3.1 Static settings
 
@@ -130,8 +129,8 @@ UTC epoch milliseconds.
 ### 3.2 Tunable parameters (`ParameterSet`)
 
 A single pydantic model with validation (weights sum to 1, thresholds in range, fast EMA <
-slow EMA, …), parsed from `config/params.toml`. The TOML is grouped into tables matching
-the Group column below.
+slow EMA, …), grouped as in the Group column below. Each field carries a one-line
+description, which the editor shows as help text.
 
 | Group | Parameter | Default |
 |---|---|---|
@@ -164,24 +163,39 @@ the Group column below.
 | Paper | `cost_per_trade` | ₹60 |
 | Paper | `lots` | 1 |
 
-**Loading and reload.** The file is the source of truth; the app stores no parameter
-history. `ParameterService` parses and validates the file at startup
-(invalid file at startup → app refuses to start with a clear error). During a session,
-`POST /api/parameters/reload` (the "Reload config" button) re-reads the file; on success
-it swaps the in-memory set, writes a `feed_events` row (`config_reloaded`), and
-publishes `ParametersChanged`; on validation failure it returns 422 with the field errors, keeps
-the previous set, and the UI shows the errors. The file is not watched automatically
-*(my call: an explicit reload avoids applying a half-saved file)*.
+**Versions (Milestone C1).** The database is the source of truth. Table
+`config_versions` holds every saved set: `version` (1, 2, 3, …), `tag` (typed by the
+trader, required, at most 60 characters), `created_ts`, `source` (`seed`, `edit` or
+`revert`), `reverted_from` and `params_json` (the whole set). Versions are never changed
+or deleted, and the highest one is in force.
+
+- **Start.** `ParameterService.load()` reads the highest version. A database with none
+  takes version 1 from `config/params.toml` (tag "initial"); if that is needed and the
+  file is missing or invalid the app refuses to start. After that the file is not read
+  again: editing it changes nothing. If the stored version no longer validates (a later
+  build changed the model), a new version is saved from the file with a tag saying so.
+- **Edit.** `PUT /api/parameters` validates the whole set and saves it as the next
+  version; on failure it returns 422 with the field errors and nothing changes. A save
+  with no change or without a tag is refused the same way.
+- **Revert.** `POST /api/parameters/versions/{n}/revert` saves version n's values as a new
+  version (tag "Revert to vN" unless one is given), so history is only ever added to.
+- Each change publishes `ParametersChanged`, which sends the `parameters` frame.
+- **Per database.** Live and synthetic data use separate database files (§6), so each has
+  its own version history. The offline scoring tool replays into a fresh scratch
+  database, which is seeded from the file given with `--params`.
+- **Signals.** `signals.config_version` references `config_versions(version)`: the
+  version in force when the signal fired, for live and shadow signals alike. It is null
+  for signals from before versions existed.
 
 **Application.** The Signal Engine and Paper Trade Manager read the active set at the
-start of each minute-close evaluation, so a reload takes effect at the next minute, never
+start of each minute-close evaluation, so a save takes effect at the next minute, never
 mid-computation. Open paper trades keep the target/stop they were opened with.
 Chain-window parameters (`strike_window`, `recenter_strikes`) take effect at the next
 re-centre check.
 
 **Starter file.** The repository ships `config/params.toml` with the defaults above,
-fully commented so each parameter's meaning and unit is next to
-its value.
+commented. It supplies version 1 for a new database and is what the tests and the scoring
+tool start from.
 
 ---
 
@@ -717,8 +731,12 @@ is reclaimable without a full rewrite.
 | POST | `/paper-trades/{id}/close` | manual close |
 | GET | `/paper-trades?index=&date=&status=` | trades |
 | GET | `/journal/stats?from=&to=` | summary stats |
-| GET | `/parameters` | active `ParameterSet` with loaded_at and file path |
-| POST | `/parameters/reload` | re-reads the file; 200 with new set, or 422 with field errors (previous set kept) |
+| GET | `/parameters` | the config in force: version, tag, created_ts and the `ParameterSet` |
+| GET | `/parameters/schema` | one entry per editable value: path, group, kind (number, integer, choice, time), limits, choices, help |
+| PUT | `/parameters` | `{tag, params}`: saves a new version; 200 with it, or 422 with field errors (nothing saved) |
+| GET | `/parameters/versions` | every version, newest first, with `active` on the one in force |
+| GET | `/parameters/versions/{n}` | one version with its stored values; 404 if there is none |
+| POST | `/parameters/versions/{n}/revert` | `{tag?}`: saves version n's values as a new version; 422 if n is unknown or already in force |
 | GET | `/data/usage?until_date=` | DB size, tick rows/days total, and what a prune up to `until_date` would remove |
 | POST | `/data/prune-ticks` | body `{until_date}` → deletes ticks up to and including that date; returns rows removed |
 | GET | `/metrics` | latency p50/p95/p99 per hop (last 1 and 15 min), event-loop lag, queue depths |
@@ -743,7 +761,7 @@ Server → client JSON frames `{type, ts, payload}`:
 | `flow` | about 1/s per index | order-flow score and its three parts (§8.5) |
 | `paper_trade` | on change, and 1/s while open | trade with live P&L |
 | `health` | on change | feed/auth/market status |
-| `parameters` | on reload | loaded_at, effective-from minute |
+| `parameters` | on a save or revert | version, tag, created_ts, the set, effective-from minute |
 
 Every frame carries `t_src` (exchange ts), `t_in` (backend ingest), `t_out` (backend send)
 so the client can compute per-hop latency. Frames are serialised with orjson; one frame
@@ -893,10 +911,21 @@ them ("Panel order" in §13.2).
   date; a date picker for "delete ticks up to and including"; a preview line ("N days,
   M rows, ~X MB") fetched from `/data/usage`; a confirm step that requires typing the date;
   progress and result. Derived data is stated as unaffected.
-- **Config control** (in the TopBar): shows the config load time; a "Reload config" button calls `POST /parameters/reload`, shows a success toast
-  with "applies from HH:MM" or an error panel listing the invalid fields. A read-only
-  "View config" drawer renders the active `ParameterSet` grouped as in §3.2 with the file
-  path, so what is running is always visible without opening the file.
+- **Config control** (in the TopBar): a button showing the version and tag in force
+  ("Config v7 higher bar"). It opens a panel with two tabs. **Edit** is a form built from
+  `/parameters/schema`, grouped as in §3.2, each field with its help text and limits; a
+  changed field is outlined and shows its previous value. Saving needs a tag and at least
+  one change; the server's field errors appear beside the field, its group or the tag,
+  and the draft is kept. After a save the bar shows "applies from HH:MM" and the form
+  starts again from the new version. **History** lists the versions, newest first, with
+  the one in force marked and a Revert button on the others, which asks for a tag
+  (pre-filled "Revert to vN") and a confirmation. There is no "Reload config" button.
+- **ConfigVersionChip**: "v7" beside a signal in the signal card and in the Config column
+  of "Signals today"; nothing for a signal with no version. Hovering or focusing it opens
+  a panel, fixed to the window so the scrolling column cannot clip it, with that
+  version's tag, when it was saved and all its values; values that differ from the
+  config in force are highlighted and their tooltip gives the current value. A version
+  is fetched once and cached, since versions never change.
 
 ### 13.3 Visual design
 - **Theme**: dark default, light toggle, persisted in `localStorage`; design tokens

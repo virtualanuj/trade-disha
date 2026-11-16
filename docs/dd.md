@@ -183,12 +183,13 @@ each group. Where TradeDisha gives a term a specific meaning or value, that is s
 | **mypy (strict)** | Python static type checker run with all strictness flags. |
 | **orjson** | A fast JSON library used for all serialisation. |
 | **p50 / p95 / p99** | Percentiles: the value below which 50 %, 95 %, 99 % of samples fall. Latency targets are stated at p95. |
-| **Parameter set** | The validated, typed in-memory form of `config/params.toml`: every tunable value that shapes a signal. |
+| **Config version** | One saved parameter set: a number (1, 2, 3, …), a tag typed by the trader and the values. The highest is in force; versions are never changed or removed. Each signal records the version it fired under. |
+| **Parameter set** | The validated, typed form of the tunable values that shape a signal, as held in the config version in force. |
 | **Pre-commit** | Git hook runner that executes linters and type checks on changed files before each commit. |
 | **Prune (ticks)** | Deleting raw tick rows up to and including a date the trader chooses, from the Data panel, after a preview and confirmation. Candles, chain minutes, bias, signals, and paper trades are never pruned. Nothing is pruned automatically. |
 | **Pure function** | A function whose output depends only on its inputs and which has no side effects. All indicator and signal maths is written this way so it is trivially testable. |
 | **Pydantic** | Python library for typed, validated data models; used for settings, the parameter set, DTOs, and boundary objects. |
-| **Reload (config)** | Re-reading `config/params.toml` on request; applied at the next minute close if valid, rejected with field errors if not. |
+| **Revert (config)** | Putting an old config version's values back in force by saving them as a new version. |
 | **Repository (data access)** | A thin module that owns the SQL for one table or aggregate. |
 | **REST** | The HTTP request/response API (`/api/...`) used for snapshots, history, and all mutations. |
 | **ruff** | Python linter and formatter. |
@@ -218,7 +219,8 @@ each group. Where TradeDisha gives a term a specific meaning or value, that is s
 | `candles_1m` | one 1-minute candle for one instrument |
 | `chain_minutes` | one strike of one index at one minute close (CE and PE values) |
 | `bias_minutes` | one index's bias and evidence at one minute close |
-| `signals` | one signal with its evidence and final status |
+| `signals` | one signal with its evidence, final status and the config version it fired under |
+| `config_versions` | one saved set of tunable parameters, numbered and tagged |
 | `paper_trades` | one paper trade from open to close, including exit fill quality |
 | `app_state` | one key/value (schema version) |
 | `feed_events` | one operational event (disconnect, gap, re-centre, backfill, config reload) |
