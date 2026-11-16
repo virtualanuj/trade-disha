@@ -614,6 +614,14 @@ class Signal:
   `target = entry + |delta| × target_points`, `stop = entry − |delta| × stop_points`,
   floored at `0.05`. `delta` from feed or computed (§7.3). Both the point and premium
   values are stored and shown.
+- **Live levels (Milestone E7).** The fired levels are stored and never change. While a
+  signal is active, `SignalEngine.live()` / `BullionSignalEngine.live()` apply the same rule
+  to the price now (`signals.py:rescale_levels`): a percentage signal keeps its target/entry
+  and stop/entry ratios (so a config change after it fired does not move it); an
+  expiry-day signal re-applies its index points through the option's **current** delta
+  (from the feed, else Black-Scholes). `SignalOut.live` = {ltp, target, stop}, `None` once
+  the signal has ended; a `signal_live` frame carries every active signal once a second. The
+  signal card shows the Fired and Live rows side by side.
 
 ### 9.4 Interaction with open paper trades
 Open trades never block signals. When a signal fires on an index with open trades,
@@ -736,7 +744,8 @@ POST /paper-trades {signal_id}
   → open at current LTP of signal.instrument_key (not signal.entry_price)
   → slippage = fill − signal.entry_price
   → quantity = lot_size × lots
-  → status OPEN; target/stop copied from signal
+  → status OPEN; target/stop = the signal's live levels at the fill price (§9.3), so the
+    trade gets what the card's Live row showed; signal_entry keeps the fired entry
 ```
 
 No cap on concurrent open paper trades per index or direction *(my call, follows from

@@ -108,7 +108,10 @@ class Harness:
         return self.signals.active["NIFTY"]
 
     def open(self, fill: float = 101.0) -> PaperTrade:
-        """Signal at 100 (target 130, stop 85), trader clicks when the price is `fill`."""
+        """Signal at 100 (target 130, stop 85), trader clicks when the price is `fill`.
+
+        The trade's target and stop are the signal's +30 % / -15 % from the fill (§10.1).
+        """
         signal = self.fire()
         self.tick(signal.instrument_key, fill)
         return self.paper.open(signal.id)
@@ -125,7 +128,8 @@ def test_opens_at_the_current_price_and_records_slippage() -> None:
     assert trade.entry_price == 101.5
     assert trade.signal_entry == 100.0
     assert trade.slippage == 1.5
-    assert (trade.target_price, trade.stop_price) == (130.0, 85.0)  # copied from the signal
+    # the signal's +30 % / -15 % from the fill, not the 130 / 85 it fired with
+    assert (trade.target_price, trade.stop_price) == (131.95, 86.28)
     assert trade.lots == 1
     assert trade.qty == h.r.lot_size
     assert trade.cost == 60.0
@@ -200,11 +204,12 @@ def test_refuses_outside_market_hours_and_after_square_off() -> None:
 
 def test_target_exit_fills_at_the_triggering_tick_net_of_cost() -> None:
     h = Harness()
-    trade = h.open(fill=101.0)
+    trade = h.open(fill=101.0)  # target 131.30
     h.tick(h.ce, 120.0, at(10, 1))
+    h.tick(h.ce, 131.0, at(10, 1, 30))  # the signal's target, not the trade's
     assert trade.id in h.paper.open_trades
 
-    h.tick(h.ce, 131.0, at(10, 2))
+    h.tick(h.ce, 131.5, at(10, 2))
 
     closed = h.paper.store.get(trade.id)
     assert closed is not None
@@ -214,10 +219,10 @@ def test_target_exit_fills_at_the_triggering_tick_net_of_cost() -> None:
         "TARGET",
         "live",
     )
-    assert closed.exit_price == 131.0
+    assert closed.exit_price == 131.5
     assert closed.exit_ts == at(10, 2)
-    assert closed.gross == 30.0 * h.r.lot_size
-    assert closed.net == 30.0 * h.r.lot_size - 60.0
+    assert closed.gross == 30.5 * h.r.lot_size
+    assert closed.net == 30.5 * h.r.lot_size - 60.0
     assert h.updates[-1] == closed
 
 
@@ -328,7 +333,7 @@ def test_only_the_first_tick_after_an_outage_counts_as_after_gap() -> None:
     h.paper.tick(at(10, 1))
     h.feed_live = True
     h.tick(h.ce, 100.0, at(10, 9))
-    h.tick(h.ce, 131.0, at(10, 10))
+    h.tick(h.ce, 131.5, at(10, 10))
 
     closed = h.paper.store.get(trade.id)
     assert closed is not None

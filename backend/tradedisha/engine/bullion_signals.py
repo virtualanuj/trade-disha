@@ -22,7 +22,16 @@ from dataclasses import replace
 
 from tradedisha.clock import MarketClock, ms_to_ist
 from tradedisha.engine.bias_engine import BiasComputed, breakdown_json
-from tradedisha.engine.signals import Direction, Gate, NoFireReason, Signal, SignalStore, Status
+from tradedisha.engine.signals import (
+    Direction,
+    Gate,
+    LiveLevels,
+    NoFireReason,
+    Signal,
+    SignalStore,
+    Status,
+    rescale_levels,
+)
 from tradedisha.market.bullion import BullionTracker
 from tradedisha.parameters.model import ParameterSet
 
@@ -84,6 +93,17 @@ class BullionSignalEngine:
 
     def tick(self, now_ms: int) -> None:
         self._expire_lapsed(now_ms)
+
+    def live(self, s: Signal) -> LiveLevels | None:
+        """The future's price now, and target and stop worked out from it."""
+        tick = self._tracker.ltp(s.index) if s.index in self._tracker.contracts else None
+        if tick is None:
+            return None
+        target, stop = self.levels_at(s, tick.ltp)
+        return LiveLevels(tick.ltp, target, stop)
+
+    def levels_at(self, s: Signal, price: float) -> tuple[float, float]:
+        return rescale_levels(s, price, None)
 
     def mark_traded(self, signal_id: str, now_ms: int) -> Signal | None:
         for s in list(self.active.values()):

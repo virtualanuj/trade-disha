@@ -133,8 +133,9 @@ Things that are easy to get wrong:
 
 - `api/ws.ts:MarketSocket` keeps one WebSocket with exponential reconnect and feeds the
   Zustand store in `state/store.ts`. The `hello` frame replaces all live state; later
-  frames (`tick`, `chain`, `candle`, `bias`, `signal`, `paper_trade`, `stats`, `flow`,
-  `bullion`, `bullion_candle`, `health`, `parameters`) update it. Live data is never polled.
+  frames (`tick`, `chain`, `candle`, `bias`, `signal`, `signal_live`, `paper_trade`,
+  `stats`, `flow`, `bullion`, `bullion_candle`, `health`, `parameters`) update it. Live
+  data is never polled.
 - `selectedIndex` is an index or `BULLION_TAB` (`state/store.ts`), which is not in
   `instruments`; code keyed by the selected index must allow for it. The tab shows only
   while bullion data exists.

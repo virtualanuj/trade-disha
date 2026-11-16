@@ -233,11 +233,15 @@ class WsHub:
             q.put_nowait(frame)
 
     def _push_every_second(self, last_stats: dict[str, str]) -> None:
-        """Live P&L of open trades, and index details when they moved."""
+        """Live P&L of open trades, live levels of waiting signals, index details if moved."""
         live = open_trades(self._state)
         if live:
             payload = {"trades": [t.model_dump() for t in live]}
             self._broadcast(self._frame("paper_trade", payload, t_src=None, t_in=None))
+        waiting = active_signals(self._state)
+        if waiting:
+            payload = {"signals": [s.model_dump() for s in waiting]}
+            self._broadcast(self._frame("signal_live", payload, t_src=None, t_in=None))
         for st in all_stats(self._state):
             body = st.model_dump()
             fingerprint = json.dumps(body, sort_keys=True)

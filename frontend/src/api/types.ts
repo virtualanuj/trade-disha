@@ -172,6 +172,7 @@ export type Frame =
   | ParametersFrame
   | SignalFrame
   | PaperTradeFrame
+  | SignalLiveFrame
   | StatsFrame
   | FlowFrame
   | BullionFrame
@@ -321,6 +322,13 @@ export interface ParametersFrame extends FrameBase {
   payload: ParametersOut & { effective_from_minute_ts: number }
 }
 
+/** an active signal's levels at the current price; mirrors `LiveLevelsOut` */
+export interface LiveLevelsOut {
+  ltp: number
+  target: number
+  stop: number
+}
+
 export type SignalStatus = 'active' | 'traded' | 'lapsed' | 'reversed'
 /** index options are bought; a bullion future is bought or sold (spec §9a) */
 export type SignalDirection = 'BUY_CE' | 'BUY_PE' | 'BUY_FUT' | 'SELL_FUT'
@@ -361,6 +369,8 @@ export interface SignalOut {
   config_version: number | null
   /** null for signals fired before outcomes were scored */
   outcome: OutcomeOut | null
+  /** while active: the entry, target and stop at the current price; a paper trade takes these */
+  live: LiveLevelsOut | null
 }
 
 export type OutcomeResult = 'open' | 'target' | 'stop' | 'neither'
@@ -448,6 +458,12 @@ export interface PaperTradeOut {
   ltp_ts: number | null
   live_gross: number | null
   live_net: number | null
+}
+
+/** every second while signals wait: their live levels */
+export interface SignalLiveFrame extends FrameBase {
+  type: 'signal_live'
+  payload: { signals: SignalOut[] }
 }
 
 export interface PaperTradeFrame extends FrameBase {

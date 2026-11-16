@@ -486,6 +486,30 @@ bullion signal had fired yet, so a live paper trade is still to be seen.
 
 **Design:** spec §6.6, §9a, §10, §13.2.
 
+## Milestone E7 — Live signal levels
+
+**Goal:** while a signal waits for the trader, its entry, target and stop follow the
+price, and a paper trade gets the levels that were on screen.
+
+- The fired levels stay on the signal (history, scoring). The live ones apply the same rule
+  to the current price: percentage signals keep their ratios; expiry-day signals re-apply
+  their index points through the option's current delta. Bullion futures, long or short,
+  the same way.
+- `SignalOut.live`, and a `signal_live` frame once a second while any signal is active.
+- The signal card shows a Fired row and a Live row (with how far the entry has moved).
+- A paper trade's target and stop are the live levels at its fill, no longer the fired ones.
+- Tests: the re-scaling rule (ratios, the 5-paise floor, points via delta, a put's delta);
+  live levels from the chain and from the bullion tracker; paper trades from the fill
+  (index and bullion); the API field and the per-second frame; the store never reviving an
+  ended signal; the card's two rows.
+
+**Demo:** wait for a signal, watch the Live row move with the option, click Paper trade and
+see the trade's target and stop match the Live row.
+
+**Status (2026-11-16):** built, with unit tests.
+
+**Design:** spec §9.3, §10.1.
+
 ## Milestone C1 — Editable, versioned config
 
 **Goal:** the trader tunes the parameters in the app, can always get back to an earlier

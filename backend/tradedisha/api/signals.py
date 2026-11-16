@@ -56,6 +56,14 @@ class ScoreRowOut(BaseModel):
     avg_late_share: float | None
 
 
+class LiveLevelsOut(BaseModel):
+    """An active signal's entry, target and stop at the current price (spec §9.2)."""
+
+    ltp: float
+    target: float
+    stop: float
+
+
 class SignalOut(BaseModel):
     id: str
     index: str
@@ -87,6 +95,7 @@ class SignalOut(BaseModel):
     flow_score: float | None
     config_version: int | None
     outcome: OutcomeOut | None
+    live: LiveLevelsOut | None = None  # while active; a paper trade takes these at its fill
 
 
 class FlowOut(BaseModel):
@@ -140,7 +149,21 @@ def signal_out(state: AppState, s: Signal) -> SignalOut:
         **{k: v for k, v in fields.items() if k != "breakdown_json"},
         breakdown=json.loads(s.breakdown_json),
         outcome=outcome_out(s, o) if o is not None else None,
+        live=live_out(state, s),
     )
+
+
+def live_out(state: AppState, s: Signal) -> LiveLevelsOut | None:
+    """Live levels for a signal still waiting for the trader; None once it has ended."""
+    if not s.is_active:
+        return None
+    desk = state.session.bullion_desk
+    if s.index in METALS:
+        live = desk.signals.live(s) if desk else None
+    else:
+        eng = state.session.signals
+        live = eng.live(s) if eng else None
+    return LiveLevelsOut(**asdict(live)) if live else None
 
 
 def gate_out(g: Gate) -> GateOut:

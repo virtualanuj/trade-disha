@@ -8,6 +8,7 @@ import {
   fmtIstTime,
   fmtMoney,
   fmtPrice,
+  fmtSigned,
   pnlColour,
 } from '../../lib/format'
 import { directionLabel, instrumentLabel, isFuture, isLong } from '../../lib/direction'
@@ -94,29 +95,20 @@ export function SignalCard({ signal, gate, now, openTrades = [], blocked, onPape
           ? `₹${String(signal.lot_size)} per point per lot`
           : `lot ${String(signal.lot_size)}`}
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4">
-        <Stat
-          label="Entry"
-          value={fmtPrice(signal.entry_price)}
-          sub={
-            signal.entry_mode === 'trigger'
-              ? `at the ask · spread ${signal.spread_pct != null ? signal.spread_pct.toFixed(2) : '—'}%`
-              : undefined
-          }
-        />
-        <Stat
-          label="Target"
-          value={fmtPrice(signal.target_price)}
-          sub={signal.target_points != null ? `+${String(signal.target_points)} pts` : undefined}
-          cls="text-bull"
-        />
-        <Stat
-          label="Stop"
-          value={fmtPrice(signal.stop_price)}
-          sub={signal.stop_points != null ? `-${String(signal.stop_points)} pts` : undefined}
-          cls="text-bear"
-        />
+      <div className="mt-3 flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
+        <Levels signal={signal} />
         <Stat label="Expires in" value={remaining} cls={urgent ? 'text-warn' : ''} />
+      </div>
+      <div className="mt-1 text-[10px] text-fg-muted">
+        {signal.entry_mode === 'trigger'
+          ? `Fired at the ask · spread ${signal.spread_pct != null ? signal.spread_pct.toFixed(2) : '—'}%. `
+          : ''}
+        {signal.target_points != null && signal.stop_points != null
+          ? `Target +${String(signal.target_points)} pts, stop -${String(signal.stop_points)} pts on the index. `
+          : ''}
+        {signal.live
+          ? 'A paper trade opens at the live price with the live target and stop.'
+          : 'Live levels appear with the next price.'}
       </div>
       {signal.delta_used != null ? (
         <div className="mt-1 text-[10px] text-fg-muted">
@@ -183,6 +175,56 @@ export function SignalCard({ signal, gate, now, openTrades = [], blocked, onPape
         ) : null}
       </div>
     </div>
+  )
+}
+
+/**
+ * The levels the signal fired with, and the same rule applied to the price now (spec §9.2).
+ * A paper trade takes the live row at its fill.
+ */
+function Levels({ signal }: { signal: SignalOut }) {
+  const live = signal.live
+  const moved = live ? live.ltp - signal.entry_price : 0
+  return (
+    <table className="text-xs">
+      <thead>
+        <tr className="text-[10px] uppercase tracking-wide text-fg-muted">
+          <th className="pr-4 text-left font-normal" />
+          <th className="pr-4 text-right font-normal">Entry</th>
+          <th className="pr-4 text-right font-normal">Target</th>
+          <th className="text-right font-normal">Stop</th>
+        </tr>
+      </thead>
+      <tbody className="font-mono">
+        {live ? (
+          <tr data-testid="levels-live" className="text-sm">
+            <td className="pr-4 font-sans text-[10px] uppercase tracking-wide text-fg-muted">
+              Live
+            </td>
+            <td className="pr-4 text-right">
+              {fmtPrice(live.ltp)}
+              {moved !== 0 ? (
+                <span className={`ml-1 text-[10px] ${pnlColour(moved)}`}>
+                  {fmtSigned(moved, 2)}
+                </span>
+              ) : null}
+            </td>
+            <td className="pr-4 text-right text-bull">{fmtPrice(live.target)}</td>
+            <td className="text-right text-bear">{fmtPrice(live.stop)}</td>
+          </tr>
+        ) : null}
+        <tr data-testid="levels-fired" className={live ? 'text-fg-muted' : 'text-sm'}>
+          <td className="pr-4 font-sans text-[10px] uppercase tracking-wide text-fg-muted">
+            Fired
+          </td>
+          <td className="pr-4 text-right">{fmtPrice(signal.entry_price)}</td>
+          <td className={`pr-4 text-right ${live ? '' : 'text-bull'}`}>
+            {fmtPrice(signal.target_price)}
+          </td>
+          <td className={`text-right ${live ? '' : 'text-bear'}`}>{fmtPrice(signal.stop_price)}</td>
+        </tr>
+      </tbody>
+    </table>
   )
 }
 

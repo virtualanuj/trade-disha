@@ -218,6 +218,21 @@ Builder's calls:
 - Cost = fixed per lot + a % of round-trip turnover (CTT and charges scale with value).
 - Bullion signals are not scored by the outcome yardstick (it measures NSE spot).
 
+### 11. Live signal levels
+
+Asked for (2026-11-16): the signal panel should update entry, target and stop while the
+signal waits for the trader.
+
+Decided with the owner on 2026-11-16:
+- Show both the fired levels and the live ones on the signal panel.
+- A paper trade takes the live levels from its fill.
+- On expiry day the points convert with the option's live delta.
+
+Builder's calls:
+- Percentage signals keep the ratios they fired with, so a config edit after firing does
+  not move an open offer.
+- Live levels go out once a second, with open-trade P&L.
+
 ## Deferred
 
 ### Chart zoom buttons

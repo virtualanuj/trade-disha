@@ -100,6 +100,34 @@ class Gate:
     reason: NoFireReason | None
 
 
+@dataclass(frozen=True)
+class LiveLevels:
+    """Where an active signal's entry, target and stop are now (spec §9.2)."""
+
+    ltp: float
+    target: float
+    stop: float
+
+
+def rescale_levels(s: Signal, price: float, delta: float | None) -> tuple[float, float]:
+    """(target, stop) for `s` entered at `price`, by the rule it fired under.
+
+    A percentage signal keeps its target/entry and stop/entry ratios, so a config change
+    after it fired does not move it. An expiry-day signal re-applies its index points through
+    `delta` (the option's current one; the delta it fired with if none is known).
+    """
+    if s.target_basis == "points" and s.target_points is not None and s.stop_points is not None:
+        d = abs(delta if delta is not None else (s.delta_used or 0.0))
+        target = price + d * s.target_points
+        stop = price - d * s.stop_points
+    elif s.entry_price > 0:
+        target = price * s.target_price / s.entry_price
+        stop = price * s.stop_price / s.entry_price
+    else:
+        return s.target_price, s.stop_price
+    return round(target, 2), round(max(0.05, stop), 2)
+
+
 _COLS = [f.name for f in fields(Signal)]
 _DB_COLS = ", ".join("idx" if c == "index" else c for c in _COLS)
 
@@ -256,6 +284,47 @@ class SignalEngine:
     def tick(self, now_ms: int) -> None:
         """Time-based housekeeping between minute closes (lapse)."""
         self._expire_lapsed(now_ms)
+
+    def live(self, s: Signal) -> LiveLevels | None:
+        """The signal's option price now, and target and stop worked out from it."""
+        leg = self._leg(s)
+        if leg is None or leg.ltp is None:
+            return None
+        target, stop = self.levels_at(s, leg.ltp)
+        return LiveLevels(leg.ltp, target, stop)
+
+    def levels_at(self, s: Signal, price: float) -> tuple[float, float]:
+        """Target and stop if `s` were entered at `price` now (a paper trade's fill)."""
+        delta = self._live_delta(s) if s.target_basis == "points" else None
+        return rescale_levels(s, price, delta)
+
+    def _leg(self, s: Signal) -> LegState | None:
+        chain = self._chains.get(s.index)
+        row = chain.rows.get(s.strike) if chain else None
+        if row is None:
+            return None
+        return row.ce if s.direction == "BUY_CE" else row.pe
+
+    def _live_delta(self, s: Signal) -> float | None:
+        """The option's delta now: from the feed, else Black-Scholes as when it fired."""
+        leg = self._leg(s)
+        if leg is None:
+            return None
+        if leg.delta is not None:
+            return leg.delta
+        chain = self._chains[s.index]
+        r = self._resolved[s.index]
+        t_years = years_between_ms(
+            self._clock.now_ms(), expiry_close_ms(r.options_expiry.isoformat(), self._close)
+        )
+        return bs_delta(
+            chain.spot or s.strike,
+            s.strike,
+            t_years,
+            leg.iv or 15.0,
+            self._rate,
+            call=s.direction == "BUY_CE",
+        )
 
     def mark_traded(self, signal_id: str, now_ms: int) -> Signal | None:
         for index, s in list(self.active.items()):

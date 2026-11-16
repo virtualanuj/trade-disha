@@ -49,9 +49,35 @@ const signal: SignalOut = {
   flow_score: null,
   config_version: null,
   outcome: null,
+  live: null,
 }
 
 describe('SignalCard', () => {
+  it('shows the fired levels and the live ones while the signal waits', () => {
+    const waiting: SignalOut = { ...signal, live: { ltp: 160, target: 208, stop: 136 } }
+    render(<SignalCard signal={waiting} gate={undefined} now={waiting.ts_fired} />)
+    const fired = screen.getByTestId('levels-fired')
+    const live = screen.getByTestId('levels-live')
+    expect(fired).toHaveTextContent('Fired')
+    expect(fired).toHaveTextContent('150.00')
+    expect(fired).toHaveTextContent('195.00')
+    expect(fired).toHaveTextContent('127.50')
+    expect(live).toHaveTextContent('Live')
+    expect(live).toHaveTextContent('160.00')
+    expect(live).toHaveTextContent('208.00')
+    expect(live).toHaveTextContent('136.00')
+    expect(live).toHaveTextContent('+10.00') // entry has moved since it fired
+    expect(screen.getByTestId('signal-card')).toHaveTextContent(
+      'A paper trade opens at the live price with the live target and stop',
+    )
+  })
+
+  it('shows only the fired levels until a live price arrives', () => {
+    render(<SignalCard signal={signal} gate={undefined} now={signal.ts_fired} />)
+    expect(screen.getByTestId('levels-fired')).toHaveTextContent('150.00')
+    expect(screen.queryByTestId('levels-live')).toBeNull()
+  })
+
   it('shows a short bullion future with its point value and gate text', () => {
     const short: SignalOut = {
       ...signal,

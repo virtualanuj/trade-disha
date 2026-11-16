@@ -43,6 +43,7 @@ class SignalSource(Protocol):
     store: SignalStore
 
     def mark_traded(self, signal_id: str, now_ms: int) -> Signal | None: ...
+    def levels_at(self, s: Signal, price: float) -> tuple[float, float]: ...
 
 
 @dataclass(frozen=True)
@@ -255,6 +256,8 @@ class PaperTradeManager:
 
         lots = self.rules.lots(p)
         qty = signal.lot_size * lots
+        # The live levels at the fill: what the signal panel showed when the trader clicked.
+        target, stop = self._signals.levels_at(signal, price.ltp)
         trade = PaperTrade(
             id=uuid.uuid4().hex[:12],
             signal_id=signal.id,
@@ -270,8 +273,8 @@ class PaperTradeManager:
             entry_price=price.ltp,
             entry_ts=now,
             slippage=round(price.ltp - signal.entry_price, 2),
-            target_price=signal.target_price,
-            stop_price=signal.stop_price,
+            target_price=target,
+            stop_price=stop,
             cost=round(self.rules.cost(p, price.ltp, qty, lots), 2),
         )
         self._signals.mark_traded(signal.id, now)

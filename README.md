@@ -30,7 +30,8 @@ tab with live gold and silver (MCX futures): day range, liquidity, circuit limit
 and a minute chart. Milestone E5: bullion follows MCX hours with its own status banner, and index feed
 liveness counts NSE ticks only, so gold ticking never hides an index outage. Milestone E6: bullion signals
 (buy or sell the GOLD/SILVER future on a trend-only bias, run 20 s after each minute close) and long/short
-paper trades through the MCX session, with their own Journal rows. See [docs/plan.md](docs/plan.md) for what comes next.
+paper trades through the MCX session, with their own Journal rows. Milestone E7: a waiting signal shows its fired
+and live entry, target and stop, and a paper trade takes the live levels at its fill. See [docs/plan.md](docs/plan.md) for what comes next.
 
 ## Documents
 

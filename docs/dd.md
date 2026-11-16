@@ -116,6 +116,7 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Group** | One of the three families of indicators: `trend`, `oi`, `premium`. Each has a weight; indicators within a group split that weight equally. |
 | **Hysteresis (re-arm)** | Optional gate, off by default (`rearm_hysteresis = 0`). If set, a new signal in the same direction as the one that just ended needs bias to fall below `entry_threshold − rearm_hysteresis` and re-cross. With it off, a fresh signal fires at the next minute close whenever bias is beyond threshold and no signal is active. |
 | **Indicator** | A pure function from candles and/or chain state to an `IndicatorResult` (score, raw values, note, quality). Nine in v1. |
+| **Fired / live levels** | A signal's entry, target and stop as it fired (stored, never changed) and the same rule applied to the price now (shown while it waits). A paper trade takes the live levels at its fill. |
 | **Lapse** | A signal that was not paper-traded within its time-to-live (default 5 minutes). |
 | **Momentum / ROC (rate of change)** | Percentage change of a value over N minutes. Used for ATM call vs put premium momentum (5 minutes). |
 | **Neutral band** | Absolute bias below which the label is `Neutral`. Default 0.20. |

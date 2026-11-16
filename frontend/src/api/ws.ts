@@ -114,6 +114,9 @@ export class MarketSocket {
       case 'paper_trade':
         s.applyTrades(frame.payload.trades)
         break
+      case 'signal_live':
+        s.applySignalLive(frame.payload.signals)
+        break
       case 'parameters':
         s.applyParameters(frame.payload, frame.payload.effective_from_minute_ts)
         break

@@ -43,6 +43,19 @@ describe('market store', () => {
     expect(useMarketStore.getState().signals.NIFTY?.id).toBe('live')
   })
 
+  it('refreshes the live levels of the waiting signal, and only that one', () => {
+    const { applySignal, applySignalLive } = useMarketStore.getState()
+    applySignal(sig({ id: 'a', live: null }), [])
+    applySignalLive([
+      sig({ id: 'a', live: { ltp: 160, target: 208, stop: 136 } }),
+      sig({ id: 'gone', index: 'BANKNIFTY', live: { ltp: 1, target: 2, stop: 0.5 } }),
+    ])
+    const s = useMarketStore.getState()
+    expect(s.signals.NIFTY?.live).toEqual({ ltp: 160, target: 208, stop: 136 })
+    expect(s.signals.BANKNIFTY).toBeUndefined() // never brings back a signal that has ended
+    expect(s.signalHistory[0]?.live).toBeNull() // history keeps what it had
+  })
+
   it('keeps the latest order-flow reading per index', () => {
     const flow = { index: 'NIFTY', score: 0.2 } as FlowOut
     useMarketStore.getState().applyFlow(flow)

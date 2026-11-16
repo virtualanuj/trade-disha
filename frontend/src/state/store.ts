@@ -98,6 +98,8 @@ interface MarketStore {
   applyCandle: (index: string, role: 'spot' | 'fut', c: CandleOut) => void
   applyBias: (b: BiasOut, o: OverlayOut, gates?: GateOut[]) => void
   applySignal: (s: SignalOut, gates: GateOut[]) => void
+  /** the per-second live levels of waiting signals; never revives one that has ended */
+  applySignalLive: (signals: SignalOut[]) => void
   applyParameters: (p: ParametersOut, effectiveFrom: number | null) => void
   selectIndex: (index: string) => void
 }
@@ -263,6 +265,15 @@ export const useMarketStore = create<MarketStore>((set) => ({
         signalHistory: [sig, ...rest].sort((a, b) => b.ts_fired - a.ts_fired),
         gates: { ...s.gates, ...gatesByIndex(gates) },
       }
+    })
+  },
+  applySignalLive: (incoming) => {
+    set((s) => {
+      let signals = s.signals
+      for (const sig of incoming) {
+        if (signals[sig.index]?.id === sig.id) signals = { ...signals, [sig.index]: sig }
+      }
+      return signals === s.signals ? {} : { signals }
     })
   },
   applyFlow: (f) => {
