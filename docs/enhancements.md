@@ -176,8 +176,8 @@ scoring a stored version with the offline tool.
 Asked for (2026-11-16): pull gold and silver real-time prices from Upstox; then, make
 bullion a tab like NIFTY and BANK NIFTY with the useful details Upstox already provides.
 
-Status: built in Milestone E4, awaiting the live check. Design in [spec.md](spec.md)
-§6.6 and §13.2; planned in [plan.md](plan.md) Milestone E4.
+Status: built in Milestone E4 and checked by the owner on the live feed (2026-11-16).
+Design in [spec.md](spec.md) §6.6 and §13.2; planned in [plan.md](plan.md) Milestone E4.
 
 Decided with the owner on 2026-11-16:
 - The MCX futures of GOLD (₹ per 10 g) and SILVER (₹ per kg), not the minis. Upstox has

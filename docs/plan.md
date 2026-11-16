@@ -416,7 +416,7 @@ already provides.
 GOLD and SILVER with the Upstox app: price, day range, ATP, OI, circuit limits, next
 month. Switch the chart; reload to find the tab and switch kept.
 
-**Status (2026-11-16):** built, with unit tests; the live check is still to do (spec §17).
+**Status (2026-11-16):** built, with unit tests, and checked by the owner on the live feed.
 
 **Design:** spec §6.6 and §13.2 (IndexTabs, BullionView).
 

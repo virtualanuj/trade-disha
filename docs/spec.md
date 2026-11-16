@@ -1172,4 +1172,4 @@ Live verification per milestone is described in plan.md.
 | `tbq`, `tsq`, `atp` and all five book levels arrive in `full` mode for index futures and the option window | S1 live day | build the trigger on whichever of them do arrive |
 | Growth of the `ticks` table with the eight order-flow columns | S1 live day (Data panel) | record them only for the futures and the strikes near ATM |
 | Whether order flow leads price on these contracts at all | S2 shadow scorecard | keep the minute-close rule; try enhancement 6's other options |
-| MCX ticks (and the `1d` OHLC row) arrive for this account in `full` mode | E4 live check | poll the full quote once a few seconds |
+| MCX ticks (and the `1d` OHLC row) arrive for this account in `full` mode | E4 live check: the tab checked live by the owner, 2026-11-16 | poll the full quote once a few seconds |
