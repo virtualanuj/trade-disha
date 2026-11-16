@@ -14,7 +14,7 @@ def ms(day: date, h: int, m: int, s: int = 0) -> int:
 
 def test_migrations_apply_once() -> None:
     conn = connect(":memory:")
-    assert schema_version(conn) == 6
+    assert schema_version(conn) == 9
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {
         "ticks",
@@ -68,3 +68,30 @@ def test_previous_close_is_stored_once_per_key_and_replayed() -> None:
     assert stored == [100.0, None, 50.0]
     replayed = store.read_day(datetime(2026, 11, 13, tzinfo=IST).date())
     assert [t.close_prev for t in replayed] == [100.0, None, 50.0]
+
+
+def test_order_flow_fields_round_trip_and_old_rows_read_as_none() -> None:
+    conn = connect(":memory:")
+    store = TickStore(conn)
+    t0 = ist_to_ms(datetime(2026, 11, 13, 9, 15, tzinfo=IST))
+    full = Tick(
+        key="A",
+        ts=t0,
+        ltp=101.0,
+        bid_qty=65,
+        ask_qty=130,
+        bid_qty5=900,
+        ask_qty5=1200,
+        tbq=40_000,
+        tsq=55_000,
+        atp=100.5,
+        ltq=75,
+    )
+    store.add(full)
+    store.flush()
+    # a row as written before the columns existed
+    conn.execute("INSERT INTO ticks (key, ts, ltp) VALUES ('B', ?, 5.0)", (t0 + 1,))
+
+    replayed = store.read_day(datetime(2026, 11, 13, tzinfo=IST).date())
+
+    assert replayed == [full, Tick(key="B", ts=t0 + 1, ltp=5.0)]

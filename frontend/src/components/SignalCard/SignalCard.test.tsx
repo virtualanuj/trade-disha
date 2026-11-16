@@ -42,6 +42,12 @@ const signal: SignalOut = {
   expires_at: 1_700_000_360_000,
   status: 'active',
   status_ts: 1_700_000_060_000,
+  entry_ask: null,
+  spread_pct: null,
+  entry_mode: 'minute_close',
+  shadow: false,
+  flow_score: null,
+  outcome: null,
 }
 
 describe('SignalCard', () => {
@@ -117,5 +123,38 @@ describe('SignalCard', () => {
   it('formats the countdown', () => {
     expect(countdown(65_000, 0)).toBe('1:05')
     expect(countdown(0, 5_000)).toBe('0:00')
+  })
+})
+
+describe('SignalCard with the order-flow trigger', () => {
+  it('explains a setup that is waiting for order flow, or held back by the quote', () => {
+    const gate = { index: 'NIFTY', minute_ts: 1_700_000_000_000, fired: false }
+    const { rerender } = render(
+      <SignalCard signal={undefined} gate={{ ...gate, reason: 'flow_not_confirmed' }} now={0} />,
+    )
+    expect(screen.getByTestId('signal-card')).toHaveTextContent(
+      'setup in place, waiting for order flow to agree',
+    )
+    rerender(<SignalCard signal={undefined} gate={{ ...gate, reason: 'spread_wide' }} now={0} />)
+    expect(screen.getByTestId('signal-card')).toHaveTextContent('bid-ask spread too wide')
+    rerender(<SignalCard signal={undefined} gate={{ ...gate, reason: 'no_setup' }} now={0} />)
+    expect(screen.getByTestId('signal-card')).toHaveTextContent('bias too weak for a setup')
+  })
+
+  it('says a trigger signal is priced at the ask, with the spread', () => {
+    render(
+      <SignalCard
+        signal={{
+          ...signal,
+          entry_mode: 'trigger',
+          entry_price: 150.1,
+          entry_ask: 150.1,
+          spread_pct: 0.133,
+        }}
+        gate={undefined}
+        now={signal.ts_fired}
+      />,
+    )
+    expect(screen.getByTestId('signal-card')).toHaveTextContent('at the ask · spread 0.13%')
   })
 })

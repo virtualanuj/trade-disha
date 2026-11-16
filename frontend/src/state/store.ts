@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 
 import type {
+  FlowOut,
   BiasOut,
   CandleOut,
   CandlesResponse,
@@ -50,6 +51,8 @@ interface MarketStore {
   /** today's signals, newest first */
   signalHistory: SignalOut[]
   gates: Record<string, GateOut>
+  /** latest order-flow reading per index */
+  flow: Record<string, FlowOut>
   /** open trades plus today's, newest first */
   trades: PaperTradeOut[]
   /** day statistics per index, for the details view */
@@ -70,7 +73,9 @@ interface MarketStore {
     gates: GateOut[],
     trades: PaperTradeOut[],
     stats: IndexStatsOut[],
+    flow: FlowOut[],
   ) => void
+  applyFlow: (f: FlowOut) => void
   applyStats: (s: IndexStatsOut) => void
   applyTrades: (t: PaperTradeOut[]) => void
   applyTick: (p: IndexPrices, recvAt: number) => void
@@ -98,6 +103,7 @@ export const useMarketStore = create<MarketStore>((set) => ({
   signals: {},
   signalHistory: [],
   gates: {},
+  flow: {},
   trades: [],
   stats: {},
   selectedIndex: 'NIFTY',
@@ -118,6 +124,7 @@ export const useMarketStore = create<MarketStore>((set) => ({
     gates,
     trades,
     stats,
+    flow,
   ) => {
     const byIndex: Record<string, IndexPrices> = {}
     for (const p of prices) {
@@ -153,6 +160,7 @@ export const useMarketStore = create<MarketStore>((set) => ({
       signals: signalsByIndex,
       signalHistory: signalsToday,
       gates: gatesByIndex(gates),
+      flow: Object.fromEntries(flow.map((x) => [x.index, x])),
       trades,
       stats: Object.fromEntries(stats.map((x) => [x.index, x])),
       selectedIndex: instruments.some((i) => i.index === s.selectedIndex)
@@ -196,7 +204,10 @@ export const useMarketStore = create<MarketStore>((set) => ({
   applySignal: (sig, gates) => {
     set((s) => {
       let signals = s.signals
-      if (sig.status === 'active') signals = { ...signals, [sig.index]: sig }
+      // a shadow signal is history only: it is never the one on offer
+      if (sig.shadow) {
+        /* leave the active signal alone */
+      } else if (sig.status === 'active') signals = { ...signals, [sig.index]: sig }
       else if (signals[sig.index]?.id === sig.id) {
         signals = Object.fromEntries(Object.entries(signals).filter(([k]) => k !== sig.index))
       }
@@ -207,6 +218,9 @@ export const useMarketStore = create<MarketStore>((set) => ({
         gates: { ...s.gates, ...gatesByIndex(gates) },
       }
     })
+  },
+  applyFlow: (f) => {
+    set((s) => ({ flow: { ...s.flow, [f.index]: f } }))
   },
   applyParameters: (parameters, parametersEffectiveFrom) => {
     set({ parameters, parametersEffectiveFrom })

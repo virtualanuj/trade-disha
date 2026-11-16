@@ -49,3 +49,26 @@ def test_reload_keeps_previous_on_failure(tmp_path: Path) -> None:
 
     f.write_text("[bias]\nentry_threshold = 0.7\n")
     assert svc.reload().params.bias.entry_threshold == 0.7
+
+
+def test_setup_threshold_must_sit_between_the_neutral_band_and_the_entry_threshold() -> None:
+    ok = parse_params("[bias]\nneutral_band = 0.2\nsetup_threshold = 0.3\nentry_threshold = 0.5\n")
+    assert ok.bias.setup_threshold == 0.3
+    for bad in (0.2, 0.55):
+        with pytest.raises(ParameterValidationError) as e:
+            parse_params(f"[bias]\nsetup_threshold = {bad}\n")
+        assert e.value.errors[0]["field"] == "bias"
+
+
+def test_entry_mode_is_minute_close_unless_set_to_trigger() -> None:
+    assert ParameterSet().signal.entry_mode == "minute_close"
+    assert parse_params('[signal]\nentry_mode = "trigger"\n').signal.entry_mode == "trigger"
+    with pytest.raises(ParameterValidationError):
+        parse_params('[signal]\nentry_mode = "instant"\n')
+
+
+def test_flow_mix_weights_must_sum_to_one() -> None:
+    assert ParameterSet().flow.trigger_score > 0
+    with pytest.raises(ParameterValidationError) as e:
+        parse_params("[flow]\nw_fut_book = 0.9\n")
+    assert e.value.errors[0]["field"] == "flow"

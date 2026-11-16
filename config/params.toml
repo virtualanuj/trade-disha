@@ -12,7 +12,8 @@ premium = 0.25
 expiry_oi_weight_factor = 0.5  # on expiry day the OI weight is multiplied by this
 
 [bias]
-entry_threshold = 0.50         # |bias| at which a signal fires
+entry_threshold = 0.50         # |bias| at which a signal fires (entry_mode = "minute_close")
+setup_threshold = 0.35         # |bias| that sets up a signal, waiting for order flow (entry_mode = "trigger")
 neutral_band = 0.20            # |bias| below this is labelled Neutral
 rearm_hysteresis = 0.0         # 0 = off; >0 requires |bias| to dip below threshold-h before same-direction re-fire
 
@@ -41,10 +42,21 @@ iv_full_change = 2.0           # IV change (percentage points) for full strength
 confirmation_minutes = 5
 divergence_score = -0.5        # vote when premiums disagree with the spot move
 
+[flow]                         # order-flow score, -1 (selling) to +1 (buying); starting values, to be tuned on shadow data
+window_seconds = 15.0          # smoothing window for book imbalance and signed trades
+trigger_score = 0.25           # flow score, in the setup's direction, needed to fire
+hold_seconds = 5.0             # how long the score must stay there
+w_fut_book = 0.4               # mix of the three parts; must sum to 1
+w_fut_trades = 0.3
+w_options = 0.3                # ATM call flow minus ATM put flow
+
 [signal]
+entry_mode = "minute_close"    # "minute_close" = fire at minute close on entry_threshold; "trigger" = setup then order flow. The other rule runs in shadow.
+max_spread_pct = 1.0           # trigger mode: widest bid-ask spread (% of mid) at which a signal may fire
 signal_ttl_seconds = 300
 target_pct = 30.0
 stop_pct = -15.0
+outcome_horizon_minutes = 30   # how long each signal's option is followed to score it
 last_signal_time = "15:00"
 last_signal_time_expiry = "13:00"
 

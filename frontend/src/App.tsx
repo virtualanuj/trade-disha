@@ -9,6 +9,7 @@ import { DataPanel } from './components/DataPanel/DataPanel'
 import { DebugOverlay } from './components/DebugOverlay/DebugOverlay'
 import { Divider } from './components/Divider/Divider'
 import { EvidenceTable } from './components/EvidenceTable/EvidenceTable'
+import { FlowLine } from './components/FlowLine/FlowLine'
 import { IndexTabs } from './components/IndexTabs/IndexTabs'
 import { IndexTiles } from './components/IndexTiles/IndexTiles'
 import { Journal } from './components/Journal/Journal'
@@ -129,6 +130,7 @@ export default function App() {
   const bias = useMarketStore((s) => s.bias[s.selectedIndex])
   const signal = useMarketStore((s) => s.signals[s.selectedIndex])
   const gate = useMarketStore((s) => s.gates[s.selectedIndex])
+  const flow = useMarketStore((s) => s.flow[s.selectedIndex])
   const signalHistory = useMarketStore((s) => s.signalHistory)
   const parameters = useMarketStore((s) => s.parameters)
   const parametersEffectiveFrom = useMarketStore((s) => s.parametersEffectiveFrom)
@@ -203,7 +205,7 @@ export default function App() {
   )
 
   const markers = useMemo(
-    () => signalHistory.filter((s) => s.index === selected),
+    () => signalHistory.filter((s) => s.index === selected && !s.shadow),
     [signalHistory, selected],
   )
 
@@ -317,6 +319,7 @@ export default function App() {
               )}
               <PanelFrame {...frame('evidence')} title="Evidence" summary={evidenceSummary(bias)}>
                 <EvidenceTable bias={bias} />
+                <FlowLine flow={flow} />
               </PanelFrame>
               <PanelFrame
                 {...frame('trades')}

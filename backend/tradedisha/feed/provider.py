@@ -23,6 +23,14 @@ class Tick:
     iv: float | None = None
     delta: float | None = None
     close_prev: float | None = None
+    bid_qty: int | None = None  # quantity at the best bid
+    ask_qty: int | None = None
+    bid_qty5: int | None = None  # quantity over the five book levels
+    ask_qty5: int | None = None
+    tbq: int | None = None  # total buy quantity pending on the exchange
+    tsq: int | None = None
+    atp: float | None = None  # exchange average traded price (its VWAP)
+    ltq: int | None = None  # last traded quantity
 
 
 @dataclass(frozen=True, slots=True)

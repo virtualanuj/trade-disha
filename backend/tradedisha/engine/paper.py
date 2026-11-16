@@ -172,6 +172,8 @@ class PaperTradeManager:
             known = self._signals.store.get(signal_id)
             if known is None:
                 raise PaperError("unknown signal", not_found=True)
+            if known.shadow:
+                raise PaperError("this is a shadow signal, recorded for comparison only")
             raise PaperError(f"signal is no longer active ({known.status})")
         p = self._params()
         if self._enforce_hours:

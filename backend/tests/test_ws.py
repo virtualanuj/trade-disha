@@ -13,6 +13,7 @@ def test_hello_then_ticks(client: TestClient) -> None:
         assert hello["payload"]["health"]["feed"]["provider"] == "synthetic"
         assert [i["index"] for i in hello["payload"]["instruments"]] == ["NIFTY", "BANKNIFTY"]
         assert len(hello["payload"]["prices"]) == 2
+        assert isinstance(hello["payload"]["flow"], list)
 
         seen: dict[str, dict[str, Any]] = {}
         for _ in range(40):

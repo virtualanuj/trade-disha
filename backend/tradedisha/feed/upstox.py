@@ -12,6 +12,7 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import replace
 from typing import Protocol
 
 import httpx
@@ -64,6 +65,10 @@ def _nonzero(value: float) -> float | None:
     return value if value != 0 else None
 
 
+def _qty(value: float) -> int | None:
+    return int(value) if value > 0 else None
+
+
 def _tick(key: str, ts: int, feed: pb.Feed) -> Tick | None:
     kind = feed.WhichOneof("FeedUnion")
     if kind == "ltpc":
@@ -77,8 +82,20 @@ def _tick(key: str, ts: int, feed: pb.Feed) -> Tick | None:
     if full.WhichOneof("FullFeedUnion") == "indexFF":
         return _from_ltpc(key, ts, full.indexFF.ltpc)
     m = full.marketFF
-    best = m.marketLevel.bidAskQuote[0] if m.marketLevel.bidAskQuote else None
-    return _from_market(key, ts, m.ltpc, best, m.optionGreeks, m.vtt, m.oi, m.iv)
+    book = m.marketLevel.bidAskQuote
+    tick = _from_market(
+        key, ts, m.ltpc, book[0] if book else None, m.optionGreeks, m.vtt, m.oi, m.iv
+    )
+    if tick is None:
+        return None
+    return replace(
+        tick,
+        bid_qty5=_qty(sum(q.bidQ for q in book)),
+        ask_qty5=_qty(sum(q.askQ for q in book)),
+        tbq=_qty(m.tbq),
+        tsq=_qty(m.tsq),
+        atp=_pos(m.atp),
+    )
 
 
 def _from_market(
@@ -104,6 +121,9 @@ def _from_market(
         iv=_pos(iv),
         delta=_nonzero(greeks.delta),
         close_prev=_pos(ltpc.cp),
+        bid_qty=_qty(best.bidQ) if best is not None else None,
+        ask_qty=_qty(best.askQ) if best is not None else None,
+        ltq=_qty(ltpc.ltq),
     )
 
 

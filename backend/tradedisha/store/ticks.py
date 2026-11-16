@@ -10,29 +10,29 @@ from datetime import date, datetime, timedelta
 from tradedisha.clock import IST, ist_to_ms, ms_to_ist
 from tradedisha.feed.provider import Tick
 
-INSERT = (
-    "INSERT INTO ticks (key, ts, ltp, volume, oi, bid, ask, iv, delta, close_prev) "
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-)
+FLOW_COLS = ("bid_qty", "ask_qty", "bid_qty5", "ask_qty5", "tbq", "tsq", "atp", "ltq")
+COLS = ("key", "ts", "ltp", "volume", "oi", "bid", "ask", "iv", "delta", "close_prev", *FLOW_COLS)
+INSERT = f"INSERT INTO ticks ({', '.join(COLS)}) VALUES ({', '.join('?' * len(COLS))})"
 
 
 def _row(t: Tick, close_prev: float | None) -> tuple[object, ...]:
-    return (t.key, t.ts, t.ltp, t.volume, t.oi, t.bid, t.ask, t.iv, t.delta, close_prev)
+    return (
+        t.key,
+        t.ts,
+        t.ltp,
+        t.volume,
+        t.oi,
+        t.bid,
+        t.ask,
+        t.iv,
+        t.delta,
+        close_prev,
+        *(getattr(t, c) for c in FLOW_COLS),
+    )
 
 
 def _to_tick(r: sqlite3.Row) -> Tick:
-    return Tick(
-        key=r["key"],
-        ts=r["ts"],
-        ltp=r["ltp"],
-        volume=r["volume"],
-        oi=r["oi"],
-        bid=r["bid"],
-        ask=r["ask"],
-        iv=r["iv"],
-        delta=r["delta"],
-        close_prev=r["close_prev"],
-    )
+    return Tick(**{c: r[c] for c in COLS})
 
 
 def day_bounds_ms(day: date) -> tuple[int, int]:

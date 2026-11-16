@@ -35,12 +35,18 @@ def _bias(index: str, minute_ts: int, value: float) -> BiasComputed:
 
 class Harness:
     def __init__(
-        self, day: date = TODAY, *, feed_live: bool = True, enforce_hours: bool = True
+        self,
+        day: date = TODAY,
+        *,
+        feed_live: bool = True,
+        enforce_hours: bool = True,
+        shadow: bool = False,
+        entry_mode: str = "minute_close",
     ) -> None:
         master = build_synthetic_master(TODAY)
         self.r = resolve_index(master, "NIFTY", day, 25_000.0, strike_window=3)
         self.chain = ChainState.from_resolved(self.r)
-        self.params = ParameterSet()
+        self.params = ParameterSet.model_validate({"signal": {"entry_mode": entry_mode}})
         self.feed_live = feed_live
         self.events: list[Signal] = []
         self.clock = MarketClock(
@@ -61,6 +67,7 @@ class Harness:
             market_close=time(15, 30),
             risk_free_rate=0.065,
             on_signal=self.events.append,
+            shadow=shadow,
         )
         self.price_atm(ce=150.0, pe=140.0)
 
@@ -72,6 +79,14 @@ class Harness:
 
     def minute(self, h: int, m: int, bias: float, day: date = TODAY) -> None:
         self.engine.on_bias(_bias("NIFTY", at(day, h, m) - M, bias))
+
+    def quote(self, *, ce: tuple[float, float], pe: tuple[float, float]) -> None:
+        row = self.chain.rows[self.chain.atm]
+        self.chain.apply(Tick(key=row.ce.key, ts=2, ltp=150.0, bid=ce[0], ask=ce[1]))
+        self.chain.apply(Tick(key=row.pe.key, ts=2, ltp=140.0, bid=pe[0], ask=pe[1]))
+
+    def flow(self, h: int, m: int, s: int, score: float | None) -> None:
+        self.engine.on_flow("NIFTY", at(TODAY, h, m) + s * 1000, score)
 
     def reason(self) -> str | None:
         return self.engine.gates["NIFTY"].reason
@@ -201,3 +216,208 @@ def test_bs_delta_sanity() -> None:
     assert -0.6 < bs_delta(25_000, 25_000, 5 / 365, 14, 0.065, call=False) < -0.4
     assert bs_delta(25_100, 25_000, 0, 14, 0.065, call=True) == 1.0
     assert bs_delta(24_900, 25_000, 0, 14, 0.065, call=True) == 0.0
+
+
+def test_signal_records_the_ask_and_spread_at_firing() -> None:
+    h = Harness()
+    row = h.chain.rows[h.chain.atm]
+    h.chain.apply(Tick(key=row.ce.key, ts=2, ltp=150.0, bid=149.0, ask=152.0))
+
+    h.minute(10, 0, 0.62)
+
+    s = h.engine.active["NIFTY"]
+    assert s.entry_price == 150.0  # still the last traded price in this entry mode
+    assert s.entry_ask == 152.0
+    assert s.spread_pct == pytest.approx(3 / 150.5 * 100)
+    stored = h.engine.store.get(s.id)
+    assert stored is not None
+    assert (stored.entry_ask, stored.spread_pct) == (s.entry_ask, s.spread_pct)
+
+
+def test_signal_without_a_quote_has_no_ask_or_spread() -> None:
+    h = Harness()
+
+    h.minute(10, 0, 0.62)
+
+    s = h.engine.active["NIFTY"]
+    assert (s.entry_ask, s.spread_pct) == (None, None)
+
+
+# -- trigger mode: setup at minute close, then order flow (spec §9.6) -----------------
+
+
+def trig(*, feed_live: bool = True) -> Harness:
+    h = Harness(entry_mode="trigger", feed_live=feed_live)
+    h.quote(ce=(149.9, 150.1), pe=(139.9, 140.1))
+    return h
+
+
+def test_trigger_waits_for_order_flow_then_fires_at_the_ask() -> None:
+    h = trig()
+    h.minute(10, 0, 0.40)  # a setup: below the 0.50 that the minute-close rule needs
+    assert "NIFTY" not in h.engine.active
+    assert h.reason() == "flow_not_confirmed"
+
+    h.flow(10, 0, 10, 0.30)  # agrees, but has not held yet
+    assert "NIFTY" not in h.engine.active
+    h.flow(10, 0, 14, 0.32)
+    assert "NIFTY" not in h.engine.active
+    h.flow(10, 0, 15, 0.31)  # five seconds of agreement
+
+    s = h.engine.active["NIFTY"]
+    assert s.direction == "BUY_CE"
+    assert s.ts_fired == at(TODAY, 10, 0) + 15_000
+    assert s.minute_ts == at(TODAY, 10, 0) - M  # the minute whose bias set it up
+    assert (s.entry_price, s.entry_ask) == (150.1, 150.1)
+    assert s.target_price == round(150.1 * 1.30, 2)
+    assert (s.entry_mode, s.shadow, s.flow_score) == ("trigger", False, 0.31)
+    assert s.bias == 0.40
+    assert h.engine.gates["NIFTY"].fired is True
+    stored = h.engine.store.get(s.id)
+    assert stored == s
+
+
+def test_trigger_needs_a_setup() -> None:
+    h = trig()
+    h.minute(10, 0, 0.30)  # under the setup threshold
+    assert h.reason() == "no_setup"
+
+    h.flow(10, 0, 10, 0.9)
+    h.flow(10, 0, 20, 0.9)
+
+    assert "NIFTY" not in h.engine.active
+    assert h.reason() == "no_setup"
+
+
+def test_trigger_setup_ends_when_the_bias_fades() -> None:
+    h = trig()
+    h.minute(10, 0, 0.40)
+    h.minute(10, 1, 0.25)
+
+    h.flow(10, 1, 10, 0.9)
+    h.flow(10, 1, 20, 0.9)
+
+    assert "NIFTY" not in h.engine.active
+
+
+@pytest.mark.parametrize("score", [0.2, -0.6, None])
+def test_trigger_does_not_fire_on_weak_opposite_or_unknown_flow(score: float | None) -> None:
+    h = trig()
+    h.minute(10, 0, 0.40)
+
+    h.flow(10, 0, 10, score)
+    h.flow(10, 0, 20, score)
+
+    assert "NIFTY" not in h.engine.active
+    assert h.reason() == "flow_not_confirmed"
+
+
+def test_trigger_hold_starts_again_if_the_flow_lets_go() -> None:
+    h = trig()
+    h.minute(10, 0, 0.40)
+
+    h.flow(10, 0, 10, 0.3)
+    h.flow(10, 0, 13, 0.1)  # lets go
+    h.flow(10, 0, 14, 0.3)
+    h.flow(10, 0, 16, 0.3)  # six seconds after the first, only two after the restart
+    assert "NIFTY" not in h.engine.active
+
+    h.flow(10, 0, 19, 0.3)
+    assert "NIFTY" in h.engine.active
+
+
+def test_trigger_bearish_setup_needs_selling_and_buys_the_put() -> None:
+    h = trig()
+    h.minute(10, 0, -0.45)
+
+    h.flow(10, 0, 10, 0.5)
+    h.flow(10, 0, 20, 0.5)
+    assert "NIFTY" not in h.engine.active
+
+    h.flow(10, 0, 21, -0.5)
+    h.flow(10, 0, 26, -0.5)
+
+    s = h.engine.active["NIFTY"]
+    assert (s.direction, s.entry_price) == ("BUY_PE", 140.1)
+
+
+def test_trigger_refuses_a_wide_or_missing_quote() -> None:
+    h = trig()
+    h.quote(ce=(148.0, 152.0), pe=(139.9, 140.1))  # 2.7 % wide against a 1 % limit
+    h.minute(10, 0, 0.40)
+    h.flow(10, 0, 10, 0.5)
+    h.flow(10, 0, 20, 0.5)
+    assert "NIFTY" not in h.engine.active
+    assert h.reason() == "spread_wide"
+
+    h.quote(ce=(149.9, 150.1), pe=(139.9, 140.1))
+    h.flow(10, 0, 21, 0.5)  # the flow held all along; only the quote was in the way
+    assert "NIFTY" in h.engine.active
+
+    bare = Harness(entry_mode="trigger")  # no bid or ask seen at all
+    bare.minute(10, 0, 0.40)
+    bare.flow(10, 0, 10, 0.5)
+    bare.flow(10, 0, 20, 0.5)
+    assert bare.reason() == "spread_wide"
+
+
+def test_trigger_respects_hours_and_the_feed() -> None:
+    h = trig()
+    h.minute(15, 0, 0.40)
+    h.flow(15, 0, 10, 0.5)
+    h.flow(15, 0, 20, 0.5)
+    assert h.reason() == "outside_hours"
+
+    down = trig(feed_live=False)
+    down.minute(10, 0, 0.40)
+    down.flow(10, 0, 10, 0.5)
+    down.flow(10, 0, 20, 0.5)
+    assert down.reason() == "feed_down"
+
+
+def test_trigger_signal_lapses_reverses_and_blocks_a_second_one_as_before() -> None:
+    h = trig()
+    h.minute(10, 0, 0.40)
+    h.flow(10, 0, 10, 0.5)
+    h.flow(10, 0, 15, 0.5)
+    first = h.engine.active["NIFTY"]
+
+    h.flow(10, 0, 30, 0.5)
+    assert h.engine.active["NIFTY"] is first
+    h.minute(10, 1, 0.45)
+    assert h.reason() == "active_exists"
+
+    h.minute(10, 2, 0.1)  # into the neutral band
+    assert h.events[-1].status == "reversed"
+    assert h.reason() == "no_setup"
+
+
+def test_minute_close_mode_ignores_order_flow() -> None:
+    h = Harness()
+    h.quote(ce=(149.9, 150.1), pe=(139.9, 140.1))
+    h.minute(10, 0, 0.40)
+
+    h.flow(10, 0, 10, 0.9)
+    h.flow(10, 0, 20, 0.9)
+
+    assert "NIFTY" not in h.engine.active
+    assert h.reason() == "below_threshold"
+    h.minute(10, 1, 0.6)
+    s = h.engine.active["NIFTY"]
+    assert (s.entry_mode, s.shadow, s.flow_score) == ("minute_close", False, None)
+
+
+def test_shadow_engine_runs_the_rule_that_is_not_live_and_marks_its_signals() -> None:
+    h = Harness(shadow=True)  # live rule is minute_close, so the shadow runs the trigger
+    h.quote(ce=(149.9, 150.1), pe=(139.9, 140.1))
+    h.minute(10, 0, 0.40)
+    h.flow(10, 0, 10, 0.5)
+    h.flow(10, 0, 15, 0.5)
+
+    s = h.engine.active["NIFTY"]
+    assert (s.entry_mode, s.shadow) == ("trigger", True)
+
+    other = Harness(shadow=True, entry_mode="trigger")
+    other.minute(10, 0, 0.6)
+    s2 = other.engine.active["NIFTY"]
+    assert (s2.entry_mode, s2.shadow) == ("minute_close", True)

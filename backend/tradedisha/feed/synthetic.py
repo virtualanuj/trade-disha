@@ -66,6 +66,8 @@ class _Underlying:
     vol_per_tick: float
     drift: float = 0.0
     volume: int = 0
+    turnover: float = 0.0  # traded value, for the futures average price
+    lean: float = 0.0  # smoothed recent move in units of per-tick volatility; tilts the books
     oi: dict[str, int] = field(default_factory=dict)
 
 
@@ -160,9 +162,21 @@ class SyntheticProvider:
             return Tick(key=key, ts=ts, ltp=round(u.price, 2))
         if role == "fut":
             basis = u.anchor * 0.0015
-            u.volume += self._rng.randint(50, 400)
+            ltq = self._rng.randint(50, 400)
             ltp = round(u.price + basis + self._rng.uniform(-1, 1), 2)
-            return Tick(key=key, ts=ts, ltp=ltp, volume=u.volume)
+            u.volume += ltq
+            u.turnover += ltp * ltq
+            return Tick(
+                key=key,
+                ts=ts,
+                ltp=ltp,
+                volume=u.volume,
+                bid=round(ltp - 0.5, 2),
+                ask=round(ltp + 0.5, 2),
+                atp=round(u.turnover / u.volume, 2),
+                ltq=ltq,
+                **self._book(u.lean, 2_000),
+            )
         strike, kind = self._opt_meta[key]
         ltp = self._option_price(u.price, strike, kind, u.anchor)
         u.oi[key] = max(0, u.oi[key] + self._rng.randint(-2_000, 2_500))
@@ -175,11 +189,32 @@ class SyntheticProvider:
             bid=round(ltp - 0.05, 2),
             ask=round(ltp + 0.05, 2),
             iv=iv,
+            ltq=self._rng.randint(1, 8) * 75,
+            **self._book(u.lean if kind == "CE" else -u.lean, 5_000),
         )
+
+    def _book(self, lean: float, depth: int) -> dict[str, int]:
+        """Resting quantities, heavier on the bid when `lean` is positive."""
+        tilt = 0.5 * math.tanh(lean)
+
+        def qty(side: float, scale: float) -> int:
+            return max(1, int(depth * scale * (1 + side * tilt) * self._rng.uniform(0.7, 1.3)))
+
+        bid5, ask5 = qty(1, 1), qty(-1, 1)
+        return {
+            "bid_qty": max(1, bid5 // 5),
+            "ask_qty": max(1, ask5 // 5),
+            "bid_qty5": bid5,
+            "ask_qty5": ask5,
+            "tbq": qty(1, 20),
+            "tsq": qty(-1, 20),
+        }
 
     def _step(self, u: _Underlying) -> float:
         pull = (u.anchor - u.price) * 0.002 if u.drift == 0 else 0.0
-        return u.price + pull + u.drift + self._rng.gauss(0, u.vol_per_tick)
+        move = pull + u.drift + self._rng.gauss(0, u.vol_per_tick)
+        u.lean = 0.9 * u.lean + 0.1 * move / u.vol_per_tick
+        return u.price + move
 
     def _option_price(self, spot: float, strike: float, kind: str, anchor: float) -> float:
         intrinsic = max(0.0, spot - strike) if kind == "CE" else max(0.0, strike - spot)

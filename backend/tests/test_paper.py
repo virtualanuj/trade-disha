@@ -488,3 +488,16 @@ def test_store_filters_by_day_index_and_status() -> None:
     assert store.read(status="closed") == []
     assert store.read(start_ms=at(0, 0), end_ms=at(23, 59)) == [trade]
     assert store.read(end_ms=at(9, 0)) == []
+
+
+def test_a_shadow_signal_cannot_be_paper_traded() -> None:
+    h = Harness()
+    live = h.fire()
+    shadow = replace(live, id="shadow1", shadow=True, entry_mode="trigger")
+    h.signals.store.upsert(shadow)
+
+    with pytest.raises(PaperError) as e:
+        h.paper.open("shadow1")
+
+    assert "shadow" in e.value.reason
+    assert h.updates == []

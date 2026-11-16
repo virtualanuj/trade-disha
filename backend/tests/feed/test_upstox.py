@@ -20,13 +20,16 @@ def _message() -> pb.FeedResponse:
         pb.LTPC(ltp=25_010.5, ltt=NOW - 400, cp=24_950.0)
     )
     opt = msg.feeds["NSE_FO|41001"].fullFeed.marketFF
-    opt.ltpc.CopyFrom(pb.LTPC(ltp=120.5, ltt=NOW - 90_000, cp=131.0))
+    opt.ltpc.CopyFrom(pb.LTPC(ltp=120.5, ltt=NOW - 90_000, ltq=75, cp=131.0))
     opt.marketLevel.bidAskQuote.add(bidQ=65, bidP=120.4, askQ=130, askP=120.6)
     opt.marketLevel.bidAskQuote.add(bidQ=65, bidP=120.3, askQ=130, askP=120.7)
     opt.optionGreeks.delta = -0.42
     opt.vtt = 9_000
     opt.oi = 1_234_500.0
     opt.iv = 0.1375
+    opt.atp = 118.25
+    opt.tbq = 40_000.0
+    opt.tsq = 55_000.0
     return msg
 
 
@@ -47,6 +50,27 @@ def test_decode_index_and_option() -> None:
         iv=0.1375,
         delta=-0.42,
         close_prev=131.0,
+        bid_qty=65,
+        ask_qty=130,
+        bid_qty5=130,  # both levels of the book added up
+        ask_qty5=260,
+        tbq=40_000,
+        tsq=55_000,
+        atp=118.25,
+        ltq=75,
+    )
+
+
+def test_decode_first_level_feed_has_only_the_best_level_quantities() -> None:
+    msg = pb.FeedResponse(type=pb.live_feed, currentTs=NOW)
+    g = msg.feeds["NSE_FO|7"].firstLevelWithGreeks
+    g.ltpc.CopyFrom(pb.LTPC(ltp=50.0, ltq=25))
+    g.firstDepth.CopyFrom(pb.Quote(bidQ=100, bidP=49.9, askQ=200, askP=50.1))
+
+    (tick,) = decode(msg)
+
+    assert tick == Tick(
+        key="NSE_FO|7", ts=NOW, ltp=50.0, bid=49.9, ask=50.1, bid_qty=100, ask_qty=200, ltq=25
     )
 
 

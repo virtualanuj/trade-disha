@@ -6,10 +6,13 @@ from tradedisha.indicators import IndicatorResult, clamp, warming
 from tradedisha.market.chain import ChainState
 from tradedisha.parameters.model import OI
 
-BULLISH_CE = {"long_unwinding", "short_covering"}  # calls being closed out -> less resistance
-BULLISH_PE = {"long_buildup", "short_buildup"}  # puts being written/bought as support
-BEARISH_CE = {"long_buildup", "short_buildup"}
-BEARISH_PE = {"long_unwinding", "short_covering"}
+# The premium's direction says which way the leg is leaning; the OI moved is the weight.
+# A call whose premium rose (bought, or its writers covering) is bullish; one whose premium
+# fell (written, or its buyers leaving) is bearish. A put is the mirror image.
+PREMIUM_UP = {"long_buildup", "short_covering"}
+PREMIUM_DOWN = {"short_buildup", "long_unwinding"}
+BULLISH_CE, BEARISH_CE = PREMIUM_UP, PREMIUM_DOWN
+BULLISH_PE, BEARISH_PE = PREMIUM_DOWN, PREMIUM_UP
 
 
 def pcr_vote(chain: ChainState, p: OI) -> IndicatorResult:

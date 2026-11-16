@@ -103,19 +103,51 @@ def test_pcr_vote() -> None:
     assert pcr_vote(_chain(), P.oi).quality == "warming"
 
 
-def test_oi_change_atm_reads_buildups() -> None:
+@pytest.mark.parametrize(
+    ("side", "d_ltp", "d_oi", "score", "meaning"),
+    [
+        ("ce", +2, +400, 1.0, "call long build-up: calls being bought"),
+        ("ce", -2, +400, -1.0, "call short build-up: calls being written"),
+        ("ce", +2, -400, 1.0, "call short covering: writers getting out"),
+        ("ce", -2, -400, -1.0, "call long unwinding: buyers getting out"),
+        ("pe", +2, +400, -1.0, "put long build-up: puts being bought"),
+        ("pe", -2, +400, 1.0, "put short build-up: puts being written"),
+        ("pe", +2, -400, -1.0, "put short covering: writers getting out"),
+        ("pe", -2, -400, 1.0, "put long unwinding: buyers getting out"),
+    ],
+)
+def test_oi_change_atm_takes_its_side_from_the_premium_move(
+    side: str, d_ltp: float, d_oi: int, score: float, meaning: str
+) -> None:
     c = _chain()
-    # minute 1 baseline
-    _fill(c, 25_000, "pe", 1_000, 10, 1)
-    _fill(c, 25_000, "ce", 1_000, 10, 1)
+    other = "pe" if side == "ce" else "ce"
+    _fill(c, 25_000, side, 1_000, 10, 1)
+    _fill(c, 25_000, other, 1_000, 10, 1)
     c.close_minute(0)
-    # minute 2: PE long build-up (price up, OI up) = bullish; CE unchanged
-    _fill(c, 25_000, "pe", 1_400, 12, M + 1)
-    _fill(c, 25_000, "ce", 1_000, 10, M + 1)
+    _fill(c, 25_000, side, 1_000 + d_oi, 10 + d_ltp, M + 1)
+    _fill(c, 25_000, other, 1_000, 10, M + 1)  # unchanged: no vote
     c.close_minute(M)
+
     r = oi_change_atm(c, P.oi)
-    assert r.quality == "ok"
-    assert r.score == 1.0
+
+    assert r.quality == "ok", meaning
+    assert r.score == score, meaning
+
+
+def test_oi_change_atm_weighs_the_two_sides_by_oi_moved() -> None:
+    c = _chain()
+    _fill(c, 25_000, "ce", 1_000, 10, 1)
+    _fill(c, 25_000, "pe", 1_000, 10, 1)
+    c.close_minute(0)
+    _fill(c, 25_000, "ce", 1_300, 12, M + 1)  # 300 of call buying: bullish
+    _fill(c, 25_000, "pe", 1_100, 12, M + 1)  # 100 of put buying: bearish
+    c.close_minute(M)
+
+    r = oi_change_atm(c, P.oi)
+
+    assert r.score == 0.5  # (300 - 100) / 400
+    assert r.value == {"bull_oi": 300.0, "bear_oi": 100.0}
+    assert oi_change_atm(_chain(), P.oi).quality == "warming"
 
 
 def test_max_pain_drift_uses_history() -> None:

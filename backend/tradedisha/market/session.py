@@ -16,6 +16,7 @@ from tradedisha.auth import AuthService
 from tradedisha.clock import IST, DrivenClock, MarketClock, epoch_ms_now, ist_to_ms
 from tradedisha.config import Settings, hours_enforced
 from tradedisha.engine.bias_engine import BiasComputed, BiasEngine
+from tradedisha.engine.outcomes import Outcome, OutcomeTracker
 from tradedisha.engine.paper import PaperTrade, PaperTradeManager, Price
 from tradedisha.engine.signals import Signal, SignalEngine
 from tradedisha.events import EventBus, FeedHealthChanged
@@ -36,6 +37,7 @@ from tradedisha.market.backfill import (
 )
 from tradedisha.market.candles import MINUTE_MS, Candle, CandleBuilder, CandleStore
 from tradedisha.market.chain_manager import ChainManager, SubscriptionChange
+from tradedisha.market.flow import FlowReading, FlowTracker
 from tradedisha.market.stats import VIX_KEY, IndexStats, compute_stats
 from tradedisha.metrics.latency import LatencyTracker
 from tradedisha.parameters.model import ParameterSet
@@ -108,6 +110,7 @@ class FeedSession:
         self._prev_tick_ts: int | None = None
         self._health_key: tuple[object, ...] | None = None
         self._start_lock = asyncio.Lock()
+        self.feed_ended = asyncio.Event()  # set when the provider has no more ticks (replay)
         self.clock = clock
         self.events = bus
         self.latency = latency
@@ -123,7 +126,11 @@ class FeedSession:
         self.chains: ChainManager | None = None
         self.bias: BiasEngine | None = None
         self.signals: SignalEngine | None = None
+        self.shadow_signals: SignalEngine | None = None  # the entry rule that is not live
+        self.flow: FlowTracker | None = None
+        self.flow_listeners: list[Callable[[FlowReading], None]] = []
         self.paper: PaperTradeManager | None = None
+        self.outcomes: OutcomeTracker | None = None
         self.provider: MarketDataProvider | None = None
         self.replay_day: date | None = None
         self.candle_listeners: list[Callable[[Candle], None]] = []
@@ -176,20 +183,26 @@ class FeedSession:
             on_bias=self._on_bias,
         )
         enforce = self.enforce_hours
-        self.signals = SignalEngine(
-            clock=self.clock,
+        self.signals = self._signal_engine(shadow=False)
+        self.shadow_signals = self._signal_engine(shadow=True)
+        self.bias_listeners.append(self.signals.on_bias)
+        self.bias_listeners.append(self.shadow_signals.on_bias)
+        # After the chain, so a flow reading sees the quote that came with the same tick.
+        self.flow = FlowTracker(
             params=self.params,
             resolved=self.resolved,
             chains=self.chains.chains,
-            conn=self._conn,
-            feed_live=self.feed_live,
-            enforce_hours=enforce,
-            market_open=self.settings.market_open,
-            market_close=self.settings.market_close,
-            risk_free_rate=self.settings.risk_free_rate,
-            on_signal=self._on_signal,
+            on_flow=self._on_flow,
         )
-        self.bias_listeners.append(self.signals.on_bias)
+        self.tick_bus.subscribe(self.flow.on_tick)
+        self.outcomes = OutcomeTracker(
+            params=self.params,
+            conn=self._conn,
+            spot_keys={i: r.spot.instrument_key for i, r in self.resolved.items()},
+            spot_before=self._spot_before,
+            on_outcome=self._on_outcome,
+        )
+        self.tick_bus.subscribe(self.outcomes.on_tick)
         self.paper = PaperTradeManager(
             clock=self.clock,
             params=self.params,
@@ -228,6 +241,8 @@ class FeedSession:
         if self.provider is not None:
             await self.provider.close()
         self.tick_store.flush()
+        if self.outcomes is not None:
+            self.outcomes.flush()
         self.feed_log.write(
             epoch_ms_now(), "session_stop", f"ticks_written={self.tick_store.written}"
         )
@@ -306,6 +321,7 @@ class FeedSession:
         async for tick in self.provider.ticks():
             t_in = epoch_ms_now()
             self.tick_bus.publish(StampedTick(tick, t_in))
+        self.feed_ended.set()
         await self._publish_health()
 
     def _on_tick(self, st: StampedTick) -> None:
@@ -348,8 +364,53 @@ class FeedSession:
             fn(b)
 
     def _on_signal(self, s: Signal) -> None:
+        if self.outcomes is not None:
+            self.outcomes.on_signal(s)
         for fn in self.signal_listeners:
             fn(s)
+
+    def _signal_engine(self, *, shadow: bool) -> SignalEngine:
+        assert self.chains is not None
+        return SignalEngine(
+            clock=self.clock,
+            params=self.params,
+            resolved=self.resolved,
+            chains=self.chains.chains,
+            conn=self._conn,
+            feed_live=self.feed_live,
+            enforce_hours=self.enforce_hours,
+            market_open=self.settings.market_open,
+            market_close=self.settings.market_close,
+            risk_free_rate=self.settings.risk_free_rate,
+            on_signal=self._on_signal,
+            shadow=shadow,
+        )
+
+    def _on_flow(self, reading: FlowReading) -> None:
+        for engine in (self.signals, self.shadow_signals):
+            if engine is not None:
+                engine.on_flow(reading.index, reading.ts, reading.score)
+        for fn in self.flow_listeners:
+            fn(reading)
+
+    def _on_outcome(self, o: Outcome) -> None:
+        """A result or a closed horizon: send the signal out again so screens show it."""
+        if o.result == "open" or self.signals is None:
+            return  # the signal itself is announced just after its outcome starts
+        s = self.signals.store.get(o.signal_id)
+        if s is not None:
+            for fn in self.signal_listeners:
+                fn(s)
+
+    def _spot_before(self, index: str, before_ms: int) -> float | None:
+        """Spot at the close of the last whole minute that ended by `before_ms`."""
+        r = self.resolved.get(index)
+        if r is None:
+            return None
+        for c in reversed(self.candles.closed(r.spot.instrument_key)):
+            if c.minute_ts + MINUTE_MS <= before_ms:
+                return c.close
+        return None
 
     def _on_trade(self, t: PaperTrade) -> None:
         for fn in self.trade_listeners:
@@ -525,10 +586,13 @@ class FeedSession:
             await asyncio.sleep(0.5)
             self.tick_store.flush()
             self.candles.flush_stale(self.clock.now_ms())
-            if self.signals is not None:
-                self.signals.tick(self.clock.now_ms())
+            for engine in (self.signals, self.shadow_signals):
+                if engine is not None:
+                    engine.tick(self.clock.now_ms())
             if self.paper is not None:
                 self.paper.tick(self.clock.now_ms())
+            if self.outcomes is not None:
+                self.outcomes.tick(self.clock.now_ms())
             self._track_gap()
             await self._publish_health()
             minute = epoch_ms_now() // 60_000

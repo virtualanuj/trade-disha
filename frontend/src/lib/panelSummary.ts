@@ -55,7 +55,9 @@ export function evidenceSummary(bias: BiasOut | undefined): string {
 }
 
 export function historySummary(signals: SignalOut[], index: string): string {
-  return `${String(signals.filter((s) => s.index === index).length)} today`
+  const mine = signals.filter((s) => s.index === index)
+  const shadow = mine.filter((s) => s.shadow).length
+  return `${String(mine.length - shadow)} today` + (shadow ? ` · ${String(shadow)} shadow` : '')
 }
 
 export function chainSummary(chain: ChainOut | undefined): string {

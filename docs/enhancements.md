@@ -85,6 +85,53 @@ Decided with the owner on 2026-11-13:
 
 Not included: full screen for a panel; dragging panels to re-order them.
 
+## Signals
+
+### 6. Earlier signals with fewer false ones
+
+Asked for (2026-11-13): on live and replayed days the signals are too often false (the
+bias flips or the option goes nowhere) and too often late (most of the move is over).
+
+Decided with the owner on 2026-11-13:
+- Use the part of the Upstox feed the app was discarding: bid and ask quantities over the
+  five book levels, total buy and sell quantity, the exchange average price and the last
+  traded quantity.
+- **Setup, then trigger.** The bias only sets the direction, at a lower bar. The signal
+  fires inside the minute when order flow on the futures and the ATM options agrees and
+  the option's bid-ask spread is tight.
+- Measure before changing anything: every signal is scored by what its option did next,
+  and the trigger first runs in shadow beside today's rule. It goes live only if the
+  scores say it is better.
+
+Considered and not chosen: order flow as a fourth evidence group in the bias (still fires
+only at minute close, and averaging dilutes it); tuning persistence and thresholds on the
+existing inputs (fewer false signals only by making them later).
+
+Status: Milestones S1 (recording and scoring) and S2 (order-flow trigger in shadow) built,
+awaiting a live day. S3 (switch on, on evidence) waits for at least five live sessions of
+shadow data. Requirement in [intent.md](intent.md); design in [spec.md](spec.md) §6.2,
+§8.5, §9.5, §9.6, §11, §12; milestones S1 to S3 in [plan.md](plan.md).
+
+Not included: targets and stops sized from theta, gamma and vega; choosing a strike other
+than ATM; the 30-level order book.
+
+### 7. OI build-up vote reads the premium's direction
+
+The ATM OI build-up vote counted any OI rise on a call as bearish and on a put as bullish,
+as if all new OI were writing, so call buying in a rally voted bearish.
+
+Decided with the owner on 2026-11-14: the textbook reading. The premium's direction
+decides the side and the OI moved is the weight: a call whose premium rose is bullish, one
+whose premium fell is bearish; a put is the mirror image. This matches the build-up badges
+in the option chain.
+
+Known and accepted: its sign now follows the premium's direction, so it overlaps with the
+CE-vs-PE momentum vote. On the one recorded day (2026-11-13) neither the old nor the new
+vote predicted the index's next 5 or 15 minutes, so this was decided on logic, not on
+evidence; the scoring tool will say more as days accumulate.
+
+Status: built. Design in [spec.md](spec.md) §8.2.
+
 ## Deferred
 
 ### Chart zoom buttons

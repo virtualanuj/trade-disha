@@ -70,6 +70,9 @@ describe('panel summaries', () => {
   it('signal history: how many fired today on this index', () => {
     const all = [signal(), signal({ id: 's2' }), signal({ id: 's3', index: 'BANKNIFTY' })]
     expect(historySummary(all, 'NIFTY')).toBe('2 today')
+    expect(historySummary([...all, signal({ id: 's4', shadow: true })], 'NIFTY')).toBe(
+      '2 today · 1 shadow',
+    )
   })
 
   it('option chain: PCR and max pain', () => {

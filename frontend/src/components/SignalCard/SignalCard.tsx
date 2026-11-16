@@ -18,6 +18,9 @@ const REASON_TEXT: Record<NonNullable<GateOut['reason']>, string> = {
   feed_down: 'feed not live',
   no_price: 'no ATM option price yet',
   rearm: 'waiting for bias to re-arm',
+  no_setup: 'bias too weak for a setup',
+  flow_not_confirmed: 'setup in place, waiting for order flow to agree',
+  spread_wide: 'setup and order flow agree, but bid-ask spread too wide',
 }
 
 function topReasons(s: SignalOut, n = 3): string[] {
@@ -80,7 +83,15 @@ export function SignalCard({ signal, gate, now, openTrades = [], blocked, onPape
         {signal.trading_symbol} · exp {fmtDate(signal.expiry)} · lot {signal.lot_size}
       </div>
       <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4">
-        <Stat label="Entry" value={fmtPrice(signal.entry_price)} />
+        <Stat
+          label="Entry"
+          value={fmtPrice(signal.entry_price)}
+          sub={
+            signal.entry_mode === 'trigger'
+              ? `at the ask · spread ${signal.spread_pct != null ? signal.spread_pct.toFixed(2) : '—'}%`
+              : undefined
+          }
+        />
         <Stat
           label="Target"
           value={fmtPrice(signal.target_price)}

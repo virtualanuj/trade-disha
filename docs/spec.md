@@ -139,7 +139,10 @@ the Group column below.
 | Weights | `expiry_oi_weight_factor` | 0.5 |
 | Bias | `entry_threshold` | 0.50 |
 | Bias | `neutral_band` | 0.20 |
+| Bias | `setup_threshold` | 0.35 (trigger rule; see §9.6) |
 | Bias | `rearm_hysteresis` | 0 (off; see §9.1) |
+| Flow | `window_seconds`, `trigger_score`, `hold_seconds` | 15, 0.25, 5 (see §8.5, §9.6) |
+| Flow | `w_fut_book`, `w_fut_trades`, `w_options` | 0.4, 0.3, 0.3 |
 | Trend | `ema_fast`, `ema_slow`, `ema_k` | 9, 21, 8 |
 | Trend | `vwap_full_pct` | 0.3 |
 | Trend | `supertrend_period`, `supertrend_mult`, `supertrend_ramp_bars` | 10, 3.0, 3 |
@@ -152,6 +155,9 @@ the Group column below.
 | Signal | `signal_ttl_seconds` | 300 |
 | Signal | `target_pct`, `stop_pct` | +30, −15 |
 | Signal | `expiry_points` (per index: target/stop) | NIFTY 40/20, BANKNIFTY 100/50 |
+| Signal | `outcome_horizon_minutes` | 30 (see §9.5) |
+| Signal | `entry_mode` | `minute_close` (or `trigger`; see §9.6) |
+| Signal | `max_spread_pct` | 1.0 (trigger rule) |
 | Signal | `last_signal_time`, `last_signal_time_expiry` | 15:00, 13:00 |
 | Chain | `strike_window`, `recenter_strikes` | 10, 2 |
 | Paper | `square_off_time` | 15:15 |
@@ -269,6 +275,14 @@ class Tick:
   every disconnect as a `FeedHealthChanged` event.
 - Rate and subscription limits are enforced client-side from configuration discovered in
   Milestone 1.
+
+**Order-flow fields (Milestone S1).** From `marketFF` the provider also keeps the
+quantity at the best bid and ask (`bid_qty`, `ask_qty`), the quantity summed over the five
+book levels (`bid_qty5`, `ask_qty5`), total buy and sell quantity (`tbq`, `tsq`), the
+exchange average traded price (`atp`) and the last traded quantity (`ltq`). They are
+recorded with every tick so the order-flow trigger (Milestone S2) can be studied and
+replayed; days recorded earlier read back as `None`. The synthetic provider generates the
+same fields, with the books leaning the way its market is drifting.
 
 **India VIX.** `NSE_INDEX|India VIX` is subscribed alongside the two indices as an
 index-only key: its ticks are recorded and its latest price and previous close are kept,
@@ -407,7 +421,7 @@ class IndicatorResult:
 | Indicator | Inputs | Score |
 |---|---|---|
 | `pcr` | ChainState | `clamp((PCR − 1.0) / 0.5, −1, 1)` — PCR 1.5 is fully bullish (put writers confident), 0.5 fully bearish |
-| `oi_change_atm` | ATM ± 2 build-up classes, weighted by ΔOI size | PE long/short build-up and CE unwinding → bullish; mirror → bearish. Score = `(bull_oi − bear_oi) / (bull_oi + bear_oi)` over the window |
+| `oi_change_atm` | ATM ± 2 build-up classes, weighted by ΔOI size | The premium's direction decides the side, the OI moved is the weight. Call long build-up and short covering (premium up) → bullish; call short build-up and long unwinding (premium down) → bearish; puts the mirror image *(owner's decision, 2026-11-14; before that any OI rise on a call counted bearish and on a put bullish, whatever the premium did)*. Score = `(bull_oi − bear_oi) / (bull_oi + bear_oi)` over the window |
 | `max_pain_drift` | ChainState history | `clamp((max_pain_now − max_pain_15m_ago) / (2 · step), −1, 1)` — max pain migrating up is bullish |
 
 On expiry day the whole group's weight is halved and the shortfall is redistributed
@@ -433,6 +447,31 @@ label       = Bullish if bias ≥ neutral_band, Bearish if bias ≤ −neutral_b
 A `BiasComputed(index, ts, bias, label, strength, breakdown)` event is published every
 minute close and persisted to `bias_minutes`. `breakdown` is the list of
 `IndicatorResult` plus the effective group weights.
+
+### 8.5 Order flow (Milestone S2)
+
+Not part of the bias. A separate, faster reading per index, from the order-flow fields of
+the feed (§6.2), of who is leaning on the book and who is paying up. Three parts, each
+from −1 (selling) to +1 (buying):
+
+- **Futures book:** `(bid − ask) / (bid + ask)` on the five-level quantities and the same
+  on total buy and sell quantity, averaged; then the mean of the readings seen in the
+  window.
+- **Futures trades:** each rise in day volume is a trade, counted as buying if the price
+  is at or above the ask that stood before it, selling if at or below the bid, and
+  neither in between; net signed volume ÷ total volume in the window.
+- **Options:** (flow in the ATM call − flow in the ATM put) ÷ 2, where a leg's flow is the
+  mean of its book and trades readings. Needs both legs; follows the current ATM strike.
+
+The score is the weighted mean (`w_fut_book`, `w_fut_trades`, `w_options`) of the parts
+that have data in the last `window_seconds`. A part with no data is left out, never
+counted as zero; with no part the score is unknown. A `FlowReading` is produced about once
+a second per index, timed by tick timestamps so replay reads the same as live. Days
+recorded before the order-flow fields still have bid, ask and volume, so they give a score
+from the trades readings alone, without either book reading.
+
+*(my call: the window, the weights and the 0.25 trigger are starting values with no
+evidence behind them yet; the shadow scorecard is how they get tuned.)*
 
 ---
 
@@ -499,6 +538,67 @@ Independently of signals, on every `BiasComputed` the `PaperTradeManager` sets
 (CE trade with `Bearish` label, PE trade with `Bullish` label) and clears the warning when
 the label no longer opposes it. Each change publishes `PaperTradeUpdated`. The warning is
 informational; it never closes a trade.
+
+### 9.5 Outcomes and the scorecard (Milestone S1)
+
+Every signal is scored by what its option did next, whether or not it was paper-traded and
+whatever became of it (lapsed, reversed, traded). This is the yardstick for any change to
+the signal rules.
+
+- The `OutcomeTracker` follows the signal's option from `ts_fired` to the earlier of
+  `ts_fired + outcome_horizon_minutes` and the square-off time.
+- **Result:** `target` or `stop`, whichever price was touched first; `neither` if the
+  horizon ends untouched; `open` until then. Prices are last traded prices against the
+  signal's own target and stop.
+- The best and worst option prices keep being followed to the end of the horizon even
+  after the result is known, so a stop hit just before a run to the target shows as that.
+- Also kept: the option price 1, 5 and 15 minutes after firing; the spot at firing; the
+  spot move over the 10 minutes before firing and the best spot move after it, both
+  signed in the signal's direction.
+- **Lateness** (`late_share`) = move before ÷ (move before + best move after), counting
+  only favourable moves: 0 means the signal fired at the start of the move, 1 at its end.
+- Each signal also stores the best ask and the bid-ask spread (% of mid) at firing.
+- Time comes from tick timestamps, never the wall clock, so a replayed day scores the same
+  at any speed. Unfinished outcomes are reloaded after a restart.
+- A result or a closed horizon re-sends the signal on the websocket with its outcome.
+
+The **scorecard** sums a date range: signals, how many are scored, the share that reached
+target first, stop first or neither, the average best and worst move (% of entry), and the
+average lateness; one row for everything and one per index.
+
+`uv run python -m tradedisha.tools.score [--days D ...] [--params FILE]` replays recorded
+days at full speed, each in a scratch database, with the given parameter file, and prints
+the scorecard. The recorded database is opened read-only. Running it with the current
+file and with a trial file is how a parameter change is judged.
+
+The scorecard keeps each entry rule apart (§9.6): rows carry the rule and whether it was
+running in shadow, live rules first.
+
+### 9.6 Entry rules and the shadow engine (Milestone S2)
+
+`signal.entry_mode` picks the live rule:
+
+- **`minute_close`** (default): §9.1 as it stands.
+- **`trigger`** (setup, then trigger):
+  - *Setup.* At a minute close, `|bias| ≥ setup_threshold` sets up that direction; below
+    it the setup is dropped. `setup_threshold` must lie above `neutral_band` and no higher
+    than `entry_threshold`.
+  - *Trigger.* On each flow reading while a setup stands and no signal is active: the flow
+    score must agree with the setup's direction at `trigger_score` or beyond,
+    continuously for `hold_seconds`; a reading that fails restarts the count. Then the
+    shared gates apply (re-arm, signal hours, feed live), and the option must have a
+    two-sided quote no wider than `max_spread_pct` of its mid price.
+  - *Signal.* Entry is the option's ask, not the last traded price; target and stop are
+    worked from it as in §9.3. The signal carries the bias and breakdown of the minute
+    that set it up, the flow score, and `entry_mode = trigger`.
+  - One active signal per index, TTL, reversal and `traded` behave as in §9.1.
+  - Gate reasons added: `no_setup`, `flow_not_confirmed`, `spread_wide`.
+
+**Shadow engine.** A second `SignalEngine` always runs the rule that is not live, on the
+same bias and flow. Its signals are stored with `shadow = 1` and scored (§9.5), sent to
+the screen for the "Signals today" list only, never become the active signal, and cannot
+be paper-traded (409). Changing `entry_mode` and reloading swaps which rule is live from
+the next evaluation; the other carries on in shadow, so the comparison never stops.
 
 ---
 
@@ -573,11 +673,12 @@ WAL mode, single writer task, batched inserts. All timestamps epoch ms UTC.
 |---|---|---|
 | `sessions` | id, token, obtained_at, expires_at | daily auth |
 | `instruments` | instrument_key, symbol, exchange, type, expiry, strike, lot_size, step, loaded_on | daily master subset |
-| `ticks` | key, ts, ltp, volume, oi, bid, ask, iv, delta | raw feed, replay source |
+| `ticks` | key, ts, ltp, volume, oi, bid, ask, iv, delta, close_prev, bid_qty, ask_qty, bid_qty5, ask_qty5, tbq, tsq, atp, ltq | raw feed, replay source |
 | `candles_1m` | key, minute_ts, o, h, l, c, v, synthetic | |
 | `chain_minutes` | index, minute_ts, strike, ce_*, pe_* | per-strike per-minute chain snapshot |
 | `bias_minutes` | index, minute_ts, bias, label, strength, breakdown_json | evidence history |
-| `signals` | id, index, ts_fired, direction, instrument_key, entry, target, stop, basis, bias, strength, breakdown_json, status, status_ts | |
+| `signals` | id, index, ts_fired, direction, instrument_key, entry, target, stop, basis, bias, strength, breakdown_json, status, status_ts, entry_ask, spread_pct, entry_mode, shadow, flow_score | |
+| `signal_outcomes` | signal_id, end_ts, result, result_ts, best/worst price and ts, px_1m/5m/15m, spot_at_fire, spot_pre_move, spot_best_move, final | what each signal's option did next (§9.5) |
 | `paper_trades` | id, signal_id, index, instrument_key, direction, qty, entry, entry_ts, slippage, target, stop, exit, exit_ts, exit_reason, exit_fill_quality, exit_price_age_ms, gross, net, warning | |
 | `app_state` | key, value | schema version |
 | `feed_events` | ts, kind, detail | disconnects, gaps, recentres, backfills, config reloads, tick prunes |
@@ -609,7 +710,9 @@ is reclaimable without a full rewrite.
 | GET | `/bias/{index}` | latest bias + breakdown |
 | GET | `/bias/{index}/history?date=` | per-minute bias for a day |
 | GET | `/signals?index=&status=&date=` | signals |
-| GET | `/signals/{id}` | one signal with breakdown |
+| GET | `/signals/scorecard?from=&to=&index=` | how the signals of a date range turned out, per entry rule (§9.5); today by default |
+| GET | `/flow` | latest order-flow reading per index (§8.5) and whether it is live or shadow |
+| GET | `/signals/{id}` | one signal with breakdown and outcome |
 | POST | `/paper-trades` | body `{signal_id}` → trade |
 | POST | `/paper-trades/{id}/close` | manual close |
 | GET | `/paper-trades?index=&date=&status=` | trades |
@@ -636,7 +739,8 @@ Server → client JSON frames `{type, ts, payload}`:
 | `chain` | leading-edge throttle, max 2/s per index | full window (21 rows) + derived values; small enough that diffs are not worth it |
 | `candle` | per minute | closed candle + indicator series point |
 | `bias` | per minute | bias + breakdown |
-| `signal` | on change | full `Signal` |
+| `signal` | on change | full `Signal`, shadow ones included (flagged) |
+| `flow` | about 1/s per index | order-flow score and its three parts (§8.5) |
 | `paper_trade` | on change, and 1/s while open | trade with live P&L |
 | `health` | on change | feed/auth/market status |
 | `parameters` | on reload | loaded_at, effective-from minute |
@@ -758,10 +862,16 @@ The main column scrolls; its panels come in the fixed order drawn above.
   second last in the main column, directly above Signals today *(owner's decisions,
   2026-11-13)*. Its border takes the accent colour while a trade is open.
 - **SignalHistory** (the "Signals today" panel): today's signals on the selected index:
-  time fired, option, entry, target, stop, bias strength, status with the time it changed.
+  time fired, option, entry, target, stop, bias strength, status with the time it changed,
+  and the outcome (§9.5): target, stop, neither or "following", with the best and worst
+  move. A line above the table counts the day's scored signals by result. Shadow signals
+  (§9.6) are listed greyed and tagged, with their own count line; they are not drawn on
+  the chart.
   Last in the main column.
 - **EvidenceTable**: one row per indicator: name, note, raw values on hover, score bar,
   weight, contribution; greyed when `quality != ok`; group subtotals; expiry-day banner.
+  Under it, the **FlowLine**: the order-flow score and its three parts (§8.5), marked
+  "recorded only, not used for signals yet" while the trigger is the shadow rule.
 - **OptionChain**: virtualised table, ATM centred and highlighted, OI build-up heat
   shading (log scale of ΔOI), build-up class badge on hover, header with expiry, PCR,
   max pain, last update time.
@@ -952,3 +1062,6 @@ Live verification per milestone is described in plan.md.
 | Indicator constants (k, bands) | M3 review point | tune on recorded days |
 | 52-week high/low from daily candles matches NSE's published figures | E1 demo | show the values with their source dates on hover |
 | India VIX arrives on the feed in `full` mode like the other indices | E1 demo | poll the quote API once a minute |
+| `tbq`, `tsq`, `atp` and all five book levels arrive in `full` mode for index futures and the option window | S1 live day | build the trigger on whichever of them do arrive |
+| Growth of the `ticks` table with the eight order-flow columns | S1 live day (Data panel) | record them only for the futures and the strikes near ATM |
+| Whether order flow leads price on these contracts at all | S2 shadow scorecard | keep the minute-close rule; try enhancement 6's other options |

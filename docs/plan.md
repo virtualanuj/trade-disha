@@ -359,6 +359,88 @@ yet run.
 
 ---
 
+## Milestone S1 — Signal yardstick and order-flow recording
+
+**Goal:** know how good the signals are, and start recording what the trigger will need,
+without changing a single signal.
+
+- **Record the order-flow fields** of the Upstox `full` feed with every tick: best-level
+  and five-level bid and ask quantities, total buy and sell quantity, exchange average
+  price, last traded quantity. Synthetic feed generates them too.
+- **Score every signal** (spec §9.5): target first, stop first or neither within the
+  horizon; best and worst price; price after 1, 5 and 15 minutes; lateness from the spot
+  move before and after firing. The ask and spread at firing are stored on the signal.
+- **Scorecard:** `GET /api/signals/scorecard`, an outcome column and a day line in
+  "Signals today", and the headless tool `tradedisha.tools.score` that replays recorded
+  days in a scratch database with any parameter file.
+- Tests: feed decoding and storage of the new fields; the tracker (each result, horizon,
+  square-off cut, marks, spot moves, restart); scorecard arithmetic; the API; the tool
+  leaving the recorded database untouched; the history column.
+
+**Demo:** replay a recorded day; every signal in "Signals today" shows target, stop or
+neither with its best and worst move; the tool prints the same numbers for that day.
+
+**Status (2026-11-13):** built, `make check` green. The tool was run on the day recorded
+live on 2026-11-13 (one signal: stop first, lateness 0.95). Not yet done: a live session,
+which is what will confirm that the order-flow fields arrive and show how much the
+database grows (spec §17); the demo in a browser on a replayed day.
+
+**Design:** spec §6.2, §9.5, §11, §12.1, §13.2 (SignalHistory).
+
+## Milestone S2 — Order-flow trigger, in shadow
+
+**Goal:** see, on real days and without risk, whether "setup, then trigger" beats the
+minute-close rule.
+
+- **Flow score** per index from the future and the ATM call and put: five-level book
+  imbalance, `tbq`/`tsq` imbalance, and traded volume signed by where it printed against
+  the quote; smoothed over a few seconds; timed by tick timestamps.
+- **Trigger rule:** a setup while the last minute-close `|bias| ≥ setup_threshold`
+  (default 0.35); fire when the flow score agrees for `hold_seconds` and the option's
+  spread is within `max_spread_pct`; entry at the ask. Hours, feed-live, one active per
+  index, re-arm, TTL and reversal as today. New gate reasons: no setup, flow not
+  confirmed, spread wide.
+- **Shadow engine:** a second signal engine runs whichever rule is not live. Its signals
+  are stored and scored but never shown as active and cannot be paper-traded.
+  `signal.entry_mode` (default `minute_close`) picks the live rule.
+- Scorecard split by rule; a flow line under the evidence table; shadow signals greyed in
+  "Signals today".
+
+**Demo:** on the synthetic feed and one live day, shadow trigger signals appear beside the
+real ones with outcomes, and the scorecard shows a row for each rule.
+
+**Status (2026-11-14):** built, `make check` green. Seen in a browser on the synthetic
+feed: the flow line, shadow trigger signals greyed beside the live ones with outcomes,
+both count lines, a scorecard row per rule, and a paper trade on a shadow signal refused.
+That run used a trial parameter file (bias on trend only, lower flow bar), because the
+synthetic option chain is random and never builds a bias on the shipped values; it shows
+the mechanism, not that the rule is any good. Not yet done: a live day.
+
+The scoring tool on the day recorded on 2026-11-13, shipped parameters. That day has no
+book quantities, so the flow score came from signed trades alone:
+
+| rule | signals | target first | stop first | neither | avg best | avg worst | lateness |
+|---|---|---|---|---|---|---|---|
+| minute_close (live) | 1 | 0 % | 100 % | 0 % | +0.6 % | −21.4 % | 0.95 |
+| trigger (shadow) | 14 | 0 % | 42.9 % | 57.1 % | +8.0 % | −12.0 % | 0.48 |
+
+One day and untuned values: the trigger fired earlier in the move and far more often, and
+nothing reached its target under either rule. Not evidence either way.
+
+**Design:** spec §8.5, §9.6, §12, §13.2.
+
+## Milestone S3 — Switch on, on evidence (planned)
+
+- After at least five live sessions recorded with S2, compare the two scorecard rows and
+  tune the flow parameters and `setup_threshold` with the headless tool.
+- If the trigger reaches target first more often and fires earlier, set
+  `signal.entry_mode = "trigger"`; the minute-close rule then runs as the shadow. If not,
+  nothing has changed for the trader.
+- Signal card: texts for the new gate reasons; entry shown as the ask, with the spread
+  (already built with S2).
+
+---
+
 ## After the first version
 
 Not planned in detail yet; listed so the design keeps room for them.

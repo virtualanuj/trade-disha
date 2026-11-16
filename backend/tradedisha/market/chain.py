@@ -38,6 +38,8 @@ class LegState:
     iv: float | None = None
     delta: float | None = None
     volume: int | None = None
+    bid: float | None = None
+    ask: float | None = None
     last_ts: int | None = None
     buildup: BuildUp = "none"
     oi_delta_min: int = 0  # OI change over the last closed minute
@@ -58,7 +60,19 @@ class LegState:
             self.delta = t.delta
         if t.volume is not None:
             self.volume = t.volume
+        if t.bid is not None:
+            self.bid = t.bid
+        if t.ask is not None:
+            self.ask = t.ask
         self.last_ts = t.ts
+
+    @property
+    def spread_pct(self) -> float | None:
+        """Bid-ask spread as a percentage of the mid price; None without a two-sided quote."""
+        if self.bid is None or self.ask is None or self.ask < self.bid:
+            return None
+        mid = (self.bid + self.ask) / 2
+        return (self.ask - self.bid) / mid * 100 if mid > 0 else None
 
     @property
     def chg_pct(self) -> float | None:

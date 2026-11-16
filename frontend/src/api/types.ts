@@ -111,9 +111,28 @@ export interface HelloFrame extends FrameBase {
     signals_active: SignalOut[]
     signals_today: SignalOut[]
     gates: GateOut[]
+    flow: FlowOut[]
     paper_trades: PaperTradeOut[]
     stats: IndexStatsOut[]
   }
+}
+
+/** Order-flow score for an index and its parts, each -1 (selling) to +1 (buying). */
+export interface FlowOut {
+  index: string
+  ts: number
+  /** null when no part has data */
+  score: number | null
+  fut_book: number | null
+  fut_trades: number | null
+  options: number | null
+  /** true when signals fire on it; false while it is only recorded (shadow) */
+  live: boolean
+}
+
+export interface FlowFrame extends FrameBase {
+  type: 'flow'
+  payload: FlowOut
 }
 
 export interface TickFrame extends FrameBase {
@@ -143,6 +162,7 @@ export type Frame =
   | SignalFrame
   | PaperTradeFrame
   | StatsFrame
+  | FlowFrame
 
 export type BuildUp =
   'long_buildup' | 'short_buildup' | 'short_covering' | 'long_unwinding' | 'none'
@@ -281,10 +301,52 @@ export interface SignalOut {
   expires_at: number
   status: SignalStatus
   status_ts: number
+  /** best ask when it fired, and the bid-ask spread then as % of the mid price */
+  entry_ask: number | null
+  spread_pct: number | null
+  /** the rule that fired it */
+  entry_mode: 'minute_close' | 'trigger'
+  /** fired by the rule that is not live: scored for comparison, never tradable */
+  shadow: boolean
+  flow_score: number | null
+  /** null for signals fired before outcomes were scored */
+  outcome: OutcomeOut | null
+}
+
+export type OutcomeResult = 'open' | 'target' | 'stop' | 'neither'
+
+/** What the option did after the signal fired, traded or not. */
+export interface OutcomeOut {
+  result: OutcomeResult
+  result_ts: number | null
+  end_ts: number
+  best_price: number
+  best_ts: number
+  /** over the signal's entry price */
+  best_pct: number
+  worst_price: number
+  worst_ts: number
+  worst_pct: number
+  px_1m: number | null
+  px_5m: number | null
+  px_15m: number | null
+  spot_pre_move: number | null
+  spot_best_move: number | null
+  /** share of the favourable spot move already over at firing: 0 early, 1 late */
+  late_share: number | null
+  final: boolean
 }
 
 export type GateReason =
-  'below_threshold' | 'active_exists' | 'outside_hours' | 'feed_down' | 'no_price' | 'rearm'
+  | 'below_threshold'
+  | 'active_exists'
+  | 'outside_hours'
+  | 'feed_down'
+  | 'no_price'
+  | 'rearm'
+  | 'no_setup'
+  | 'flow_not_confirmed'
+  | 'spread_wide'
 
 export interface GateOut {
   index: string

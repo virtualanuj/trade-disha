@@ -25,7 +25,14 @@ from tradedisha.api.chain import chain_out
 from tradedisha.api.health import build_health
 from tradedisha.api.instruments import resolved_out
 from tradedisha.api.paper import open_trades, today_trades, trade_out
-from tradedisha.api.signals import active_signals, gates, signal_out, today_signals
+from tradedisha.api.signals import (
+    active_signals,
+    flow_out,
+    flow_readings,
+    gates,
+    signal_out,
+    today_signals,
+)
 from tradedisha.api.stats import all_stats
 from tradedisha.app_state import AppState
 from tradedisha.clock import epoch_ms_now
@@ -36,6 +43,7 @@ from tradedisha.events import AuthChanged, FeedHealthChanged, ParametersChanged,
 from tradedisha.feed.bus import StampedTick
 from tradedisha.market.candles import Candle
 from tradedisha.market.chain import ChainState
+from tradedisha.market.flow import FlowReading
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -54,12 +62,14 @@ class WsHub:
         self._chain_dirty: dict[str, int] = {}  # index -> t_in of newest option tick
         self._health_dirty = False
         self._immediate: list[str] = []  # frames to send on the next pusher pass
+        self._flow_pending: dict[str, FlowReading] = {}
         self._task: asyncio.Task[None] | None = None
         state.session.tick_bus.subscribe(self._on_tick)
         state.session.candle_listeners.append(self._on_candle)
         state.session.bias_listeners.append(self._on_bias)
         state.session.signal_listeners.append(self._on_signal)
         state.session.trade_listeners.append(self._on_trade)
+        state.session.flow_listeners.append(self._on_flow)
         state.events.subscribe(FeedHealthChanged, self._on_health)
         state.events.subscribe(AuthChanged, self._on_health)
         state.events.subscribe(WindowChanged, self._on_window)
@@ -109,10 +119,14 @@ class WsHub:
 
     def _on_signal(self, s: Signal) -> None:
         payload = {
-            "signal": signal_out(s).model_dump(),
+            "signal": signal_out(self._state, s).model_dump(),
             "gates": [g.model_dump() for g in gates(self._state)],
         }
         self._immediate.append(self._frame("signal", payload, t_src=s.status_ts, t_in=None))
+
+    def _on_flow(self, r: FlowReading) -> None:
+        """About one a second per index; the newest replaces any not yet sent."""
+        self._flow_pending[r.index] = r
 
     def _on_trade(self, t: PaperTrade) -> None:
         payload = {"trades": [trade_out(self._state, t).model_dump()]}
@@ -183,6 +197,7 @@ class WsHub:
             "signals_active": [x.model_dump() for x in active_signals(s)],
             "signals_today": [x.model_dump() for x in today_signals(s)],
             "gates": [g.model_dump() for g in gates(s)],
+            "flow": [f.model_dump() for f in flow_readings(s)],
             "paper_trades": [t.model_dump() for t in today_trades(s)],
             "stats": [x.model_dump() for x in all_stats(s)],
         }
@@ -252,6 +267,11 @@ class WsHub:
             if now - last_trades_push >= OPEN_TRADES_PUSH_MS:
                 last_trades_push = now
                 self._push_every_second(last_stats)
+            if self._flow_pending:
+                pending, self._flow_pending = self._flow_pending, {}
+                for r in pending.values():
+                    payload = flow_out(self._state, r).model_dump()
+                    self._broadcast(self._frame("flow", payload, t_src=r.ts, t_in=None))
             if self._health_dirty:
                 self._health_dirty = False
                 payload = build_health(self._state).model_dump()

@@ -79,6 +79,7 @@ export class MarketSocket {
           frame.payload.gates,
           frame.payload.paper_trades,
           frame.payload.stats,
+          frame.payload.flow,
         )
         break
       case 'tick':
@@ -108,6 +109,9 @@ export class MarketSocket {
         break
       case 'parameters':
         s.applyParameters(frame.payload, frame.payload.effective_from_minute_ts)
+        break
+      case 'flow':
+        s.applyFlow(frame.payload)
         break
       case 'pong':
         break

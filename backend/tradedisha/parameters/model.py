@@ -7,6 +7,7 @@ minutes unless the name says seconds, and prices are rupees.
 from __future__ import annotations
 
 from datetime import time
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -29,6 +30,7 @@ class Weights(BaseModel):
 class Bias(BaseModel):
     model_config = ConfigDict(extra="forbid")
     entry_threshold: float = Field(0.50, gt=0, le=1)
+    setup_threshold: float = Field(0.35, gt=0, le=1)  # trigger mode: |bias| that sets up a signal
     neutral_band: float = Field(0.20, ge=0, lt=1)
     rearm_hysteresis: float = Field(0.0, ge=0, lt=1)
 
@@ -36,6 +38,10 @@ class Bias(BaseModel):
     def _band_below_threshold(self) -> Bias:
         if self.neutral_band >= self.entry_threshold:
             raise ValueError("neutral_band must be below entry_threshold")
+        if not self.neutral_band < self.setup_threshold <= self.entry_threshold:
+            raise ValueError(
+                "setup_threshold must be above neutral_band and no higher than entry_threshold"
+            )
         return self
 
 
@@ -76,6 +82,27 @@ class Premium(BaseModel):
     divergence_score: float = Field(-0.5, ge=-1, le=0)
 
 
+class Flow(BaseModel):
+    """Order-flow score and the trigger that reads it. Spec §8.5, §9.6."""
+
+    model_config = ConfigDict(extra="forbid")
+    window_seconds: float = Field(15.0, gt=0, le=300)
+    trigger_score: float = Field(0.25, gt=0, le=1)
+    hold_seconds: float = Field(5.0, ge=0, le=120)
+    w_fut_book: float = Field(0.4, ge=0, le=1)
+    w_fut_trades: float = Field(0.3, ge=0, le=1)
+    w_options: float = Field(0.3, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def _sum_to_one(self) -> Flow:
+        total = self.w_fut_book + self.w_fut_trades + self.w_options
+        if abs(total - 1.0) > 1e-6:
+            raise ValueError(
+                f"w_fut_book + w_fut_trades + w_options must equal 1.0, got {total:.4f}"
+            )
+        return self
+
+
 class ExpiryPoints(BaseModel):
     model_config = ConfigDict(extra="forbid")
     target: float = Field(gt=0)
@@ -93,6 +120,9 @@ class Signal(BaseModel):
             "BANKNIFTY": ExpiryPoints(target=100, stop=50),
         }
     )
+    outcome_horizon_minutes: int = Field(30, ge=1, le=375)
+    entry_mode: Literal["minute_close", "trigger"] = "minute_close"
+    max_spread_pct: float = Field(1.0, gt=0, le=100)  # trigger mode: widest bid-ask spread allowed
     last_signal_time: time = time(15, 0)
     last_signal_time_expiry: time = time(13, 0)
 
@@ -135,6 +165,7 @@ class ParameterSet(BaseModel):
     trend: Trend = Field(default_factory=Trend)
     oi: OI = Field(default_factory=OI)
     premium: Premium = Field(default_factory=Premium)
+    flow: Flow = Field(default_factory=Flow)
     signal: Signal = Field(default_factory=Signal)
     chain: Chain = Field(default_factory=Chain)
     paper: Paper = Field(default_factory=Paper)

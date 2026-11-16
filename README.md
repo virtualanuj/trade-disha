@@ -90,6 +90,25 @@ click **Reload config** in the top bar: a valid file applies from the next minut
 invalid one is rejected with the failing fields and the previous values stay in force. The
 **Config** button opens a read-only view of the active values.
 
+Every signal is scored by what its option did next (target first, stop first or neither
+within `outcome_horizon_minutes`), whether or not it was paper-traded; "Signals today"
+shows it. To judge a parameter change before using it, replay recorded days with a trial
+file and compare the scorecards:
+
+```
+cd backend
+uv run python -m tradedisha.tools.score --db ../data/live.sqlite
+uv run python -m tradedisha.tools.score --db ../data/live.sqlite --params /path/to/trial.toml
+```
+
+The recorded database is opened read-only; each day is replayed in a scratch copy.
+
+Two entry rules exist (`signal.entry_mode`): `minute_close`, the original, and `trigger`,
+which waits for live order flow to agree with a weaker bias and buys at the ask. The one
+that is not live runs in shadow: its signals are listed greyed in "Signals today" and
+scored on their own scorecard row, but cannot be traded. Switch only when the shadow row
+has beaten the live one over several sessions.
+
 ## Check
 
 ```bash

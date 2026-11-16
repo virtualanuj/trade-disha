@@ -114,3 +114,59 @@ async def test_synthetic_health_reports_last_tick() -> None:
         break
     await p.close()
     assert p.health().last_tick_ts is not None
+
+
+async def _collect(p: SyntheticProvider, keys: list[str], n: int) -> list[Tick]:
+    await p.connect()
+    await p.subscribe(keys)
+    seen: list[Tick] = []
+    async for t in p.ticks():
+        seen.append(t)
+        if len(seen) >= n:
+            break
+    await p.close()
+    return seen
+
+
+async def test_synthetic_futures_and_options_carry_order_flow_fields() -> None:
+    nifty = _resolved()[0]
+    p = SyntheticProvider(_universes(), ticks_per_second=5000, seed=3)
+    keys = [nifty.spot.instrument_key, nifty.future.instrument_key, *nifty.option_keys]
+
+    seen = await _collect(p, keys, 60)
+
+    traded = [t for t in seen if t.key != nifty.spot.instrument_key]
+    assert traded
+    for t in traded:
+        assert t.bid is not None
+        assert t.ask is not None
+        assert t.bid < t.ask
+        assert all((t.bid_qty, t.ask_qty, t.bid_qty5, t.ask_qty5, t.tbq, t.tsq, t.ltq))
+        assert (t.bid_qty5 or 0) >= (t.bid_qty or 0)
+    assert all(t.atp for t in traded if t.key == nifty.future.instrument_key)
+    spot = next(t for t in seen if t.key == nifty.spot.instrument_key)
+    assert spot.bid_qty5 is None  # an index has no order book
+
+
+async def test_synthetic_book_leans_with_a_rising_market() -> None:
+    nifty = _resolved()[0]
+    p = SyntheticProvider(_universes(), ticks_per_second=5000, seed=4, trend_per_tick=0.004)
+    row = next(s for s in nifty.strikes if s.strike == nifty.atm)
+    keys = [
+        nifty.spot.instrument_key,
+        nifty.future.instrument_key,
+        row.ce.instrument_key,
+        row.pe.instrument_key,
+    ]
+
+    seen = (await _collect(p, keys, 400))[100:]  # after the lean has built up
+
+    def lean(key: str) -> float:
+        ticks = [t for t in seen if t.key == key]
+        bids = sum(t.bid_qty5 or 0 for t in ticks)
+        asks = sum(t.ask_qty5 or 0 for t in ticks)
+        return (bids - asks) / (bids + asks)
+
+    assert lean(nifty.future.instrument_key) > 0.1
+    assert lean(row.ce.instrument_key) > 0.1
+    assert lean(row.pe.instrument_key) < -0.1

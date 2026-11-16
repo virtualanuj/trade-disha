@@ -1,9 +1,18 @@
 """Signal lifecycle. Spec §9.
 
-A signal fires at a minute close when |bias| >= entry_threshold, no signal is active on
-that index, the clock is within signal hours, and the feed is live. Open paper trades
-never gate it. It ends when it lapses (TTL untraded), reverses (bias sign flips or falls
-inside the neutral band), or is traded. A fresh one fires at the next qualifying minute.
+Two entry rules (`signal.entry_mode`):
+
+- `minute_close`: a signal fires at a minute close when |bias| >= entry_threshold.
+- `trigger`: a minute close with |bias| >= setup_threshold only sets a direction up; the
+  signal fires inside the minute once the order-flow score has agreed for `hold_seconds`
+  and the option's bid-ask spread is tight enough, at the ask.
+
+Either way no signal may be active on that index, the clock must be within signal hours
+and the feed live. Open paper trades never gate it. A signal ends when it lapses (TTL
+untraded), reverses (bias sign flips or falls inside the neutral band), or is traded.
+
+An engine built with `shadow=True` runs whichever rule is not the live one, so the two can
+be compared on the same days; its signals are stored and marked, never offered for trading.
 """
 
 from __future__ import annotations
@@ -12,7 +21,7 @@ import logging
 import sqlite3
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import astuple, dataclass, fields, replace
 from datetime import datetime, time
 from typing import Literal
 
@@ -28,8 +37,17 @@ log = logging.getLogger(__name__)
 
 Direction = Literal["BUY_CE", "BUY_PE"]
 Status = Literal["active", "traded", "lapsed", "reversed"]
+EntryMode = Literal["minute_close", "trigger"]
 NoFireReason = Literal[
-    "below_threshold", "active_exists", "outside_hours", "feed_down", "no_price", "rearm"
+    "below_threshold",
+    "active_exists",
+    "outside_hours",
+    "feed_down",
+    "no_price",
+    "rearm",
+    "no_setup",
+    "flow_not_confirmed",
+    "spread_wide",
 ]
 
 
@@ -58,6 +76,11 @@ class Signal:
     expires_at: int
     status: Status
     status_ts: int
+    entry_ask: float | None = None  # best ask when it fired: what a buyer would have paid
+    spread_pct: float | None = None  # bid-ask spread then, as % of the mid price
+    entry_mode: EntryMode = "minute_close"  # the rule that fired it
+    shadow: bool = False  # fired by the rule that is not live: scored, never offered
+    flow_score: float | None = None  # order-flow score when a trigger signal fired
 
     @property
     def is_active(self) -> bool:
@@ -74,49 +97,24 @@ class Gate:
     reason: NoFireReason | None
 
 
-class SignalStore:
-    COLS = (
-        "id, idx, minute_ts, ts_fired, direction, instrument_key, trading_symbol, strike,"
-        " expiry, lot_size, entry_price, target_price, stop_price, target_basis, target_points,"
-        " stop_points, delta_used, bias, strength, breakdown_json, expires_at, status, status_ts"
-    )
+_COLS = [f.name for f in fields(Signal)]
+_DB_COLS = ", ".join("idx" if c == "index" else c for c in _COLS)
 
+
+class SignalStore:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
 
     def upsert(self, s: Signal) -> None:
         with self._conn:
             self._conn.execute(
-                f"INSERT OR REPLACE INTO signals ({self.COLS}) VALUES ({','.join('?' * 23)})",
-                (
-                    s.id,
-                    s.index,
-                    s.minute_ts,
-                    s.ts_fired,
-                    s.direction,
-                    s.instrument_key,
-                    s.trading_symbol,
-                    s.strike,
-                    s.expiry,
-                    s.lot_size,
-                    s.entry_price,
-                    s.target_price,
-                    s.stop_price,
-                    s.target_basis,
-                    s.target_points,
-                    s.stop_points,
-                    s.delta_used,
-                    s.bias,
-                    s.strength,
-                    s.breakdown_json,
-                    s.expires_at,
-                    s.status,
-                    s.status_ts,
-                ),
+                f"INSERT OR REPLACE INTO signals ({_DB_COLS})"
+                f" VALUES ({','.join('?' * len(_COLS))})",
+                astuple(s),
             )
 
     def read(self, start_ms: int, end_ms: int, index: str | None = None) -> list[Signal]:
-        sql = f"SELECT {self.COLS} FROM signals WHERE ts_fired >= ? AND ts_fired < ?"
+        sql = f"SELECT {_DB_COLS} FROM signals WHERE ts_fired >= ? AND ts_fired < ?"
         args: list[object] = [start_ms, end_ms]
         if index:
             sql += " AND idx = ?"
@@ -126,37 +124,14 @@ class SignalStore:
 
     def get(self, signal_id: str) -> Signal | None:
         r = self._conn.execute(
-            f"SELECT {self.COLS} FROM signals WHERE id = ?", (signal_id,)
+            f"SELECT {_DB_COLS} FROM signals WHERE id = ?", (signal_id,)
         ).fetchone()
         return self._row(r) if r else None
 
     @staticmethod
     def _row(r: sqlite3.Row) -> Signal:
-        return Signal(
-            id=r["id"],
-            index=r["idx"],
-            minute_ts=r["minute_ts"],
-            ts_fired=r["ts_fired"],
-            direction=r["direction"],
-            instrument_key=r["instrument_key"],
-            trading_symbol=r["trading_symbol"],
-            strike=r["strike"],
-            expiry=r["expiry"],
-            lot_size=r["lot_size"],
-            entry_price=r["entry_price"],
-            target_price=r["target_price"],
-            stop_price=r["stop_price"],
-            target_basis=r["target_basis"],
-            target_points=r["target_points"],
-            stop_points=r["stop_points"],
-            delta_used=r["delta_used"],
-            bias=r["bias"],
-            strength=r["strength"],
-            breakdown_json=r["breakdown_json"],
-            expires_at=r["expires_at"],
-            status=r["status"],
-            status_ts=r["status_ts"],
-        )
+        values = {c: r["idx" if c == "index" else c] for c in _COLS}
+        return Signal(**{**values, "shadow": bool(values["shadow"])})
 
 
 def expiry_close_ms(expiry_iso: str, market_close: time) -> int:
@@ -179,6 +154,7 @@ class SignalEngine:
         market_close: time,
         risk_free_rate: float,
         on_signal: Callable[[Signal], None] | None = None,
+        shadow: bool = False,
     ) -> None:
         self._clock = clock
         self._params = params
@@ -194,6 +170,15 @@ class SignalEngine:
         self.active: dict[str, Signal] = {}
         self.gates: dict[str, Gate] = {}
         self._rearm_block: dict[str, Direction] = {}  # index -> direction needing re-arm
+        self.shadow = shadow
+        self._setup: dict[str, BiasComputed] = {}  # trigger mode: the bias that set a side up
+        self._agree_since: dict[str, int] = {}  # trigger mode: when the flow began agreeing
+
+    def mode(self, p: ParameterSet) -> EntryMode:
+        live = p.signal.entry_mode
+        if not self.shadow:
+            return live
+        return "trigger" if live == "minute_close" else "minute_close"
 
     # -- inputs ----------------------------------------------------------------
 
@@ -203,6 +188,8 @@ class SignalEngine:
         index = b.index
         bias = b.bias
         now = b.minute_ts + 60_000  # the close instant of the evaluated minute
+        trigger = self.mode(p) == "trigger"
+        threshold = p.bias.setup_threshold if trigger else p.bias.entry_threshold
         self._expire_lapsed(now)
 
         current = self.active.get(index)
@@ -211,11 +198,15 @@ class SignalEngine:
             current = None
 
         if self._rearm_block.get(index) and p.bias.rearm_hysteresis > 0:
-            if abs(bias.bias) < p.bias.entry_threshold - p.bias.rearm_hysteresis:
+            if abs(bias.bias) < threshold - p.bias.rearm_hysteresis:
                 self._rearm_block.pop(index, None)
         else:
             self._rearm_block.pop(index, None)
 
+        if trigger:
+            self._set_up(b, p, current)
+            return
+        self._setup.pop(index, None)
         reason = self._gate(index, bias, p, now, current)
         if reason is not None:
             self.gates[index] = Gate(index, b.minute_ts, False, reason)
@@ -223,6 +214,36 @@ class SignalEngine:
         fired = self._fire(index, b, p, now)
         self.gates[index] = Gate(
             index, b.minute_ts, fired is not None, None if fired else "no_price"
+        )
+
+    def on_flow(self, index: str, now: int, score: float | None) -> None:
+        """Trigger mode: called about once a second with the index's order-flow score."""
+        p = self._params()
+        if self.mode(p) != "trigger":
+            return
+        self._expire_lapsed(now)
+        setup = self._setup.get(index)
+        if setup is None or index in self.active:
+            self._agree_since.pop(index, None)
+            return  # the gate from the last minute close already says why
+        sign = 1.0 if setup.bias.bias > 0 else -1.0
+        if score is None or sign * score < p.flow.trigger_score:
+            self._agree_since.pop(index, None)
+            self.gates[index] = Gate(index, setup.minute_ts, False, "flow_not_confirmed")
+            return
+        since = self._agree_since.setdefault(index, now)
+        reason: NoFireReason | None = None
+        if now - since < p.flow.hold_seconds * 1000:
+            reason = "flow_not_confirmed"
+        else:
+            reason = self._common_gate(index, setup.bias, p, now) or self._quote_gate(setup, p)
+        if reason is not None:
+            self.gates[index] = Gate(index, setup.minute_ts, False, reason)
+            return
+        fired = self._fire(index, setup, p, now, at_ask=True, flow_score=score)
+        self._agree_since.pop(index, None)
+        self.gates[index] = Gate(
+            index, setup.minute_ts, fired is not None, None if fired else "no_price"
         )
 
     def tick(self, now_ms: int) -> None:
@@ -252,6 +273,21 @@ class SignalEngine:
         last = p.signal.last_signal_time_expiry if is_expiry_day else p.signal.last_signal_time
         return self._open <= t < last and self._clock.is_trading_day()
 
+    def _set_up(self, b: BiasComputed, p: ParameterSet, current: Signal | None) -> None:
+        """Trigger mode at a minute close: remember or drop the side the bias favours."""
+        index = b.index
+        if abs(b.bias.bias) < p.bias.setup_threshold:
+            self._setup.pop(index, None)
+            self._agree_since.pop(index, None)
+            reason: NoFireReason = "no_setup"
+        else:
+            previous = self._setup.get(index)
+            if previous is not None and (previous.bias.bias > 0) != (b.bias.bias > 0):
+                self._agree_since.pop(index, None)  # the side changed: the flow must agree anew
+            self._setup[index] = b
+            reason = "active_exists" if current is not None else "flow_not_confirmed"
+        self.gates[index] = Gate(index, b.minute_ts, False, reason)
+
     def _gate(
         self, index: str, bias: Bias, p: ParameterSet, now: int, current: Signal | None
     ) -> NoFireReason | None:
@@ -259,6 +295,12 @@ class SignalEngine:
             return "below_threshold"
         if current is not None:
             return "active_exists"
+        return self._common_gate(index, bias, p, now)
+
+    def _common_gate(
+        self, index: str, bias: Bias, p: ParameterSet, now: int
+    ) -> NoFireReason | None:
+        """The gates both entry rules share: re-arm, signal hours, a live feed."""
         direction: Direction = "BUY_CE" if bias.bias > 0 else "BUY_PE"
         if self._rearm_block.get(index) == direction and p.bias.rearm_hysteresis > 0:
             return "rearm"
@@ -268,7 +310,26 @@ class SignalEngine:
             return "feed_down"
         return None
 
-    def _fire(self, index: str, b: BiasComputed, p: ParameterSet, now: int) -> Signal | None:
+    def _quote_gate(self, setup: BiasComputed, p: ParameterSet) -> NoFireReason | None:
+        """A trigger signal buys at the ask, so it needs a two-sided, tight quote."""
+        chain = self._chains[setup.index]
+        row = chain.rows.get(chain.atm)
+        if row is None:
+            return "no_price"
+        leg = row.ce if setup.bias.bias > 0 else row.pe
+        spread = leg.spread_pct
+        return "spread_wide" if spread is None or spread > p.signal.max_spread_pct else None
+
+    def _fire(
+        self,
+        index: str,
+        b: BiasComputed,
+        p: ParameterSet,
+        now: int,
+        *,
+        at_ask: bool = False,
+        flow_score: float | None = None,
+    ) -> Signal | None:
         r = self._resolved[index]
         chain = self._chains[index]
         row = chain.rows.get(chain.atm)
@@ -280,7 +341,7 @@ class SignalEngine:
         if leg.ltp is None or pair is None:
             return None
         inst = pair.ce if direction == "BUY_CE" else pair.pe
-        entry = leg.ltp
+        entry = leg.ask if at_ask and leg.ask is not None else leg.ltp
 
         basis: Literal["pct", "points"]
         if r.is_expiry_day:
@@ -334,11 +395,17 @@ class SignalEngine:
             expires_at=now + p.signal.signal_ttl_seconds * 1000,
             status="active",
             status_ts=now,
+            entry_ask=leg.ask,
+            spread_pct=leg.spread_pct,
+            entry_mode="trigger" if at_ask else "minute_close",
+            shadow=self.shadow,
+            flow_score=flow_score,
         )
         self.active[index] = s
         self.store.upsert(s)
         log.info(
-            "signal %s %s %s @ %.2f target %.2f stop %.2f",
+            "%ssignal %s %s %s @ %.2f target %.2f stop %.2f",
+            "shadow " if self.shadow else "",
             s.id,
             index,
             direction,

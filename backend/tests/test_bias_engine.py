@@ -51,6 +51,8 @@ def test_engine_runs_on_spot_close_and_uses_latest_params() -> None:
     assert len(engine.history("NIFTY", 0, 100 * M)) == 30
 
     # a parameter change is picked up at the next evaluation
-    params = ParameterSet.model_validate({"bias": {"neutral_band": 0.99, "entry_threshold": 0.995}})
+    params = ParameterSet.model_validate(
+        {"bias": {"neutral_band": 0.99, "setup_threshold": 0.995, "entry_threshold": 0.995}}
+    )
     candles.apply(Tick(key=spot, ts=31 * M, ltp=25_200.0))
     assert seen[-1].bias.label == "Neutral"

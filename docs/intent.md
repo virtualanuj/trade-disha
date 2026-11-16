@@ -217,6 +217,15 @@ work.
    arrives. Minimised panels are remembered. The open paper trades panel is always on the
    page, second last, just above the day's recommendations.
 
+6. **Earlier recommendations with fewer false ones.** Unlike the items above, this one
+   changes how recommendations are made. Recommendations were too often wrong and too
+   often late. The app first keeps score: for every recommendation, taken or not, it
+   records whether the option reached the target or the stop first and how much of the
+   move was already over when it appeared. It then uses the buying and selling pressure
+   visible in the live order book to recommend earlier and only when that pressure
+   agrees with the market view. The new rule runs silently beside the old one until the
+   scores show it is better.
+
 Considered and left for later: zoom-in and zoom-out buttons on the charts; showing one
 panel full screen (built, then removed at the owner's request); dragging panels to
 re-order them.

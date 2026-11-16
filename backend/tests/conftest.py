@@ -13,6 +13,7 @@ from tradedisha.main import create_app
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     return Settings(
+        _env_file=None,  # the developer's own .env must not change what the tests see
         db_path=tmp_path / "test.sqlite",
         feed_provider="synthetic",
         synthetic_ticks_per_second=200,
