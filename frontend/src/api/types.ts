@@ -114,6 +114,8 @@ export interface HelloFrame extends FrameBase {
     flow: FlowOut[]
     paper_trades: PaperTradeOut[]
     stats: IndexStatsOut[]
+    bullion: BullionOut
+    bullion_candles: BullionCandlesOut[]
   }
 }
 
@@ -163,6 +165,8 @@ export type Frame =
   | PaperTradeFrame
   | StatsFrame
   | FlowFrame
+  | BullionFrame
+  | BullionCandleFrame
 
 export type BuildUp =
   'long_buildup' | 'short_buildup' | 'short_covering' | 'long_unwinding' | 'none'
@@ -500,4 +504,77 @@ export interface IndexStatsOut {
 export interface StatsFrame extends FrameBase {
   type: 'stats'
   payload: IndexStatsOut
+}
+
+/**
+ * One metal on the BULLION tab: its MCX near-month future (spec §6.6). Display only.
+ * GOLD is quoted per 10 g, SILVER per kg. A null means Upstox has not sent it.
+ */
+export interface BullionMetalOut {
+  /** GOLD or SILVER */
+  metal: string
+  /** e.g. "GOLD FUT 04 DEC 26" */
+  trading_symbol: string
+  /** ISO date */
+  expiry: string | null
+  lot_size: number
+  ltp: number | null
+  prev_close: number | null
+  change: number | null
+  change_pct: number | null
+  day_open: number | null
+  day_high: number | null
+  day_low: number | null
+  /** 0 at the day's low, 1 at the high */
+  range_pos: number | null
+  /** average traded price, the exchange's VWAP */
+  atp: number | null
+  volume: number | null
+  oi: number | null
+  bid: number | null
+  ask: number | null
+  bid_qty: number | null
+  ask_qty: number | null
+  /** ask minus bid */
+  spread: number | null
+  /** total quantity waiting to buy / to sell */
+  tbq: number | null
+  tsq: number | null
+  buy_sell_ratio: number | null
+  /** the contract's high and low over the last year, including today */
+  range_high: number | null
+  range_low: number | null
+  lower_circuit: number | null
+  upper_circuit: number | null
+  next_symbol: string | null
+  next_expiry: string | null
+  next_ltp: number | null
+  /** next month minus near month */
+  calendar_spread: number | null
+  calendar_spread_pct: number | null
+  updated_ts: number | null
+}
+
+export interface BullionOut {
+  /** empty without the live Upstox feed */
+  metals: BullionMetalOut[]
+  /** kilograms of silver one kilogram of gold buys */
+  ratio: number | null
+}
+
+export interface BullionCandlesOut {
+  metal: string
+  candles: CandleOut[]
+  /** only `vwap` is set */
+  overlays: OverlayOut[]
+}
+
+export interface BullionFrame extends FrameBase {
+  type: 'bullion'
+  payload: BullionOut
+}
+
+export interface BullionCandleFrame extends FrameBase {
+  type: 'bullion_candle'
+  payload: { metal: string; candle: CandleOut; overlay: OverlayOut }
 }

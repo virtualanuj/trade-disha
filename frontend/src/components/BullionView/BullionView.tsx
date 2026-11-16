@@ -1,0 +1,169 @@
+import { memo } from 'react'
+import type { ReactNode } from 'react'
+
+import type { BullionMetalOut, BullionOut, CandleOut, OverlayOut } from '../../api/types'
+import { fmtCount, fmtDate, fmtOi, fmtPrice, fmtSigned, pnlColour } from '../../lib/format'
+import { usePref } from '../../lib/usePref'
+import type { Theme } from '../../theme/useTheme'
+import { Fact, Group, Price, RangeBar } from '../Facts/Facts'
+import { PriceChart } from '../PriceChart/PriceChart'
+
+/** MCX quotes gold per 10 g and silver per kg. */
+const UNIT: Record<string, string> = { GOLD: '₹ / 10 g', SILVER: '₹ / kg' }
+const METAL_KEY = 'tradedisha.bullionChart'
+const EMPTY: never[] = []
+
+interface Props {
+  bullion: BullionOut | null
+  candles: Record<string, CandleOut[]>
+  overlays: Record<string, OverlayOut[]>
+  theme: Theme
+  chartHeight: number
+}
+
+/** The BULLION tab: gold and silver MCX futures, display only (spec §6.6, §13.2). */
+export function BullionView({ bullion, candles, overlays, theme, chartHeight }: Props) {
+  const metals = bullion?.metals ?? EMPTY
+  const names = metals.map((m) => m.metal)
+  const [stored, setMetal] = usePref(METAL_KEY, (v) => (typeof v === 'string' ? v : 'GOLD'))
+  const metal = names.includes(stored) ? stored : (names[0] ?? 'GOLD')
+  if (metals.length === 0) {
+    return (
+      <Box>
+        <p className="text-xs text-fg-muted">
+          Live feed only: gold and silver come from MCX through Upstox.
+        </p>
+      </Box>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-3" data-testid="bullion-view">
+      <div className="grid gap-3 lg:grid-cols-2">
+        {metals.map((m) => (
+          <Box key={m.metal}>
+            <MetalCard m={m} />
+          </Box>
+        ))}
+      </div>
+      <Box>
+        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-xs">
+          <span
+            className="text-fg-muted"
+            title="Kilograms of silver one kilogram of gold buys, from the two near-month futures"
+          >
+            Gold / silver ratio
+          </span>
+          <span className="font-mono text-base" data-testid="bullion-ratio">
+            {bullion?.ratio == null ? '—' : bullion.ratio.toFixed(2)}
+          </span>
+        </div>
+      </Box>
+      <Box>
+        <div className="mb-2 flex items-center gap-1" role="group" aria-label="Chart metal">
+          {names.map((n) => (
+            <button
+              key={n}
+              type="button"
+              aria-pressed={n === metal}
+              onClick={() => {
+                setMetal(n)
+              }}
+              className={`rounded px-2 py-0.5 text-xs font-medium ${
+                n === metal ? 'bg-accent/20 text-fg' : 'text-fg-muted hover:text-fg'
+              }`}
+            >
+              {n}
+            </button>
+          ))}
+          <span className="ml-auto text-xs text-fg-muted">1-minute, with VWAP</span>
+        </div>
+        <PriceChart
+          candles={candles[metal] ?? EMPTY}
+          overlays={overlays[metal] ?? EMPTY}
+          dataKey={`bullion-${metal}`}
+          theme={theme}
+          height={chartHeight}
+        />
+      </Box>
+    </div>
+  )
+}
+
+function Box({ children }: { children: ReactNode }) {
+  return <section className="rounded border border-border bg-bg-elev p-3">{children}</section>
+}
+
+function withQty(price: number | null, qty: number | null): string {
+  return qty == null ? fmtPrice(price) : `${fmtPrice(price)} × ${fmtCount(qty)}`
+}
+
+/** `ref` as a signed percentage away from `price`. */
+function awayPct(price: number | null, ref: number | null): string {
+  if (price == null || !ref) return ''
+  return `${fmtSigned(((ref - price) / price) * 100, 1)}%`
+}
+
+const MetalCard = memo(function MetalCard({ m }: { m: BullionMetalOut }) {
+  const yearPos =
+    m.ltp != null && m.range_high != null && m.range_low != null && m.range_high > m.range_low
+      ? (m.ltp - m.range_low) / (m.range_high - m.range_low)
+      : null
+  return (
+    <div className="flex flex-col gap-3" data-testid={`bullion-${m.metal}`}>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-base font-semibold">{m.metal}</span>
+        <span className="truncate text-xs text-fg-muted">
+          {m.trading_symbol} · exp {fmtDate(m.expiry)} · lot {m.lot_size}
+        </span>
+      </div>
+      <div className="flex items-end gap-4">
+        <Price label={`LTP ${UNIT[m.metal] ?? '₹'}`} value={m.ltp} ts={m.updated_ts} />
+        <span className={`pb-5 font-mono text-sm ${pnlColour(m.change)}`}>
+          {m.change == null ? '—' : fmtSigned(m.change, 2)}
+          {m.change_pct == null ? '' : ` (${fmtSigned(m.change_pct, 2)}%)`}
+        </span>
+      </div>
+      <div className="grid gap-x-6 gap-y-3 border-t border-border pt-3 text-xs sm:grid-cols-2">
+        <Group title="Today">
+          <Fact label="Open" value={fmtPrice(m.day_open)} />
+          <Fact label="High" value={fmtPrice(m.day_high)} />
+          <Fact label="Low" value={fmtPrice(m.day_low)} />
+          <RangeBar pos={m.range_pos} label="Position in the day's range" />
+          <Fact label="Prev close" value={fmtPrice(m.prev_close)} />
+          <Fact label="ATP (VWAP)" value={fmtPrice(m.atp)} />
+        </Group>
+        <Group title="Liquidity">
+          <Fact label="Volume" value={fmtCount(m.volume)} />
+          <Fact label="Open interest" value={fmtOi(m.oi)} />
+          <Fact label="Bid" value={withQty(m.bid, m.bid_qty)} />
+          <Fact label="Ask" value={withQty(m.ask, m.ask_qty)} />
+          <Fact label="Spread" value={m.spread == null ? '—' : m.spread.toFixed(2)} />
+          <Fact
+            label="Buy / sell qty"
+            value={`${fmtCount(m.tbq)} / ${fmtCount(m.tsq)}`}
+            sub={m.buy_sell_ratio == null ? '' : `${m.buy_sell_ratio.toFixed(2)}×`}
+            cls={m.buy_sell_ratio == null ? '' : pnlColour(m.buy_sell_ratio - 1)}
+          />
+        </Group>
+        <Group title="Contract, 1 year">
+          <Fact label="High" value={fmtPrice(m.range_high)} sub={awayPct(m.ltp, m.range_high)} />
+          <Fact label="Low" value={fmtPrice(m.range_low)} sub={awayPct(m.ltp, m.range_low)} />
+          <RangeBar pos={yearPos} label="Position in the year's range" />
+          <Fact label="Upper circuit" value={fmtPrice(m.upper_circuit)} />
+          <Fact label="Lower circuit" value={fmtPrice(m.lower_circuit)} />
+        </Group>
+        <Group title="Next month">
+          <Fact
+            label={m.next_expiry ? `Exp ${fmtDate(m.next_expiry)}` : 'Contract'}
+            value={fmtPrice(m.next_ltp)}
+          />
+          <Fact
+            label="Spread over near"
+            value={m.calendar_spread == null ? '—' : fmtSigned(m.calendar_spread, 2)}
+            sub={m.calendar_spread_pct == null ? '' : `${fmtSigned(m.calendar_spread_pct, 2)}%`}
+          />
+        </Group>
+      </div>
+    </div>
+  )
+})

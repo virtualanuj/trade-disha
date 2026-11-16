@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from tradedisha.api.analysis import router as analysis_router
 from tradedisha.api.auth import router as auth_router
+from tradedisha.api.bullion import router as bullion_router
 from tradedisha.api.chain import router as chain_router
 from tradedisha.api.data import router as data_router
 from tradedisha.api.health import router as health_router
@@ -141,6 +142,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(metrics_router, prefix="/api")
     app.include_router(data_router, prefix="/api")
     app.include_router(stats_router, prefix="/api")
+    app.include_router(bullion_router, prefix="/api")
     app.include_router(ws_router)
     if serves_frontend(cfg):
         # Last, so /api and /ws win. The web app uses hash routes, so no fallback is needed.

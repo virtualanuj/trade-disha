@@ -326,6 +326,59 @@ On startup (or after login) when the market is already open:
    before today (§7.4). One request per index per start. A failure is logged in
    `feed_events` and the 52-week fields stay empty; nothing else depends on them.
 
+### 6.6 Bullion (Milestone E4)
+Gold and silver on their own tab, BULLION, beside the indices. Display only: no
+indicator, signal or paper trade reads them, and there is no real-order path for them
+either.
+- **Contracts.** Upstox has no spot price for gold or silver, so the prices are MCX
+  futures of `GOLD` (₹ per 10 g) and `SILVER` (₹ per kg). Upstox's MCX instrument file
+  (`.../exchange/MCX.json.gz`, public) is downloaded once a day to
+  `data/mcx-instruments-YYYY-MM-DD.json.gz`. Records are matched on `segment = MCX_FO`,
+  `instrument_type = FUT` and `underlying_symbol`, because `name` is `GOLD` for every gold
+  contract, minis and petals included. The **near** contract is the nearest expiry strictly
+  after today, so it rolls on expiry day, when the expiring one is in its delivery period.
+  The **next** contract is the one after it. All four are subscribed.
+- **Live, from the feed** (`full` mode), for the near contract:
+  - last price and previous close (`cp`)
+  - the day's open, high and low, from the `1d` row of `marketOHLC`; if that row is absent,
+    the start quote widened by each price
+  - average traded price, volume and open interest
+  - best bid and ask with their quantities
+  - total buy and sell quantity
+  - for the next contract, its price only
+- **Once at start:**
+  - the full quote (`GET /v2/market-quote/quotes`): circuit limits, and the open, high, low
+    and previous close shown before the first tick. Its `ohlc.close` is the live price, so
+    the previous close is `last_price − net_change`; its `oi_day_high` and `oi_day_low` are
+    0 for MCX and not used.
+  - the contract's high and low over a year of daily candles to yesterday, the same request
+    as the 52-week range in §6.5, widened by today; days with no volume are skipped, since
+    an untraded future's early days carry placeholder prices (a gold contract showed
+    ₹2,47,917 on one)
+  - today's 1-minute candles from the intraday candle API
+  - each of these fails soft: logged, the field left empty
+- **Derived** (`market/bullion.py`, pure):
+  - change and change % on the day
+  - position in the day's range
+  - bid-ask spread
+  - buy/sell quantity ratio
+  - calendar spread (next minus near, and as % of near)
+  - **gold/silver ratio** = gold × 100 / silver, i.e. kilograms of silver one kilogram of
+    gold buys
+- **Chart.** Bullion has its own `CandleBuilder` (900 minutes; MCX runs 09:00–23:30),
+  because the shared one drives the bias engine. The VWAP line is the running close ×
+  volume from the first candle of the day.
+- **Live feed only.** Loaded at start with the `upstox` provider, after the index backfill
+  and before connecting. A failure leaves the tab out; it never stops the index feed.
+  Synthetic and replay have no bullion.
+- **Not recorded.** Bullion ticks are not written to `ticks` and its candles are not stored:
+  MCX trades until 23:30, and recorded evening ticks would stretch a replay and drive its
+  clock past the NSE close. Feed health is unchanged (one socket carries both).
+- **API:**
+  - `GET /api/bullion` (the snapshot) and `GET /api/bullion/{metal}/candles`
+  - `bullion` and `bullion_candles` in `hello`
+  - a `bullion` frame throttled like `tick`, and a `bullion_candle` frame on each close
+
 ---
 
 ## 7. Market state
@@ -820,8 +873,21 @@ them ("Panel order" in §13.2).
 - **TopBar**: market status pill (pre-open / live / closed, with clock), feed health with
   tick age colour (green < 2 s, amber < 10 s, red otherwise), auth state with Login button,
   Journal link.
-- **IndexTabs**: NIFTY / BANKNIFTY; selection drives chart, meter, signal, evidence, and
-  chain panel.
+- **IndexTabs**: NIFTY / BANKNIFTY, and BULLION while there is bullion data (§6.6);
+  selection drives chart, meter, signal, evidence, and chain panel. A selected BULLION
+  survives a reconnect, and falls back to the first index if bullion goes away.
+- **BullionView** (Milestone E4, the BULLION tab, in place of the main column's panels; the
+  option-chain column and its divider are not shown):
+  - A card per metal, headed by the contract, expiry and lot:
+    - LTP with unit, change and change %
+    - Today: open, high, low with range bar, previous close, ATP
+    - Liquidity: volume, OI, bid and ask with quantities, spread, buy/sell quantity and ratio
+    - Contract, 1 year: high and low with distance and range bar, circuit limits
+    - Next month: price, spread over near
+  - The gold/silver ratio.
+  - A 1-minute chart with VWAP and a GOLD / SILVER switch remembered in `localStorage`
+    (`tradedisha.bullionChart`), at the index chart's height.
+  - `Price`, `Group`, `Fact` and `RangeBar` are shared with IndexTiles (`components/Facts`).
 - **IndexTiles**: spot, futures and ATM for the selected index, with a collapsible
   **details view** underneath showing `IndexStats` (§7.4) in five groups: day open / high
   / low with a small range bar marking the current price; 52-week high / low with the
@@ -1106,3 +1172,4 @@ Live verification per milestone is described in plan.md.
 | `tbq`, `tsq`, `atp` and all five book levels arrive in `full` mode for index futures and the option window | S1 live day | build the trigger on whichever of them do arrive |
 | Growth of the `ticks` table with the eight order-flow columns | S1 live day (Data panel) | record them only for the futures and the strikes near ATM |
 | Whether order flow leads price on these contracts at all | S2 shadow scorecard | keep the minute-close rule; try enhancement 6's other options |
+| MCX ticks (and the `1d` OHLC row) arrive for this account in `full` mode | E4 live check | poll the full quote once a few seconds |

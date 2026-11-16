@@ -29,12 +29,14 @@ from tradedisha.instruments.models import Instrument, ResolvedIndex
 from tradedisha.instruments.resolve import INDEX_SPOT_NAMES, ResolutionError, resolve_index
 from tradedisha.instruments.synthetic_master import SPEC, build_synthetic_master
 from tradedisha.instruments.upstox_master import load_upstox_master, master_path, read_master
+from tradedisha.market import bullion as bullion_mod
 from tradedisha.market.backfill import (
     apply_baseline,
     fetch_52w_range,
     fetch_intraday_candles,
     fetch_option_chain,
 )
+from tradedisha.market.bullion import BullionTracker
 from tradedisha.market.candles import MINUTE_MS, Candle, CandleBuilder, CandleStore
 from tradedisha.market.chain_manager import ChainManager, SubscriptionChange
 from tradedisha.market.flow import FlowReading, FlowTracker
@@ -123,6 +125,8 @@ class FeedSession:
         self.prices = LatestPrices()
         self.master: list[Instrument] = []
         self.resolved: dict[str, ResolvedIndex] = {}
+        self.bullion: BullionTracker | None = None  # GOLD / SILVER, live feed only (§6.6)
+        self.bullion_candle_listeners: list[Callable[[str, Candle], None]] = []
         self.candles = CandleBuilder()
         self.candle_store = CandleStore(conn)
         self.chains: ChainManager | None = None
@@ -219,11 +223,16 @@ class FeedSession:
         self.tick_bus.subscribe(self.paper.on_tick)
         self.bias_listeners.append(self.paper.on_bias)
         await self._backfill()
+        if self.settings.feed_provider == "upstox":
+            self.bullion = await self._load_bullion(today)
+            if self.bullion is not None:
+                self.tick_bus.subscribe(self.bullion.on_tick)
         self.provider = self._build_provider()
         await self.provider.connect()
         keys = [k for r in self.resolved.values() for k in r.all_keys]
         if self.settings.feed_provider != "synthetic":  # the generated market has no VIX
             keys.append(VIX_KEY)
+        keys.extend(sorted(self.bullion_keys))
         await self.provider.subscribe(keys)
         self.feed_log.write(
             epoch_ms_now(), "session_start", f"provider={self.provider.name} keys={len(keys)}"
@@ -343,7 +352,7 @@ class FeedSession:
             if self.paper is not None:
                 self.paper.mark_gap()
         self.prices.update(t)
-        if self.settings.feed_provider != "replay":
+        if self.settings.feed_provider != "replay" and t.key not in self.bullion_keys:
             self.tick_store.add(t)
             self.latency.record("src_to_in", st.t_in - t.ts, at_ms=st.t_in)
         if t.key in self._candle_keys():
@@ -535,6 +544,31 @@ class FeedSession:
             updated_ts=self.prices.ts.get(spot_key),
         )
 
+    @property
+    def bullion_keys(self) -> frozenset[str]:
+        return self.bullion.keys if self.bullion is not None else frozenset()
+
+    async def _load_bullion(self, today: date) -> BullionTracker | None:
+        """Gold and silver contracts, their start-of-day data and today's candles (§6.6).
+
+        Nothing here can stop the index feed: every step fails soft.
+        """
+        token = self.auth.token if self.auth is not None else None
+        contracts = await bullion_mod.load_contracts(
+            self.settings.data_dir, today, transport=self.http_transport
+        )
+        if not contracts or token is None:
+            return None
+        async with httpx.AsyncClient(timeout=20, transport=self.http_transport) as client:
+            contracts = await bullion_mod.enrich(client, token, contracts, today)
+            tracker = BullionTracker(contracts, on_candle=self._on_bullion_candle)
+            await bullion_mod.backfill(client, token, tracker, self.clock.now_ms())
+        return tracker
+
+    def _on_bullion_candle(self, metal: str, c: Candle) -> None:
+        for fn in self.bullion_candle_listeners:
+            fn(metal, c)
+
     def expecting_ticks(self) -> bool:
         """Silence outside market hours is not an outage."""
         return not self.enforce_hours or self.clock.status() == "live"
@@ -589,6 +623,8 @@ class FeedSession:
             await asyncio.sleep(0.5)
             self.tick_store.flush()
             self.candles.flush_stale(self.clock.now_ms())
+            if self.bullion is not None:
+                self.bullion.candles.flush_stale(self.clock.now_ms())
             for engine in (self.signals, self.shadow_signals):
                 if engine is not None:
                     engine.tick(self.clock.now_ms())

@@ -1,5 +1,14 @@
-import type { FlowOut, SignalOut } from '../api/types'
-import { useMarketStore } from './store'
+import type {
+  BullionMetalOut,
+  CandleOut,
+  FlowOut,
+  HealthResponse,
+  OverlayOut,
+  ParametersOut,
+  ResolvedIndexOut,
+  SignalOut,
+} from '../api/types'
+import { BULLION_TAB, useMarketStore } from './store'
 
 const sig = (over: Partial<SignalOut>): SignalOut =>
   ({
@@ -43,5 +52,62 @@ describe('market store', () => {
     const s = useMarketStore.getState()
     expect(s.flow.NIFTY?.score).toBe(0.5)
     expect(s.flow.BANKNIFTY?.score).toBe(0.2)
+  })
+})
+
+describe('bullion in the store', () => {
+  const metal = { metal: 'GOLD' } as BullionMetalOut
+
+  beforeEach(() => {
+    useMarketStore.setState({
+      selectedIndex: 'NIFTY',
+      instruments: [{ index: 'NIFTY' } as ResolvedIndexOut],
+      bullion: null,
+      bullionCandles: {},
+      bullionOverlays: {},
+    })
+  })
+
+  it('keeps the BULLION tab selected across a hello', () => {
+    const s = useMarketStore.getState()
+    s.selectIndex(BULLION_TAB)
+    s.applyHello(
+      {} as HealthResponse,
+      [{ index: 'NIFTY' } as ResolvedIndexOut],
+      [],
+      [],
+      [],
+      [],
+      {} as ParametersOut,
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+    )
+    s.applyBullion({ metals: [metal], ratio: null }, [
+      { metal: 'GOLD', candles: [{ t: 1 } as CandleOut], overlays: [] },
+    ])
+    const after = useMarketStore.getState()
+    expect(after.selectedIndex).toBe(BULLION_TAB)
+    expect(after.bullionCandles.GOLD).toHaveLength(1)
+  })
+
+  it('leaves the BULLION tab when there is no bullion', () => {
+    const s = useMarketStore.getState()
+    s.selectIndex(BULLION_TAB)
+    s.applyBullion({ metals: [], ratio: null })
+    expect(useMarketStore.getState().selectedIndex).toBe('NIFTY')
+  })
+
+  it('adds closed candles, replacing one for the same minute', () => {
+    const s = useMarketStore.getState()
+    const c = (t: number, close: number) => ({ t, c: close }) as CandleOut
+    const o = (t: number) => ({ t, vwap: 1 }) as OverlayOut
+    s.applyBullionCandle('GOLD', c(1, 10), o(1))
+    s.applyBullionCandle('GOLD', c(1, 11), o(1))
+    s.applyBullionCandle('GOLD', c(2, 12), o(2))
+    expect(useMarketStore.getState().bullionCandles.GOLD?.map((x) => x.c)).toEqual([11, 12])
   })
 })

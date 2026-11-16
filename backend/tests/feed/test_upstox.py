@@ -74,6 +74,18 @@ def test_decode_first_level_feed_has_only_the_best_level_quantities() -> None:
     )
 
 
+def test_decode_reads_the_day_candle_and_not_the_minute_one() -> None:
+    msg = pb.FeedResponse(type=pb.live_feed, currentTs=NOW)
+    m = msg.feeds["MCX_FO|495213"].fullFeed.marketFF
+    m.ltpc.ltp = 134914.0
+    m.marketOHLC.ohlc.add(interval="I1", open=1.0, high=2.0, low=0.5, close=1.5)
+    m.marketOHLC.ohlc.add(interval="1d", open=135853.0, high=136055.0, low=134385.0)
+
+    (tick,) = decode(msg)
+
+    assert (tick.day_open, tick.day_high, tick.day_low) == (135853.0, 136055.0, 134385.0)
+
+
 def test_decode_treats_proto_zeros_as_unchanged_and_skips_priceless_feeds() -> None:
     msg = pb.FeedResponse(type=pb.live_feed, currentTs=NOW)
     msg.feeds["NSE_FO|1"].fullFeed.marketFF.ltpc.ltp = 10.0

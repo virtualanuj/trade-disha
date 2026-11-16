@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 
 import type {
+  BullionCandlesOut,
+  BullionOut,
   FlowOut,
   BiasOut,
   CandleOut,
@@ -18,6 +20,10 @@ import type {
 } from '../api/types'
 
 const MAX_CANDLES = 400
+/** MCX trades 09:00 to 23:30 */
+const MAX_BULLION_CANDLES = 900
+/** the tab beside the indices; not an index, so not in `instruments` */
+export const BULLION_TAB = 'BULLION'
 
 function gatesByIndex(gates: GateOut[]): Record<string, GateOut> {
   const out: Record<string, GateOut> = {}
@@ -25,10 +31,10 @@ function gatesByIndex(gates: GateOut[]): Record<string, GateOut> {
   return out
 }
 
-function pushCapped<T extends { t: number }>(list: T[], item: T): T[] {
+function pushCapped<T extends { t: number }>(list: T[], item: T, max = MAX_CANDLES): T[] {
   const last = list[list.length - 1]
   const next = last && last.t === item.t ? [...list.slice(0, -1), item] : [...list, item]
-  return next.length > MAX_CANDLES ? next.slice(next.length - MAX_CANDLES) : next
+  return next.length > max ? next.slice(next.length - max) : next
 }
 
 export type WsState = 'connecting' | 'open' | 'closed'
@@ -57,6 +63,11 @@ interface MarketStore {
   trades: PaperTradeOut[]
   /** day statistics per index, for the details view */
   stats: Record<string, IndexStatsOut>
+  /** gold and silver for the BULLION tab; null until the first hello */
+  bullion: BullionOut | null
+  bullionCandles: Record<string, CandleOut[]>
+  bullionOverlays: Record<string, OverlayOut[]>
+  /** an index, or BULLION_TAB */
   selectedIndex: string
 
   setWs: (s: WsState) => void
@@ -77,6 +88,9 @@ interface MarketStore {
   ) => void
   applyFlow: (f: FlowOut) => void
   applyStats: (s: IndexStatsOut) => void
+  /** the snapshot; with candles (from hello) the chart series are replaced too */
+  applyBullion: (b: BullionOut, candles?: BullionCandlesOut[]) => void
+  applyBullionCandle: (metal: string, c: CandleOut, o: OverlayOut) => void
   applyTrades: (t: PaperTradeOut[]) => void
   applyTick: (p: IndexPrices, recvAt: number) => void
   applyHealth: (h: HealthResponse) => void
@@ -106,6 +120,9 @@ export const useMarketStore = create<MarketStore>((set) => ({
   flow: {},
   trades: [],
   stats: {},
+  bullion: null,
+  bullionCandles: {},
+  bullionOverlays: {},
   selectedIndex: 'NIFTY',
 
   setWs: (ws) => {
@@ -163,9 +180,38 @@ export const useMarketStore = create<MarketStore>((set) => ({
       flow: Object.fromEntries(flow.map((x) => [x.index, x])),
       trades,
       stats: Object.fromEntries(stats.map((x) => [x.index, x])),
-      selectedIndex: instruments.some((i) => i.index === s.selectedIndex)
-        ? s.selectedIndex
-        : (instruments[0]?.index ?? s.selectedIndex),
+      selectedIndex:
+        s.selectedIndex === BULLION_TAB || instruments.some((i) => i.index === s.selectedIndex)
+          ? s.selectedIndex
+          : (instruments[0]?.index ?? s.selectedIndex),
+    }))
+  },
+  applyBullion: (bullion, candles) => {
+    set((s) => ({
+      bullion,
+      ...(candles
+        ? {
+            bullionCandles: Object.fromEntries(candles.map((c) => [c.metal, c.candles])),
+            bullionOverlays: Object.fromEntries(candles.map((c) => [c.metal, c.overlays])),
+          }
+        : {}),
+      // no bullion (synthetic, replay, or the MCX file failed): leave the tab
+      selectedIndex:
+        s.selectedIndex === BULLION_TAB && bullion.metals.length === 0
+          ? (s.instruments[0]?.index ?? 'NIFTY')
+          : s.selectedIndex,
+    }))
+  },
+  applyBullionCandle: (metal, c, o) => {
+    set((s) => ({
+      bullionCandles: {
+        ...s.bullionCandles,
+        [metal]: pushCapped(s.bullionCandles[metal] ?? [], c, MAX_BULLION_CANDLES),
+      },
+      bullionOverlays: {
+        ...s.bullionOverlays,
+        [metal]: pushCapped(s.bullionOverlays[metal] ?? [], o, MAX_BULLION_CANDLES),
+      },
     }))
   },
   applyStats: (x) => {

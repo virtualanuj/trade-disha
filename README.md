@@ -25,7 +25,9 @@ last-known data; feed outages are logged; a Data panel deletes old raw ticks. Af
 (day and 52-week range, change on the day, futures premium, India VIX). Milestone E2: every panel can be
 minimised to its title bar to make room for the others. Milestone E3: the panels of the main column can be moved
 up and down, with market view and signal moving as a pair. Milestone C1: the config is edited in the app and kept as
-numbered, tagged versions that can be reverted to, and every signal records its version. See [docs/plan.md](docs/plan.md) for what comes next.
+numbered, tagged versions that can be reverted to, and every signal records its version. Milestone E4: a BULLION
+tab with live gold and silver (MCX futures): day range, liquidity, circuit limits, next month, the gold/silver ratio
+and a minute chart. See [docs/plan.md](docs/plan.md) for what comes next.
 
 ## Documents
 

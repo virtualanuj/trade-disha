@@ -81,6 +81,13 @@ export class MarketSocket {
           frame.payload.stats,
           frame.payload.flow,
         )
+        s.applyBullion(frame.payload.bullion, frame.payload.bullion_candles)
+        break
+      case 'bullion':
+        s.applyBullion(frame.payload)
+        break
+      case 'bullion_candle':
+        s.applyBullionCandle(frame.payload.metal, frame.payload.candle, frame.payload.overlay)
         break
       case 'tick':
         clientLatency.recordFrame(frame.t_out, recvAt)

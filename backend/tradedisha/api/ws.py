@@ -1,5 +1,5 @@
 """WebSocket push: `hello` snapshot on connect, then `tick`, `chain`, `candle`, `bias`,
-`health` and `parameters` frames.
+`bullion`, `bullion_candle`, `health` and `parameters` frames.
 
 Every frame carries t_src (exchange ts of the newest data in it), t_in (backend ingest of
 that data) and t_out (send time) so the browser can compute per-hop latency.
@@ -21,6 +21,7 @@ from tradedisha.api.analysis import (
     overlay_out,
     parameters_out,
 )
+from tradedisha.api.bullion import all_bullion_candles, bullion_out, vwap_overlays
 from tradedisha.api.chain import chain_out
 from tradedisha.api.health import build_health
 from tradedisha.api.instruments import resolved_out
@@ -60,6 +61,8 @@ class WsHub:
         self._clients: set[asyncio.Queue[str]] = set()
         self._dirty: dict[str, int] = {}  # index -> t_in of newest price tick since last push
         self._chain_dirty: dict[str, int] = {}  # index -> t_in of newest option tick
+        self._bullion_dirty: int | None = None  # t_in of newest gold / silver tick
+        self._last_bullion_push = 0.0
         self._health_dirty = False
         self._immediate: list[str] = []  # frames to send on the next pusher pass
         self._flow_pending: dict[str, FlowReading] = {}
@@ -70,6 +73,7 @@ class WsHub:
         state.session.signal_listeners.append(self._on_signal)
         state.session.trade_listeners.append(self._on_trade)
         state.session.flow_listeners.append(self._on_flow)
+        state.session.bullion_candle_listeners.append(self._on_bullion_candle)
         state.events.subscribe(FeedHealthChanged, self._on_health)
         state.events.subscribe(AuthChanged, self._on_health)
         state.events.subscribe(WindowChanged, self._on_window)
@@ -89,6 +93,9 @@ class WsHub:
     # -- inbound -----------------------------------------------------------
 
     def _on_tick(self, st: StampedTick) -> None:
+        if st.tick.key in self._state.session.bullion_keys:
+            self._bullion_dirty = st.t_in
+            return
         index = self._index_for(st.tick.key)
         if index is not None:
             self._dirty[index] = st.t_in
@@ -108,6 +115,17 @@ class WsHub:
         role = "spot" if c.key == r.spot.instrument_key else "fut"
         payload = {"index": index, "role": role, "candle": candle_out(c).model_dump()}
         self._immediate.append(self._frame("candle", payload, t_src=c.minute_ts, t_in=None))
+
+    def _on_bullion_candle(self, metal: str, c: Candle) -> None:
+        bullion = self._state.session.bullion
+        day = bullion.closed_candles(metal) if bullion else [c]
+        overlay = vwap_overlays(day or [c])[-1]
+        payload = {
+            "metal": metal,
+            "candle": candle_out(c).model_dump(),
+            "overlay": overlay.model_dump(),
+        }
+        self._immediate.append(self._frame("bullion_candle", payload, t_src=c.minute_ts, t_in=None))
 
     def _on_bias(self, b: BiasComputed) -> None:
         payload = {
@@ -200,6 +218,8 @@ class WsHub:
             "flow": [f.model_dump() for f in flow_readings(s)],
             "paper_trades": [t.model_dump() for t in today_trades(s)],
             "stats": [x.model_dump() for x in all_stats(s)],
+            "bullion": bullion_out(s).model_dump(mode="json"),
+            "bullion_candles": [x.model_dump() for x in all_bullion_candles(s, 900)],
         }
         return self._frame("hello", payload, t_src=None, t_in=None)
 
@@ -224,6 +244,19 @@ class WsHub:
                 last_stats[st.index] = fingerprint
                 self._broadcast(self._frame("stats", body, t_src=None, t_in=None))
 
+    def _push_bullion(self, now: float, interval_ms: float) -> None:
+        """The whole bullion snapshot in one frame, throttled like `tick`; display only."""
+        t_in = self._bullion_dirty
+        if t_in is None or now - self._last_bullion_push < interval_ms:
+            return
+        self._bullion_dirty = None
+        self._last_bullion_push = now
+        body = bullion_out(self._state)
+        stamps = [m.updated_ts for m in body.metals if m.updated_ts is not None]
+        payload = body.model_dump(mode="json")
+        frame = self._frame("bullion", payload, t_src=max(stamps, default=None), t_in=t_in)
+        self._broadcast(frame)
+
     async def _pusher(self) -> None:
         """Leading-edge throttle per channel; immediate frames go out on the next pass."""
         interval_ms = 1000.0 / self._state.settings.ws_tick_hz
@@ -237,6 +270,7 @@ class WsHub:
             if not self._clients:
                 self._dirty.clear()
                 self._chain_dirty.clear()
+                self._bullion_dirty = None
                 self._immediate.clear()
                 self._health_dirty = False
                 continue
@@ -255,6 +289,7 @@ class WsHub:
                 frame = self._frame("tick", payload, t_src=max(stamps, default=None), t_in=t_in)
                 self._broadcast(frame)
                 self._state.latency.record("in_to_out", epoch_ms_now() - t_in)
+            self._push_bullion(now, interval_ms)
             mgr = self._state.session.chains
             for index in list(self._chain_dirty):
                 if mgr is None or now - last_chain_push.get(index, 0.0) < chain_interval_ms:

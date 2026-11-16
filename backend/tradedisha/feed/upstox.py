@@ -12,8 +12,8 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import replace
-from typing import Protocol
+from dataclasses import dataclass, replace
+from typing import Any, Protocol
 
 import httpx
 from websockets.asyncio.client import connect as _ws_connect
@@ -24,6 +24,7 @@ from tradedisha.feed.upstox_proto import MarketDataFeed_pb2 as pb
 log = logging.getLogger(__name__)
 
 AUTHORIZE_URL = "https://api.upstox.com/v3/feed/market-data-feed/authorize"
+FULL_QUOTE_URL = "https://api.upstox.com/v2/market-quote/quotes"
 LTP_URLS = (
     "https://api.upstox.com/v3/market-quote/ltp",
     "https://api.upstox.com/v2/market-quote/ltp",
@@ -88,8 +89,12 @@ def _tick(key: str, ts: int, feed: pb.Feed) -> Tick | None:
     )
     if tick is None:
         return None
+    day = next((o for o in m.marketOHLC.ohlc if o.interval == "1d"), None)
     return replace(
         tick,
+        day_open=_pos(day.open) if day is not None else None,
+        day_high=_pos(day.high) if day is not None else None,
+        day_low=_pos(day.low) if day is not None else None,
         bid_qty5=_qty(sum(q.bidQ for q in book)),
         ask_qty5=_qty(sum(q.askQ for q in book)),
         tbq=_qty(m.tbq),
@@ -178,6 +183,56 @@ async def fetch_ltp(client: httpx.AsyncClient, token: str, keys: list[str]) -> d
         if all(k in out for k in keys):
             return out
     raise RuntimeError(f"Upstox quote API gave no price for {keys} (HTTP {last_status})")
+
+
+@dataclass(frozen=True, slots=True)
+class FullQuote:
+    """The parts of Upstox's full market quote the bullion view uses (spec §6.6)."""
+
+    ltp: float | None
+    prev_close: float | None  # last price minus net change; `ohlc.close` is the live price
+    day_open: float | None
+    day_high: float | None
+    day_low: float | None
+    lower_circuit: float | None
+    upper_circuit: float | None
+
+
+def _num(v: object) -> float | None:
+    return float(v) if isinstance(v, int | float) and v > 0 else None
+
+
+def parse_full_quote(row: dict[str, Any]) -> FullQuote:
+    ohlc = row.get("ohlc") or {}
+    ltp = _num(row.get("last_price"))
+    change = row.get("net_change")
+    prev = ltp - float(change) if ltp is not None and isinstance(change, int | float) else None
+    return FullQuote(
+        ltp=ltp,
+        prev_close=prev if prev is not None and prev > 0 else None,
+        day_open=_num(ohlc.get("open")),
+        day_high=_num(ohlc.get("high")),
+        day_low=_num(ohlc.get("low")),
+        lower_circuit=_num(row.get("lower_circuit_limit")),
+        upper_circuit=_num(row.get("upper_circuit_limit")),
+    )
+
+
+async def fetch_quotes(
+    client: httpx.AsyncClient, token: str, keys: list[str]
+) -> dict[str, FullQuote]:
+    """Full market quote per instrument key. Keys the API leaves out are missing."""
+    resp = await client.get(
+        FULL_QUOTE_URL, params={"instrument_key": ",".join(keys)}, headers=_bearer(token)
+    )
+    if resp.status_code == 401:
+        raise Unauthorized("quote request rejected")
+    resp.raise_for_status()
+    out: dict[str, FullQuote] = {}
+    for label, row in (resp.json().get("data") or {}).items():
+        key = str(row.get("instrument_token") or str(label).replace(":", "|", 1))
+        out[key] = parse_full_quote(row)
+    return out
 
 
 # -- provider ---------------------------------------------------------------------

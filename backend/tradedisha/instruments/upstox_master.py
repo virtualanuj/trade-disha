@@ -1,4 +1,4 @@
-"""The real instrument master: Upstox's daily file of everything tradable on NSE (spec §5.1).
+"""The real instrument master: Upstox's daily files of what is tradable (spec §5.1, §6.6).
 
 The file is public (no login). It is downloaded once per day into the data folder and kept,
 so a recorded session can later be replayed against the instruments of its own day.
@@ -21,11 +21,16 @@ from tradedisha.instruments.models import Instrument, InstrumentType
 from tradedisha.instruments.resolve import INDEX_SPOT_NAMES
 
 MASTER_URL = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz"
+MCX_MASTER_URL = "https://assets.upstox.com/market-quote/instruments/exchange/MCX.json.gz"
 PAISE = 100.0  # the master quotes tick size in paise
 
 
 def master_path(data_dir: Path, day: date) -> Path:
     return data_dir / f"instruments-{day.isoformat()}.json.gz"
+
+
+def mcx_master_path(data_dir: Path, day: date) -> Path:
+    return data_dir / f"mcx-instruments-{day.isoformat()}.json.gz"
 
 
 def parse_master(records: Iterable[Mapping[str, Any]], indices: Iterable[str]) -> list[Instrument]:
@@ -79,6 +84,54 @@ def read_master(path: Path, indices: Iterable[str]) -> list[Instrument]:
         return parse_master(json.load(fh), indices)
 
 
+def parse_commodities(
+    records: Iterable[Mapping[str, Any]], names: Iterable[str]
+) -> list[Instrument]:
+    """The MCX futures of each wanted commodity (spec §6.6).
+
+    Matched on `underlying_symbol`: `name` is GOLD for every gold contract, minis and
+    petals included.
+    """
+    wanted = set(names)
+    return [
+        Instrument(
+            instrument_key=str(r["instrument_key"]),
+            trading_symbol=str(r["trading_symbol"]),
+            exchange="MCX",
+            segment="MCX_FO",
+            name=str(r["underlying_symbol"]),
+            instrument_type="FUT",
+            expiry=ms_to_ist(int(r["expiry"])).date(),
+            strike=None,
+            lot_size=int(r["lot_size"]),
+            tick_size=float(r.get("tick_size", 100.0)) / PAISE,
+        )
+        for r in records
+        if r.get("segment") == "MCX_FO"
+        and r.get("instrument_type") == "FUT"
+        and r.get("underlying_symbol") in wanted
+        and r.get("expiry")
+    ]
+
+
+def read_commodities(path: Path, names: Iterable[str]) -> list[Instrument]:
+    with gzip.open(path, "rt", encoding="utf-8") as fh:
+        return parse_commodities(json.load(fh), names)
+
+
+async def _download_once(url: str, path: Path, transport: httpx.AsyncBaseTransport | None) -> None:
+    """Fetch `url` to `path` unless today's copy is already there."""
+    if await asyncio.to_thread(path.exists):
+        return
+    async with httpx.AsyncClient(transport=transport, timeout=60, follow_redirects=True) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".part")
+    tmp.write_bytes(resp.content)
+    tmp.replace(path)  # never leave a half-written file to be trusted tomorrow
+
+
 async def load_upstox_master(
     data_dir: Path,
     day: date,
@@ -88,14 +141,18 @@ async def load_upstox_master(
 ) -> list[Instrument]:
     """Today's master, downloading it first if this is the first start of the day."""
     path = master_path(data_dir, day)
-    if not path.exists():
-        async with httpx.AsyncClient(
-            transport=transport, timeout=60, follow_redirects=True
-        ) as client:
-            resp = await client.get(MASTER_URL)
-            resp.raise_for_status()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".part")
-        tmp.write_bytes(resp.content)
-        tmp.replace(path)  # never leave a half-written file to be trusted tomorrow
+    await _download_once(MASTER_URL, path, transport)
     return await asyncio.to_thread(read_master, path, list(indices))
+
+
+async def load_mcx_master(
+    data_dir: Path,
+    day: date,
+    names: Iterable[str],
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> list[Instrument]:
+    """Today's MCX futures for `names`, downloading the MCX file once a day."""
+    path = mcx_master_path(data_dir, day)
+    await _download_once(MCX_MASTER_URL, path, transport)
+    return await asyncio.to_thread(read_commodities, path, list(names))

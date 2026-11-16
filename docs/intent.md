@@ -235,6 +235,12 @@ work.
    agrees with the market view. The new rule runs silently beside the old one until the
    scores show it is better.
 
+7. **Bullion tab.** Beside NIFTY and BANK NIFTY, a BULLION tab shows gold and silver as
+   traded in India: the price and change on the day, the day's range, trading activity,
+   the contract's range and price limits, the next month's price, the gold/silver ratio,
+   and a minute chart. It is for reference only and plays no part in the market view or
+   the recommendations.
+
 Considered and left for later: zoom-in and zoom-out buttons on the charts; showing one
 panel full screen (built, then removed at the owner's request); dragging panels to
 re-order them.

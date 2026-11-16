@@ -99,3 +99,18 @@ def roc_pct(now: float | None, then: float | None) -> float | None:
     if now is None or then is None or then == 0:
         return None
     return (now - then) / then * 100
+
+
+def vwap_series(candles: Sequence[Candle]) -> list[float | None]:
+    """Running volume-weighted close from the first candle; None until volume trades.
+
+    The same close x volume weighting as `CandleBuilder.vwap`, for the bullion chart line.
+    """
+    out: list[float | None] = []
+    pv = 0.0
+    vol = 0
+    for c in candles:
+        pv += c.close * c.volume
+        vol += c.volume
+        out.append(round(pv / vol, 2) if vol else None)
+    return out

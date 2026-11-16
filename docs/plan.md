@@ -385,6 +385,41 @@ live feed, including the chart keeping its zoom and height divider when moved.
 
 **Design:** spec §13.2 (Panel order).
 
+## Milestone E4 — BULLION tab
+
+**Goal:** gold and silver on their own tab beside NIFTY and BANKNIFTY, with what Upstox
+already provides.
+
+- **Contracts.** MCX `GOLD` and `SILVER`, near and next month, picked each day from
+  Upstox's MCX instrument file and rolled on expiry day. Upstox has no spot price.
+- **The tab.** A card per metal:
+  - LTP and change on the day
+  - day open, high, low and position, previous close, ATP
+  - volume, OI, bid and ask with quantities and spread, buy vs sell quantity
+  - the contract's one-year high and low, circuit limits
+  - the next-month price and calendar spread
+
+  Below the cards: the gold/silver ratio, and a 1-minute chart with VWAP and a metal
+  switch. The option chain is hidden on this tab.
+- **Display only.** Not recorded, not replayed, no part in the bias or signals. Live feed
+  only; any failure leaves the tab out and the index feed untouched.
+- Tests:
+  - backend: parsing real-shaped MCX records (minis and petals excluded); near and next
+    month including expiry day; the once-a-day download and its failure; the `1d` OHLC
+    decode; the full quote from a recorded real answer; the snapshot maths (ratio, spreads,
+    range, fallbacks); the VWAP series; the tracker (day range, candles, next month);
+    ticks kept out of `ticks`; the REST routes and the three WebSocket frames
+  - frontend: the cards, the ratio and the chart switch; the store keeping BULLION
+    selected
+
+**Demo:** log in on a trading day (MCX is open until 23:30), open BULLION, and compare
+GOLD and SILVER with the Upstox app: price, day range, ATP, OI, circuit limits, next
+month. Switch the chart; reload to find the tab and switch kept.
+
+**Status (2026-11-16):** built, with unit tests; the live check is still to do (spec §17).
+
+**Design:** spec §6.6 and §13.2 (IndexTabs, BullionView).
+
 ## Milestone C1 — Editable, versioned config
 
 **Goal:** the trader tunes the parameters in the app, can always get back to an earlier

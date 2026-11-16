@@ -5,6 +5,7 @@ import { openPaperTrade } from './api/client'
 import type { SignalOut } from './api/types'
 import { MarketSocket } from './api/ws'
 import { BiasMeter } from './components/BiasMeter/BiasMeter'
+import { BullionView } from './components/BullionView/BullionView'
 import { ConfigControl } from './components/ConfigControl/ConfigControl'
 import { DataPanel } from './components/DataPanel/DataPanel'
 import { DebugOverlay } from './components/DebugOverlay/DebugOverlay'
@@ -40,7 +41,7 @@ import {
 } from './lib/panelSummary'
 import { useNow } from './lib/useNow'
 import { usePref } from './lib/usePref'
-import { useMarketStore } from './state/store'
+import { BULLION_TAB, useMarketStore } from './state/store'
 import { useTheme } from './theme/useTheme'
 
 const EMPTY: never[] = []
@@ -138,6 +139,14 @@ export default function App() {
   const applyParameters = useMarketStore((s) => s.applyParameters)
   const trades = useMarketStore((s) => s.trades)
   const stats = useMarketStore((s) => s.stats)
+  const bullion = useMarketStore((s) => s.bullion)
+  const bullionCandles = useMarketStore((s) => s.bullionCandles)
+  const bullionOverlays = useMarketStore((s) => s.bullionOverlays)
+  const onBullion = selected === BULLION_TAB
+  const tabs = useMemo(() => {
+    const indices = instruments.map((i) => i.index)
+    return bullion?.metals.length ? [...indices, BULLION_TAB] : indices
+  }, [instruments, bullion])
   const applyTrades = useMarketStore((s) => s.applyTrades)
 
   const openTrades = useMemo(() => trades.filter((t) => t.status === 'open'), [trades])
@@ -360,16 +369,20 @@ export default function App() {
               className={`flex min-w-0 flex-1 flex-col gap-3 overflow-auto p-4 ${staleCls}`}
               data-stale={banner?.stale ? 'true' : undefined}
             >
-              <IndexTabs
-                indices={instruments.map((i) => i.index)}
-                selected={selected}
-                onSelect={selectIndex}
-              />
-              {panels.order.map((unit) => (
-                <Fragment key={unit}>{units[unit]}</Fragment>
-              ))}
+              <IndexTabs indices={tabs} selected={selected} onSelect={selectIndex} />
+              {onBullion ? (
+                <BullionView
+                  bullion={bullion}
+                  candles={bullionCandles}
+                  overlays={bullionOverlays}
+                  theme={theme}
+                  chartHeight={layout.chartHeight}
+                />
+              ) : (
+                panels.order.map((unit) => <Fragment key={unit}>{units[unit]}</Fragment>)
+              )}
             </section>
-            {panels.minimised.chain ? null : (
+            {onBullion || panels.minimised.chain ? null : (
               <Divider
                 orientation="vertical"
                 label="Option chain width"
@@ -384,24 +397,26 @@ export default function App() {
                 }}
               />
             )}
-            <SidePanel
-              name="option chain"
-              open={!panels.minimised.chain}
-              onToggle={() => {
-                panels.toggleMinimise('chain')
-              }}
-              width={layout.chainWidth}
-              className={staleCls}
-            >
-              <PanelFrame
-                {...frame('chain')}
-                title="Option chain"
-                summary={chainSummary(chains[selected])}
-                fill
+            {onBullion ? null : (
+              <SidePanel
+                name="option chain"
+                open={!panels.minimised.chain}
+                onToggle={() => {
+                  panels.toggleMinimise('chain')
+                }}
+                width={layout.chainWidth}
+                className={staleCls}
               >
-                <OptionChain chain={chains[selected]} />
-              </PanelFrame>
-            </SidePanel>
+                <PanelFrame
+                  {...frame('chain')}
+                  title="Option chain"
+                  summary={chainSummary(chains[selected])}
+                  fill
+                >
+                  <OptionChain chain={chains[selected]} />
+                </PanelFrame>
+              </SidePanel>
+            )}
           </>
         )}
       </main>

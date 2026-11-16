@@ -119,3 +119,27 @@ def resolve_index(
 def needs_recenter(current_atm: float, new_atm: float, step: float, recenter_strikes: int) -> bool:
     """True when ATM has moved at least `recenter_strikes` steps from the window centre."""
     return abs(new_atm - current_atm) >= recenter_strikes * step - 1e-9
+
+
+def resolve_commodity_months(
+    master: Iterable[Instrument], name: str, today: date
+) -> tuple[Instrument, Instrument | None] | None:
+    """The near-month and next-month futures of `name` (spec §6.6), or None if none trade.
+
+    Near is the nearest expiry strictly after today: it rolls on expiry day itself, when the
+    expiring contract is in its delivery period and no longer the price people quote.
+    """
+    futures = sorted(
+        (
+            i
+            for i in master
+            if i.name == name
+            and i.instrument_type == "FUT"
+            and i.expiry is not None
+            and i.expiry > today
+        ),
+        key=lambda i: i.expiry or today,
+    )
+    if not futures:
+        return None
+    return futures[0], (futures[1] if len(futures) > 1 else None)

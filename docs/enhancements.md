@@ -169,6 +169,36 @@ Decided with the owner on 2026-11-16:
 Not included: a scorecard split by config version; comparing two versions side by side;
 scoring a stored version with the offline tool.
 
+## Market data
+
+### 9. Bullion tab
+
+Asked for (2026-11-16): pull gold and silver real-time prices from Upstox; then, make
+bullion a tab like NIFTY and BANK NIFTY with the useful details Upstox already provides.
+
+Status: built in Milestone E4, awaiting the live check. Design in [spec.md](spec.md)
+§6.6 and §13.2; planned in [plan.md](plan.md) Milestone E4.
+
+Decided with the owner on 2026-11-16:
+- The MCX futures of GOLD (₹ per 10 g) and SILVER (₹ per kg), not the minis. Upstox has
+  no spot price; these are what Indian markets quote, not the international dollar price.
+- One BULLION tab with both metals side by side, the gold/silver ratio, and a chart with a
+  metal switch; the option chain is hidden there.
+- All of the details on offer:
+  - day stats and liquidity
+  - a 1-minute chart
+  - the contract's range and circuit limits
+  - the next month and calendar spread
+- Display only: no signals or paper trades.
+
+Builder's calls:
+- The contract rolls on expiry day.
+- Ticks and candles are not recorded (MCX trades until 23:30), so synthetic and replay
+  have no tab.
+- The day's OI high and low are left out: Upstox sends 0 for MCX.
+- The previous close comes from the feed's `cp`, falling back to the quote's
+  `last_price − net_change`.
+
 ## Deferred
 
 ### Chart zoom buttons

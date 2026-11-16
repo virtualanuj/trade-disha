@@ -31,6 +31,9 @@ class Tick:
     tsq: int | None = None
     atp: float | None = None  # exchange average traded price (its VWAP)
     ltq: int | None = None  # last traded quantity
+    day_open: float | None = None  # the feed's day candle; sent for MCX futures (spec §6.6)
+    day_high: float | None = None
+    day_low: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -76,12 +76,21 @@ async def fetch_intraday_candles(
     return parse_candles(key, (data or {}).get("candles") or [], before_ms=before_ms)
 
 
-def parse_range(rows: Iterable[list[Any]]) -> tuple[float, float] | None:
-    """(highest high, lowest low) over daily candle rows `[time, o, h, l, c, ...]`."""
+def parse_range(
+    rows: Iterable[list[Any]], *, traded_only: bool = False
+) -> tuple[float, float] | None:
+    """(highest high, lowest low) over daily candle rows `[time, o, h, l, c, volume, ...]`.
+
+    `traded_only` skips days with no volume. A future's untraded days early in its life
+    carry placeholder prices (an MCX gold contract showed 2,47,917 on such a day); an index
+    has no volume at all, so it must not use this.
+    """
     highs: list[float] = []
     lows: list[float] = []
     for row in rows:
         high, low = float(row[2]), float(row[3])
+        if traded_only and not (len(row) > 5 and row[5]):
+            continue
         if high > 0 and low > 0:
             highs.append(high)
             lows.append(low)
@@ -89,7 +98,7 @@ def parse_range(rows: Iterable[list[Any]]) -> tuple[float, float] | None:
 
 
 async def fetch_52w_range(
-    client: httpx.AsyncClient, token: str, key: str, today: date
+    client: httpx.AsyncClient, token: str, key: str, today: date, *, traded_only: bool = False
 ) -> tuple[float, float] | None:
     """The 52-week high and low up to yesterday, from a year of daily candles."""
     url = DAILY_URL.format(
@@ -98,7 +107,7 @@ async def fetch_52w_range(
         frm=(today - timedelta(days=YEAR_DAYS)).isoformat(),
     )
     data = _check(await client.get(url, headers=_bearer(token)), "daily candle request")
-    return parse_range((data or {}).get("candles") or [])
+    return parse_range((data or {}).get("candles") or [], traded_only=traded_only)
 
 
 # -- option chain -----------------------------------------------------------------

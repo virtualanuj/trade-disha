@@ -87,6 +87,17 @@ def test_52_week_range_is_the_highest_high_and_lowest_low() -> None:
     assert parse_range([]) is None
 
 
+def test_traded_only_range_skips_placeholder_days() -> None:
+    # real MCX GOLD rows: an untraded day early in the contract's life, then real trading
+    rows = [
+        ["2026-01-30T00:00:00+05:30", 247917.0, 247917.0, 247917.0, 247917.0, 0],
+        ["2026-11-12T00:00:00+05:30", 139282.0, 139315.0, 135530.0, 136225.0, 13599],
+        ["2026-11-13T00:00:00+05:30", 136502.0, 137587.0, 136055.0, 136705.0, 7227],
+    ]
+    assert parse_range(rows, traded_only=True) == (139315.0, 135530.0)
+    assert parse_range(rows) == (247917.0, 135530.0)  # indices: no volume, keep every day
+
+
 async def test_52_week_fetch_asks_for_the_year_up_to_yesterday() -> None:
     def handle(request: httpx.Request) -> httpx.Response:
         path = request.url.raw_path.decode()
