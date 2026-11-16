@@ -322,7 +322,8 @@ export interface ParametersFrame extends FrameBase {
 }
 
 export type SignalStatus = 'active' | 'traded' | 'lapsed' | 'reversed'
-export type SignalDirection = 'BUY_CE' | 'BUY_PE'
+/** index options are bought; a bullion future is bought or sold (spec §9a) */
+export type SignalDirection = 'BUY_CE' | 'BUY_PE' | 'BUY_FUT' | 'SELL_FUT'
 
 export interface SignalOut {
   id: string
@@ -396,6 +397,7 @@ export type GateReason =
   | 'no_setup'
   | 'flow_not_confirmed'
   | 'spread_wide'
+  | 'disabled'
 
 export interface GateOut {
   index: string

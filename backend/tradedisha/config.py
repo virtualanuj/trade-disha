@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     replay_speed: float = 1.0  # 0 = as fast as possible
     # Fault injection: IST time ranges whose ticks are withheld, e.g. ["10:05:00-10:07:30"]
     replay_drop: list[str] = []
+    # Also replay that day's recorded bullion ticks (and run the bullion desk on them). Off by
+    # default: MCX trades until 23:30, so a bullion replay runs long past the NSE close.
+    replay_bullion: bool = False
 
     # Upstox (Milestone 1b, needs an account)
     upstox_api_key: str = ""

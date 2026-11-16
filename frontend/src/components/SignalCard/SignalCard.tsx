@@ -10,6 +10,7 @@ import {
   fmtPrice,
   pnlColour,
 } from '../../lib/format'
+import { directionLabel, instrumentLabel, isFuture, isLong } from '../../lib/direction'
 import { ConfigVersionChip } from '../ConfigVersionChip/ConfigVersionChip'
 
 const REASON_TEXT: Record<NonNullable<GateOut['reason']>, string> = {
@@ -17,16 +18,17 @@ const REASON_TEXT: Record<NonNullable<GateOut['reason']>, string> = {
   active_exists: 'a signal is already active',
   outside_hours: 'outside signal hours',
   feed_down: 'feed not live',
-  no_price: 'no ATM option price yet',
+  no_price: 'no price to trade at yet',
   rearm: 'waiting for bias to re-arm',
   no_setup: 'bias too weak for a setup',
   flow_not_confirmed: 'setup in place, waiting for order flow to agree',
   spread_wide: 'setup and order flow agree, but bid-ask spread too wide',
+  disabled: 'bullion signals are switched off in the config',
 }
 
 function topReasons(s: SignalOut, n = 3): string[] {
   const inds = s.breakdown.indicators ?? []
-  const sign = s.direction === 'BUY_CE' ? 1 : -1
+  const sign = isLong(s.direction) ? 1 : -1
   return inds
     .filter((i) => i.quality === 'ok' && i.contribution * sign > 0)
     .sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution))
@@ -64,14 +66,15 @@ export function SignalCard({ signal, gate, now, openTrades = [], blocked, onPape
       </div>
     )
   }
-  const isCall = signal.direction === 'BUY_CE'
+  const long = isLong(signal.direction)
   const remaining = countdown(signal.expires_at, now)
   const urgent = signal.expires_at - now < 60_000
   return (
     <div className="text-xs" data-testid="signal-card">
       <div className="flex items-baseline justify-between">
-        <span className={`text-base font-semibold ${isCall ? 'text-bull' : 'text-bear'}`}>
-          BUY {signal.index} {signal.strike} {isCall ? 'CE' : 'PE'}
+        <span className={`text-base font-semibold ${long ? 'text-bull' : 'text-bear'}`}>
+          {directionLabel(signal.direction)} {signal.index}{' '}
+          {isFuture(signal.direction) ? 'FUT' : instrumentLabel(signal)}
         </span>
         <span className="font-mono text-fg-muted">
           fired {fmtIstTime(signal.ts_fired)} · bias {signal.strength}
@@ -86,7 +89,10 @@ export function SignalCard({ signal, gate, now, openTrades = [], blocked, onPape
         </span>
       </div>
       <div className="mt-1 text-fg-muted">
-        {signal.trading_symbol} · exp {fmtDate(signal.expiry)} · lot {signal.lot_size}
+        {signal.trading_symbol} · exp {fmtDate(signal.expiry)} ·{' '}
+        {isFuture(signal.direction)
+          ? `₹${String(signal.lot_size)} per point per lot`
+          : `lot ${String(signal.lot_size)}`}
       </div>
       <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4">
         <Stat
@@ -134,7 +140,7 @@ export function SignalCard({ signal, gate, now, openTrades = [], blocked, onPape
           <ul className="mt-1 font-mono">
             {openTrades.map((t) => (
               <li key={t.id}>
-                {t.strike} {t.direction === 'BUY_CE' ? 'CE' : 'PE'} @ {fmtPrice(t.entry_price)} →{' '}
+                {instrumentLabel(t)} @ {fmtPrice(t.entry_price)} →{' '}
                 <span className={pnlColour(t.live_net)}>{fmtMoney(t.live_net)}</span>{' '}
                 <span className="text-fg-muted">({fmtDuration(now - t.entry_ts)})</span>
                 {t.direction !== signal.direction ? (

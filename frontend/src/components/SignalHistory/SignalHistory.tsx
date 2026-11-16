@@ -1,4 +1,5 @@
 import type { OutcomeResult, SignalOut, SignalStatus } from '../../api/types'
+import { instrumentLabel, isLong } from '../../lib/direction'
 import { fmtIstTime, fmtPrice, fmtSigned } from '../../lib/format'
 import { ConfigVersionChip } from '../ConfigVersionChip/ConfigVersionChip'
 
@@ -102,8 +103,8 @@ export function SignalHistory({ signals, index }: { signals: SignalOut[]; index:
                   {fmtIstTime(s.ts_fired)}
                   {s.shadow ? <span className="ml-1 font-sans text-warn">shadow</span> : null}
                 </td>
-                <td className={s.direction === 'BUY_CE' ? 'text-bull' : 'text-bear'}>
-                  {s.strike} {s.direction === 'BUY_CE' ? 'CE' : 'PE'}
+                <td className={isLong(s.direction) ? 'text-bull' : 'text-bear'}>
+                  {instrumentLabel(s)}
                 </td>
                 <td className="text-right">{fmtPrice(s.entry_price)}</td>
                 <td className="text-right">{fmtPrice(s.target_price)}</td>

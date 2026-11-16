@@ -340,6 +340,99 @@ class Paper(BaseModel):
         return _time(v)
 
 
+class Bullion(BaseModel):
+    """MCX GOLD and SILVER near-month futures, long or short, on trend evidence only."""
+
+    model_config = ConfigDict(extra="forbid")
+    signals: Literal["on", "off"] = Field(
+        "on", description="Bullion signals on or off. Off keeps the tab display only."
+    )
+    entry_threshold: float = Field(
+        0.60,
+        gt=0,
+        le=1,
+        description=(
+            "|bias| at which a bullion signal fires. Bullion bias is trend only (EMA cross, "
+            "VWAP position, supertrend), so it moves further than the index bias."
+        ),
+    )
+    neutral_band: float = Field(
+        0.20,
+        ge=0,
+        lt=1,
+        description="Bullion |bias| below this is Neutral, and an active bullion signal reverses.",
+    )
+    rearm_hysteresis: float = Field(
+        0.0,
+        ge=0,
+        lt=1,
+        description=(
+            "0 = off. Above 0, bullion |bias| must dip below the threshold minus this before "
+            "the same direction can fire again."
+        ),
+    )
+    signal_ttl_seconds: int = Field(
+        300, ge=30, le=3600, description="Seconds an untraded bullion signal stays active."
+    )
+    eval_offset_seconds: int = Field(
+        20,
+        ge=0,
+        le=50,
+        description=(
+            "Seconds after each minute close at which bullion bias and signals are worked "
+            "out, so they never run at the same instant as the index engines."
+        ),
+    )
+    first_signal_time: time = Field(
+        time(9, 15), description="No bullion signal fires before this time (IST, HH:MM)."
+    )
+    last_signal_time: time = Field(
+        time(22, 45), description="No bullion signal fires at or after this time (IST, HH:MM)."
+    )
+    square_off_time: time = Field(
+        time(23, 0), description="Open bullion paper trades are closed at this time (IST, HH:MM)."
+    )
+    target_pct: float = Field(
+        0.40,
+        gt=0,
+        le=10,
+        description="Target, as % of the future's price in the signal's favour.",
+    )
+    stop_pct: float = Field(
+        0.20,
+        gt=0,
+        le=10,
+        description="Stop, as % of the future's price against the signal.",
+    )
+    lots: int = Field(1, ge=1, le=100, description="Lots per bullion paper trade.")
+    cost_fixed_per_lot: float = Field(
+        60.0, ge=0, description="Rupees per round trip per lot: brokerage and fixed fees."
+    )
+    cost_pct_of_value: float = Field(
+        0.012,
+        ge=0,
+        le=1,
+        description=(
+            "Charges that scale with value (CTT, exchange, stamp duty, GST), as % of the "
+            "round-trip turnover. A GOLD lot is worth over a crore, so a flat fee alone "
+            "understates them."
+        ),
+    )
+
+    @field_validator("first_signal_time", "last_signal_time", "square_off_time", mode="before")
+    @classmethod
+    def _parse_time(cls, v: object) -> object:
+        return _time(v)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> Bullion:
+        if self.neutral_band >= self.entry_threshold:
+            raise ValueError("bullion neutral_band must be below entry_threshold")
+        if not self.first_signal_time < self.last_signal_time <= self.square_off_time:
+            raise ValueError("bullion times must run first signal < last signal <= square-off")
+        return self
+
+
 class ParameterSet(BaseModel):
     """The whole tunable configuration. Unknown keys are rejected so typos surface."""
 
@@ -353,3 +446,4 @@ class ParameterSet(BaseModel):
     signal: Signal = Field(default_factory=Signal)
     chain: Chain = Field(default_factory=Chain)
     paper: Paper = Field(default_factory=Paper)
+    bullion: Bullion = Field(default_factory=Bullion)

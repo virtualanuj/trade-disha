@@ -54,3 +54,14 @@ async def test_prune_of_an_empty_range_is_a_no_op() -> None:
     result = await store.prune(date(2026, 11, 1))
     assert result.rows_deleted == 0
     assert store.count() == 12
+
+
+async def test_bullion_ticks_prune_on_their_own_table() -> None:
+    conn = connect(":memory:")
+    nse, mcx = TickStore(conn), TickStore(conn, table="bullion_ticks")
+    for store, key in ((nse, "NSE_FO|1"), (mcx, "MCX_FO|1")):
+        store.add(Tick(key=key, ts=_ms(12, 20), ltp=1.0))
+        store.flush()
+    result = await mcx.prune(date(2026, 11, 12))
+    assert result.rows_deleted == 1
+    assert (nse.count(), mcx.count()) == (1, 0)

@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from tradedisha.api.deps import State
 from tradedisha.app_state import AppState
 from tradedisha.engine.paper import (
+    METALS,
     JournalStats,
     PaperError,
     PaperTrade,
@@ -19,6 +20,7 @@ from tradedisha.engine.paper import (
     PaperTradeStore,
     journal_stats,
 )
+from tradedisha.engine.signals import SignalStore
 from tradedisha.store.ticks import day_bounds_ms
 
 router = APIRouter()
@@ -93,24 +95,37 @@ def trade_out(state: AppState, t: PaperTrade) -> PaperTradeOut:
     return out
 
 
+def _managers(state: AppState) -> list[PaperTradeManager]:
+    """The index manager, and the bullion one when bullion is loaded."""
+    desk = state.session.bullion_desk
+    mgrs = [state.session.paper, desk.paper if desk else None]
+    return [m for m in mgrs if m is not None]
+
+
 def open_trades(state: AppState) -> list[PaperTradeOut]:
-    mgr = state.session.paper
-    return [trade_out(state, t) for t in mgr.open_trades.values()] if mgr else []
+    return [trade_out(state, t) for m in _managers(state) for t in m.open_trades.values()]
 
 
 def today_trades(state: AppState) -> list[PaperTradeOut]:
     """Everything still open plus everything entered today, newest first."""
-    mgr = state.session.paper
-    if mgr is None:
+    mgrs = _managers(state)
+    if not mgrs:
         return []
     start, end = day_bounds_ms(state.clock.today())
-    seen = {t.id: t for t in mgr.store.read(start_ms=start, end_ms=end)}
-    seen.update(mgr.open_trades)
+    seen = {t.id: t for t in mgrs[0].store.read(start_ms=start, end_ms=end)}
+    for m in mgrs:
+        seen.update(m.open_trades)
     ordered = sorted(seen.values(), key=lambda t: t.entry_ts, reverse=True)
     return [trade_out(state, t) for t in ordered]
 
 
-def _manager(state: AppState) -> PaperTradeManager:
+def _manager(state: AppState, index: str | None) -> PaperTradeManager:
+    """The manager for a market: bullion trades go to the bullion desk."""
+    desk = state.session.bullion_desk
+    if index in METALS:
+        if desk is None:
+            raise HTTPException(status_code=409, detail="bullion is not loaded")
+        return desk.paper
     mgr = state.session.paper
     if mgr is None:
         raise HTTPException(status_code=409, detail="the feed has not started yet")
@@ -138,7 +153,9 @@ def _read(
 @router.post("/paper-trades", response_model=PaperTradeOut, status_code=201)
 def open_trade(body: OpenRequest, state: State) -> PaperTradeOut:
     try:
-        return trade_out(state, _manager(state).open(body.signal_id))
+        known = SignalStore(state.conn).get(body.signal_id)
+        index = known.index if known else None
+        return trade_out(state, _manager(state, index).open(body.signal_id))
     except PaperError as exc:
         raise _fail(exc) from exc
 
@@ -146,7 +163,9 @@ def open_trade(body: OpenRequest, state: State) -> PaperTradeOut:
 @router.post("/paper-trades/{trade_id}/close", response_model=PaperTradeOut)
 def close_trade(trade_id: str, state: State) -> PaperTradeOut:
     try:
-        return trade_out(state, _manager(state).close_manual(trade_id))
+        known = PaperTradeStore(state.conn).get(trade_id)
+        index = known.index if known else None
+        return trade_out(state, _manager(state, index).close_manual(trade_id))
     except PaperError as exc:
         raise _fail(exc) from exc
 

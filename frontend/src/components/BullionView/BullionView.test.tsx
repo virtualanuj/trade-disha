@@ -1,15 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, renderHook, screen } from '@testing-library/react'
+import { act } from 'react'
 
-import type { BullionMetalOut, BullionOut, CandleOut } from '../../api/types'
-import { BullionView } from './BullionView'
-
-vi.mock('../PriceChart/PriceChart', () => ({
-  PriceChart: ({ dataKey, candles }: { dataKey: string; candles: CandleOut[] }) => (
-    <div data-testid="chart">
-      {dataKey}:{candles.length}
-    </div>
-  ),
-}))
+import type { BullionMetalOut, BullionOut } from '../../api/types'
+import { useBullionMetal } from '../../lib/useBullionMetal'
+import { BullionCards, MetalSwitch } from './BullionView'
 
 const gold: BullionMetalOut = {
   metal: 'GOLD',
@@ -48,21 +42,11 @@ const gold: BullionMetalOut = {
 }
 const silver: BullionMetalOut = { ...gold, metal: 'SILVER', trading_symbol: 'SILVER FUT 04 DEC 26' }
 const bullion: BullionOut = { metals: [gold, silver], ratio: 79.31 }
-const candle = (t: number): CandleOut => ({ t, o: 1, h: 1, l: 1, c: 1, v: 1, synthetic: false })
-
 function show(b: BullionOut | null = bullion) {
-  return render(
-    <BullionView
-      bullion={b}
-      candles={{ GOLD: [candle(1), candle(2)], SILVER: [candle(1)] }}
-      overlays={{}}
-      theme="dark"
-      chartHeight={300}
-    />,
-  )
+  return render(<BullionCards bullion={b} />)
 }
 
-describe('BullionView', () => {
+describe('BullionCards', () => {
   beforeEach(() => {
     localStorage.clear()
   })
@@ -84,14 +68,6 @@ describe('BullionView', () => {
     expect(screen.getByTestId('bullion-ratio')).toHaveTextContent('79.31')
   })
 
-  it('charts gold first, switches to silver, and remembers the choice', () => {
-    show()
-    expect(screen.getByTestId('chart')).toHaveTextContent('bullion-GOLD:2')
-    fireEvent.click(screen.getByRole('button', { name: 'SILVER' }))
-    expect(screen.getByTestId('chart')).toHaveTextContent('bullion-SILVER:1')
-    expect(screen.getByRole('button', { name: 'SILVER' })).toHaveAttribute('aria-pressed', 'true')
-  })
-
   it('shows dashes for what Upstox has not sent', () => {
     const empty: BullionMetalOut = {
       ...gold,
@@ -111,6 +87,35 @@ describe('BullionView', () => {
   it('explains that bullion needs the live feed', () => {
     show({ metals: [], ratio: null })
     expect(screen.getByText(/Live feed only/)).toBeInTheDocument()
-    expect(screen.queryByTestId('chart')).toBeNull()
+  })
+})
+
+describe('the metal in focus', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('starts on gold, switches to silver, and remembers the choice', () => {
+    const { result, rerender } = renderHook(() => useBullionMetal(['GOLD', 'SILVER']))
+    expect(result.current[0]).toBe('GOLD')
+    act(() => {
+      result.current[1]('SILVER')
+    })
+    rerender()
+    expect(result.current[0]).toBe('SILVER')
+    expect(renderHook(() => useBullionMetal(['GOLD', 'SILVER'])).result.current[0]).toBe('SILVER')
+  })
+
+  it('falls back to the first metal on offer', () => {
+    localStorage.setItem('tradedisha.bullionChart', JSON.stringify('COPPER'))
+    expect(renderHook(() => useBullionMetal(['SILVER'])).result.current[0]).toBe('SILVER')
+  })
+
+  it('offers each metal as a pressed-or-not button', () => {
+    const pick = vi.fn()
+    render(<MetalSwitch names={['GOLD', 'SILVER']} metal="GOLD" onSelect={pick} />)
+    expect(screen.getByRole('button', { name: 'GOLD' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'SILVER' }))
+    expect(pick).toHaveBeenCalledWith('SILVER')
   })
 })

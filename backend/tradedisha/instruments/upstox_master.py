@@ -105,6 +105,7 @@ def parse_commodities(
             strike=None,
             lot_size=int(r["lot_size"]),
             tick_size=float(r.get("tick_size", 100.0)) / PAISE,
+            qty_multiplier=float(r.get("qty_multiplier") or r["lot_size"]),
         )
         for r in records
         if r.get("segment") == "MCX_FO"

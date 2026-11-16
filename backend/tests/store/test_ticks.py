@@ -14,7 +14,7 @@ def ms(day: date, h: int, m: int, s: int = 0) -> int:
 
 def test_migrations_apply_once() -> None:
     conn = connect(":memory:")
-    assert schema_version(conn) == 10
+    assert schema_version(conn) == 11
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {
         "ticks",
@@ -95,3 +95,34 @@ def test_order_flow_fields_round_trip_and_old_rows_read_as_none() -> None:
     replayed = store.read_day(datetime(2026, 11, 13, tzinfo=IST).date())
 
     assert replayed == [full, Tick(key="B", ts=t0 + 1, ltp=5.0)]
+
+
+def test_bullion_ticks_keep_their_own_table_and_day_candle() -> None:
+    conn = connect(":memory:")
+    nse = TickStore(conn)
+    mcx = TickStore(conn, table="bullion_ticks")
+    day = date(2026, 11, 16)
+    nse.add(Tick(key="NSE_INDEX|Nifty 50", ts=ms(day, 10, 0), ltp=25_000.0))
+    mcx.add(
+        Tick(
+            key="MCX_FO|495213",
+            ts=ms(day, 20, 0),
+            ltp=135_000.0,
+            day_open=135_853.0,
+            day_high=136_055.0,
+            day_low=134_385.0,
+        )
+    )
+    nse.flush()
+    mcx.flush()
+
+    assert [t.key for t in nse.read_day(day)] == ["NSE_INDEX|Nifty 50"]
+    (gold,) = mcx.read_day(day)
+    assert (gold.ltp, gold.day_open, gold.day_high, gold.day_low) == (
+        135_000.0,
+        135_853.0,
+        136_055.0,
+        134_385.0,
+    )
+    assert mcx.last_tick_before("MCX_FO|495213", ms(day, 21, 0)) == gold
+    assert (nse.count(), mcx.count()) == (1, 1)

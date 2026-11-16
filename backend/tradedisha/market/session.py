@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import logging
 import sqlite3
 from collections.abc import Callable
@@ -25,6 +26,7 @@ from tradedisha.clock import (
 )
 from tradedisha.config import Settings, hours_enforced
 from tradedisha.engine.bias_engine import BiasComputed, BiasEngine
+from tradedisha.engine.bullion_desk import BullionDesk
 from tradedisha.engine.outcomes import Outcome, OutcomeTracker
 from tradedisha.engine.paper import PaperTrade, PaperTradeManager, Price
 from tradedisha.engine.signals import Signal, SignalEngine
@@ -37,7 +39,13 @@ from tradedisha.feed.upstox import UpstoxProvider, fetch_ltp
 from tradedisha.instruments.models import Instrument, ResolvedIndex
 from tradedisha.instruments.resolve import INDEX_SPOT_NAMES, ResolutionError, resolve_index
 from tradedisha.instruments.synthetic_master import SPEC, build_synthetic_master
-from tradedisha.instruments.upstox_master import load_upstox_master, master_path, read_master
+from tradedisha.instruments.upstox_master import (
+    load_upstox_master,
+    master_path,
+    mcx_master_path,
+    read_commodities,
+    read_master,
+)
 from tradedisha.market import bullion as bullion_mod
 from tradedisha.market.backfill import (
     apply_baseline,
@@ -99,6 +107,8 @@ BullionState = Literal["live", "stale", "closed", "holiday"]
 
 class FeedSession:
     """Start -> resolve instruments -> connect provider -> subscribe -> pump ticks -> stop."""
+
+    bullion_desk: BullionDesk | None = None  # bullion bias, signals, paper (§9a)
 
     def __init__(
         self,
@@ -242,10 +252,13 @@ class FeedSession:
         self.tick_bus.subscribe(self.paper.on_tick)
         self.bias_listeners.append(self.paper.on_bias)
         await self._backfill()
+        tracker: BullionTracker | None = None
         if self.settings.feed_provider == "upstox":
-            self.bullion = await self._load_bullion(today)
-            if self.bullion is not None:
-                self.tick_bus.subscribe(self.bullion.on_tick)
+            tracker = await self._load_bullion(today)
+        elif self.settings.feed_provider == "replay" and self.settings.replay_bullion:
+            tracker = await self._load_recorded_bullion(self.replay_day or self._replay_day())
+        if tracker is not None:
+            self.attach_bullion(tracker)
         self.provider = self._build_provider()
         await self.provider.connect()
         keys = [k for r in self.resolved.values() for k in r.all_keys]
@@ -271,6 +284,7 @@ class FeedSession:
         if self.provider is not None:
             await self.provider.close()
         self.tick_store.flush()
+        self.bullion_tick_store.flush()
         if self.outcomes is not None:
             self.outcomes.flush()
         self.feed_log.write(
@@ -340,6 +354,7 @@ class FeedSession:
                 speed=s.replay_speed,
                 clock=self._driven_clock,
                 drop_ranges=parse_drop_ranges(s.replay_drop, day),
+                extra=self.bullion_tick_store if self.bullion is not None else None,
             )
         auth = self.auth
         if auth is None:
@@ -358,6 +373,8 @@ class FeedSession:
         t = st.tick
         if t.key in self.bullion_keys:  # BullionTracker has its own subscription and candles
             self.prices.update(t)
+            if self.settings.feed_provider != "replay":
+                self.bullion_tick_store.add(t)  # its own table: never stretches an NSE replay
             return
         prev = self.last_index_tick_ts
         if prev is None or t.ts > prev:
@@ -611,6 +628,59 @@ class FeedSession:
             await bullion_mod.backfill(client, token, tracker, self.clock.now_ms())
         return tracker
 
+    async def _load_recorded_bullion(self, day: date) -> BullionTracker | None:
+        """Replay: that day's contracts from its cached MCX file; no network, no backfill."""
+        path = mcx_master_path(self.settings.data_dir, day)
+        if not await asyncio.to_thread(path.exists):
+            log.warning("no MCX instrument file for %s: bullion is not replayed", day)
+            return None
+        contracts = bullion_mod.contracts_from(
+            await asyncio.to_thread(read_commodities, path, bullion_mod.METALS), day
+        )
+        if not contracts:
+            return None
+        return BullionTracker(contracts, on_candle=self._on_bullion_candle)
+
+    def attach_bullion(self, tracker: BullionTracker) -> None:
+        """Wire the bullion tracker and its trading desk onto the tick bus."""
+        self.bullion = tracker
+        self.tick_bus.subscribe(tracker.on_tick)
+        # Stored keyed by the MCX key, so they survive a restart; never the shared builder.
+        tracker.candles.on_close(self.candle_store.write)
+        desk = BullionDesk(
+            tracker=tracker,
+            clock=self.mcx_clock,
+            params=self.params,
+            conn=self._conn,
+            feed_live=self.bullion_live,
+            enforce_hours=self.enforce_hours,
+            price=self._price,
+            last_recorded=self._last_recorded_bullion,
+            on_bias=self._on_bias,
+            on_signal=self._on_bullion_signal,
+            on_trade=self._on_trade,
+            config_version=self.config_version,
+        )
+        self.bullion_desk = desk
+        self.tick_bus.subscribe(desk.on_tick)
+
+    @functools.cached_property
+    def bullion_tick_store(self) -> TickStore:
+        return TickStore(self._conn, table="bullion_ticks")
+
+    def _last_recorded_bullion(self, key: str, before_ms: int) -> Price | None:
+        t = self.bullion_tick_store.last_tick_before(key, before_ms)
+        return None if t is None else Price(t.ltp, t.ts)
+
+    def bullion_live(self) -> bool:
+        status = self.bullion_status()
+        return status is not None and status[0] == "live"
+
+    def _on_bullion_signal(self, s: Signal) -> None:
+        """Bullion signals skip the outcome yardstick: it scores NSE spot moves."""
+        for fn in self.signal_listeners:
+            fn(s)
+
     def _on_bullion_candle(self, metal: str, c: Candle) -> None:
         for fn in self.bullion_candle_listeners:
             fn(metal, c)
@@ -664,6 +734,8 @@ class FeedSession:
             if b.gap_since is None and b.was_live:
                 last = b.last_tick_ts
                 b.gap_since = last if last is not None else self.clock.now_ms()
+                if self.bullion_desk is not None:
+                    self.bullion_desk.paper.mark_gap()
                 self.feed_log.write(epoch_ms_now(), "bullion_gap_start", f"last_tick_ts={last}")
         else:  # MCX closed: an outage in progress ends with the session
             if b.gap_since is not None:
@@ -693,9 +765,13 @@ class FeedSession:
         while True:
             await asyncio.sleep(0.5)
             self.tick_store.flush()
+            self.bullion_tick_store.flush()
             self.candles.flush_stale(self.clock.now_ms())
             if self.bullion is not None:
                 self.bullion.candles.flush_stale(self.clock.now_ms())
+            if self.bullion_desk is not None:
+                for lag in self.bullion_desk.housekeeping(self.clock.now_ms()):
+                    self.latency.record("bullion_eval_lag", lag, at_ms=epoch_ms_now())
             for engine in (self.signals, self.shadow_signals):
                 if engine is not None:
                     engine.tick(self.clock.now_ms())

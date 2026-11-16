@@ -10,6 +10,8 @@ from tradedisha.parameters.model import ParameterSet
 
 Label = Literal["Bullish", "Neutral", "Bearish"]
 GROUPS: tuple[Group, ...] = ("trend", "oi", "premium")
+# Bullion has no option chain: its bias is the trend group alone.
+BULLION_WEIGHTS: dict[Group, float] = {"trend": 1.0, "oi": 0.0, "premium": 0.0}
 
 
 @dataclass(frozen=True)
@@ -47,8 +49,16 @@ def effective_group_weights(p: ParameterSet, is_expiry_day: bool) -> dict[Group,
     return w
 
 
-def aggregate(results: list[IndicatorResult], p: ParameterSet, *, is_expiry_day: bool) -> Bias:
-    weights = effective_group_weights(p, is_expiry_day)
+def aggregate(
+    results: list[IndicatorResult],
+    p: ParameterSet,
+    *,
+    is_expiry_day: bool,
+    weights: dict[Group, float] | None = None,
+    neutral_band: float | None = None,
+) -> Bias:
+    """Weighted group means. `weights` and `neutral_band` override the index settings."""
+    weights = dict(weights) if weights is not None else effective_group_weights(p, is_expiry_day)
     by_group: dict[Group, list[IndicatorResult]] = {g: [] for g in GROUPS}
     for r in results:
         by_group[r.group].append(r)
@@ -66,7 +76,7 @@ def aggregate(results: list[IndicatorResult], p: ParameterSet, *, is_expiry_day:
 
     bias = sum(weights[g] * group_scores[g] for g in GROUPS)
     bias = max(-1.0, min(1.0, bias))
-    band = p.bias.neutral_band
+    band = p.bias.neutral_band if neutral_band is None else neutral_band
     label: Label = "Bullish" if bias >= band else "Bearish" if bias <= -band else "Neutral"
     return Bias(
         bias=bias,

@@ -45,7 +45,11 @@ export function EvidenceTable({ bias }: { bias: BiasOut | undefined }) {
   if (!bias) {
     return <p className="text-xs text-fg-muted">Evidence appears after the first minute closes.</p>
   }
-  const groups: IndicatorOut['group'][] = ['trend', 'oi', 'premium']
+  // A group with no indicators and no weight plays no part: bullion has no option chain,
+  // so its bias is the trend group alone (spec §9a).
+  const groups = (['trend', 'oi', 'premium'] as const).filter(
+    (g) => (bias.group_weights[g] ?? 0) > 0 || bias.indicators.some((i) => i.group === g),
+  )
   return (
     <div className="text-xs" data-testid="evidence">
       <table className="w-full">

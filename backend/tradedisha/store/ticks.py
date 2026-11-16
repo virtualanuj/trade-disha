@@ -6,33 +6,25 @@ import asyncio
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from typing import Literal
 
 from tradedisha.clock import IST, ist_to_ms, ms_to_ist
 from tradedisha.feed.provider import Tick
 
 FLOW_COLS = ("bid_qty", "ask_qty", "bid_qty5", "ask_qty5", "tbq", "tsq", "atp", "ltq")
 COLS = ("key", "ts", "ltp", "volume", "oi", "bid", "ask", "iv", "delta", "close_prev", *FLOW_COLS)
-INSERT = f"INSERT INTO ticks ({', '.join(COLS)}) VALUES ({', '.join('?' * len(COLS))})"
+DAY_COLS = ("day_open", "day_high", "day_low")  # the feed's day candle, sent for MCX futures
+
+# NSE ticks, and MCX bullion ticks kept apart so evening trading never stretches a replay.
+TickTable = Literal["ticks", "bullion_ticks"]
+TABLE_COLS: dict[TickTable, tuple[str, ...]] = {
+    "ticks": COLS,
+    "bullion_ticks": (*COLS, *DAY_COLS),
+}
 
 
-def _row(t: Tick, close_prev: float | None) -> tuple[object, ...]:
-    return (
-        t.key,
-        t.ts,
-        t.ltp,
-        t.volume,
-        t.oi,
-        t.bid,
-        t.ask,
-        t.iv,
-        t.delta,
-        close_prev,
-        *(getattr(t, c) for c in FLOW_COLS),
-    )
-
-
-def _to_tick(r: sqlite3.Row) -> Tick:
-    return Tick(**{c: r[c] for c in COLS})
+def _row(t: Tick, close_prev: float | None, cols: tuple[str, ...]) -> tuple[object, ...]:
+    return tuple(close_prev if c == "close_prev" else getattr(t, c) for c in cols)
 
 
 def day_bounds_ms(day: date) -> tuple[int, int]:
@@ -65,8 +57,16 @@ class PruneResult:
 class TickStore:
     """Buffers ticks in memory and writes them in batches."""
 
-    def __init__(self, conn: sqlite3.Connection, *, batch_size: int = 500) -> None:
+    def __init__(
+        self, conn: sqlite3.Connection, *, batch_size: int = 500, table: TickTable = "ticks"
+    ) -> None:
         self._conn = conn
+        self._table = table
+        self._cols = TABLE_COLS[table]
+        self._insert = (
+            f"INSERT INTO {table} ({', '.join(self._cols)})"
+            f" VALUES ({', '.join('?' * len(self._cols))})"
+        )
         self._batch_size = batch_size
         self._buffer: list[tuple[object, ...]] = []
         self._close_prev: dict[str, float] = {}  # last previous-close stored per key
@@ -80,7 +80,7 @@ class TickStore:
                 close_prev = None
             else:
                 self._close_prev[tick.key] = close_prev
-        self._buffer.append(_row(tick, close_prev))
+        self._buffer.append(_row(tick, close_prev, self._cols))
         if len(self._buffer) >= self._batch_size:
             self.flush()
 
@@ -89,7 +89,7 @@ class TickStore:
             return 0
         rows, self._buffer = self._buffer, []
         with self._conn:
-            self._conn.executemany(INSERT, rows)
+            self._conn.executemany(self._insert, rows)
         self.written += len(rows)
         return len(rows)
 
@@ -100,34 +100,38 @@ class TickStore:
     def read_day(self, day: date, keys: list[str] | None = None) -> list[Tick]:
         """All ticks on an IST calendar day, ordered by timestamp."""
         start, end = day_bounds_ms(day)
-        sql = "SELECT * FROM ticks WHERE ts >= ? AND ts < ?"
+        sql = f"SELECT * FROM {self._table} WHERE ts >= ? AND ts < ?"
         params: list[object] = [start, end]
         if keys:
             sql += f" AND key IN ({','.join('?' * len(keys))})"
             params.extend(keys)
         sql += " ORDER BY ts, rowid"
-        return [_to_tick(r) for r in self._conn.execute(sql, params)]
+        return [self._to_tick(r) for r in self._conn.execute(sql, params)]
 
     def first_tick(self, day: date, key: str) -> Tick | None:
         """The earliest recorded tick of one instrument on an IST calendar day."""
         start, end = day_bounds_ms(day)
         row = self._conn.execute(
-            "SELECT * FROM ticks WHERE key = ? AND ts >= ? AND ts < ? ORDER BY ts, rowid LIMIT 1",
+            f"SELECT * FROM {self._table} WHERE key = ? AND ts >= ? AND ts < ?"
+            " ORDER BY ts, rowid LIMIT 1",
             (key, start, end),
         ).fetchone()
-        return _to_tick(row) if row is not None else None
+        return self._to_tick(row) if row is not None else None
 
     def last_tick_before(self, key: str, before_ms: int) -> Tick | None:
         """The latest recorded tick of one instrument at or before a moment."""
         row = self._conn.execute(
-            "SELECT * FROM ticks WHERE key = ? AND ts <= ? ORDER BY ts DESC, rowid DESC LIMIT 1",
+            f"SELECT * FROM {self._table} WHERE key = ? AND ts <= ?"
+            " ORDER BY ts DESC, rowid DESC LIMIT 1",
             (key, before_ms),
         ).fetchone()
-        return _to_tick(row) if row is not None else None
+        return self._to_tick(row) if row is not None else None
 
     def recorded_days(self) -> list[date]:
         """Distinct IST dates that have ticks, newest first."""
-        rows = self._conn.execute("SELECT MIN(ts) AS lo, MAX(ts) AS hi FROM ticks").fetchone()
+        rows = self._conn.execute(
+            f"SELECT MIN(ts) AS lo, MAX(ts) AS hi FROM {self._table}"
+        ).fetchone()
         if rows["lo"] is None:
             return []
         day = ms_to_ist(rows["lo"]).date()
@@ -136,15 +140,18 @@ class TickStore:
         while day <= last:
             s, e = day_bounds_ms(day)
             hit = self._conn.execute(
-                "SELECT 1 FROM ticks WHERE ts >= ? AND ts < ? LIMIT 1", (s, e)
+                f"SELECT 1 FROM {self._table} WHERE ts >= ? AND ts < ? LIMIT 1", (s, e)
             ).fetchone()
             if hit:
                 out.append(day)
             day += timedelta(days=1)
         return list(reversed(out))
 
+    def _to_tick(self, r: sqlite3.Row) -> Tick:
+        return Tick(**{c: r[c] for c in self._cols})
+
     def count(self) -> int:
-        return int(self._conn.execute("SELECT COUNT(*) FROM ticks").fetchone()[0])
+        return int(self._conn.execute(f"SELECT COUNT(*) FROM {self._table}").fetchone()[0])
 
     # -- pruning (spec §10.4) --------------------------------------------------
 
@@ -164,7 +171,9 @@ class TickStore:
         if until is not None:
             end = day_bounds_ms(until)[1]
             rows = int(
-                self._conn.execute("SELECT COUNT(*) FROM ticks WHERE ts < ?", (end,)).fetchone()[0]
+                self._conn.execute(
+                    f"SELECT COUNT(*) FROM {self._table} WHERE ts < ?", (end,)
+                ).fetchone()[0]
             )
             prune_days = sum(1 for d in days if d <= until)
         return TickUsage(
@@ -190,8 +199,8 @@ class TickStore:
         while True:
             with self._conn:
                 cur = self._conn.execute(
-                    "DELETE FROM ticks WHERE rowid IN"
-                    " (SELECT rowid FROM ticks WHERE ts < ? LIMIT ?)",
+                    f"DELETE FROM {self._table} WHERE rowid IN"
+                    f" (SELECT rowid FROM {self._table} WHERE ts < ? LIMIT ?)",
                     (end, batch),
                 )
             deleted += cur.rowcount

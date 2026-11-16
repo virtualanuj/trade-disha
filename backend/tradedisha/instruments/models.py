@@ -21,6 +21,9 @@ class Instrument:
     strike: float | None
     lot_size: int
     tick_size: float
+    # Rupees per point of price per lot. MCX quotes GOLD per 10 g on a 1 kg lot, so 100;
+    # index options are quoted per unit, so the lot size is the multiplier there.
+    qty_multiplier: float = 1.0
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,5 +1,6 @@
 import type {
   BiasOut,
+  BullionOut,
   CandleOut,
   ChainOut,
   IndexPrices,
@@ -7,6 +8,7 @@ import type {
   PaperTradeOut,
   SignalOut,
 } from '../api/types'
+import { instrumentLabel } from './direction'
 import { countdown, fmtMoney, fmtPrice, fmtSigned } from './format'
 
 /** One line per panel, shown on its title bar while it is minimised. Unknowns read "—". */
@@ -26,8 +28,7 @@ export function biasSummary(bias: BiasOut | undefined): string {
 
 export function signalSummary(signal: SignalOut | undefined, now: number): string {
   if (!signal) return 'No signal'
-  const side = signal.direction === 'BUY_CE' ? 'CE' : 'PE'
-  return `${String(signal.strike)} ${side} · entry ${fmtPrice(signal.entry_price)} · ${countdown(signal.expires_at, now)} left`
+  return `${instrumentLabel(signal)} · entry ${fmtPrice(signal.entry_price)} · ${countdown(signal.expires_at, now)} left`
 }
 
 /** Live net profit or loss across the trades; null until every one has a price. */
@@ -65,4 +66,12 @@ export function chainSummary(chain: ChainOut | undefined): string {
   const pcr = chain.pcr == null ? '—' : chain.pcr.toFixed(2)
   const pain = chain.max_pain == null ? '—' : String(chain.max_pain)
   return `PCR ${pcr} · max pain ${pain}`
+}
+
+export function bullionSummary(bullion: BullionOut | null): string {
+  const metals = bullion?.metals ?? []
+  if (metals.length === 0) return '—'
+  const parts = metals.map((m) => `${m.metal} ${fmtPrice(m.ltp)}`)
+  if (bullion?.ratio != null) parts.push(`ratio ${bullion.ratio.toFixed(2)}`)
+  return parts.join(' · ')
 }

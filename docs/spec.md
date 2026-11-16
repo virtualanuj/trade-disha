@@ -326,10 +326,11 @@ On startup (or after login) when the market is already open:
    before today (§7.4). One request per index per start. A failure is logged in
    `feed_events` and the 52-week fields stay empty; nothing else depends on them.
 
-### 6.6 Bullion (Milestone E4)
-Gold and silver on their own tab, BULLION, beside the indices. Display only: no
-indicator, signal or paper trade reads them, and there is no real-order path for them
-either.
+### 6.6 Bullion (Milestones E4, E6)
+Gold and silver on their own tab, BULLION, beside the indices. Since E6 bullion has its
+own trend bias, long/short signals on the near-month future and paper trades (§9a). It
+still never feeds the index bias or signals, it never reaches the shared `CandleBuilder`
+or the `ticks` table, and there is no real-order path for it.
 - **Contracts.** Upstox has no spot price for gold or silver, so the prices are MCX
   futures of `GOLD` (₹ per 10 g) and `SILVER` (₹ per kg). Upstox's MCX instrument file
   (`.../exchange/MCX.json.gz`, public) is downloaded once a day to
@@ -370,10 +371,11 @@ either.
   volume from the first candle of the day.
 - **Live feed only.** Loaded at start with the `upstox` provider, after the index backfill
   and before connecting. A failure leaves the tab out; it never stops the index feed.
-  Synthetic and replay have no bullion.
-- **Not recorded.** Bullion ticks are not written to `ticks` and its candles are not stored:
-  MCX trades until 23:30, and recorded evening ticks would stretch a replay and drive its
-  clock past the NSE close.
+  Synthetic has no bullion; replay has it only with `replay_bullion` (§9a).
+- **Recorded apart.** Bullion ticks are never written to `ticks`: MCX trades until 23:30,
+  and evening ticks there would stretch every NSE replay and drive its clock past the NSE
+  close. Since E6 they go to their own table, `bullion_ticks`, and closed bullion candles
+  to `candles_1m` under the MCX key (§9a).
 - **Hours and liveness.** MCX keeps its own hours: `mcx_open`/`mcx_close` in settings
   (09:00 to 23:30; 23:55 while the US is on standard time, set by hand with the season) and
   `config/mcx-holidays.txt`, where a line with a time (`2026-12-25 17:00`) is a day with
@@ -688,6 +690,42 @@ the next evaluation; the other carries on in shadow, so the comparison never sto
 
 ---
 
+### 9a. Bullion signals (Milestone E6)
+
+GOLD and SILVER MCX near-month futures, run by `engine/bullion_desk.py:BullionDesk`
+(bias -> signals -> paper trades) on the MCX clock and bullion liveness (§6.6).
+
+- **Evidence: trend only.** There is no option chain for bullion, so the bias is EMA cross,
+  VWAP position and supertrend over the near contract's closed 1-minute candles, with the
+  trend group carrying the whole weight (`BULLION_WEIGHTS`). Indicator periods come from
+  `trend`; thresholds from the `bullion` section. Stored in `bias_minutes` under GOLD /
+  SILVER and sent in the `bias` frame.
+- **Evaluation offset.** A bullion minute is worked out `bullion.eval_offset_seconds`
+  (default 20) after it closes, not at the close, so it never competes with the index
+  engines; the index "minute close -> signal" budget (§14a) is untouched. A close queues the
+  minute with its due time; due minutes run on each bullion tick and in housekeeping, on
+  the market clock, so replay times them as live did. The lag is the latency hop
+  `bullion_eval_lag`. A changed offset applies from the next minute.
+- **Rule: minute close only** (no trigger, flow or shadow). |bias| >= `entry_threshold`
+  fires `BUY_FUT` (bias > 0) or `SELL_FUT` at the future's latest price; target and stop are
+  `target_pct` / `stop_pct` of that price in and against the signal's favour. One active
+  signal per metal; TTL lapse, reversal (sign flip or inside the neutral band) and re-arm
+  as §9.1.
+- **Gates**, in order: `disabled` (`bullion.signals = off`), `below_threshold`,
+  `active_exists`, `rearm`, `outside_hours` (MCX open and `first_signal_time` <= t <
+  `last_signal_time`, 09:15–22:45 by default), `feed_down` (bullion status not `live`),
+  `no_price`.
+- **Stored** in `signals`: `index` is the metal, `strike` 0, `expiry` the future's, and
+  `lot_size` the rupees per point per lot (the MCX file's `qty_multiplier`: GOLD 100,
+  SILVER 30). Bullion signals skip the outcome yardstick and the scorecard (they score NSE
+  spot moves).
+- **Recording and replay.** Bullion ticks go to `bullion_ticks` (migration 011; the `ticks`
+  columns plus the feed's day candle); closed bullion candles to `candles_1m` under the MCX
+  key. `TRADEDISHA_REPLAY_BULLION=true` merges that day's bullion ticks into the replay and
+  loads the day's contracts from the cached MCX file (no network).
+
+---
+
 ## 10. Paper trading
 
 ### 10.1 Lifecycle
@@ -704,10 +742,12 @@ POST /paper-trades {signal_id}
 No cap on concurrent open paper trades per index or direction *(my call, follows from
 "always allow")*.
 
-On every tick for an open trade's instrument:
+On every tick for an open trade's instrument (for a short future, `SELL_FUT`, the
+comparisons are mirrored: the target is below the entry):
 - `ltp ≥ target` → close `TARGET`
 - `ltp ≤ stop`   → close `STOP`
-- Timer: at `square_off_time` → close `SQUARE_OFF`
+- Timer: at `square_off_time` → close `SQUARE_OFF` (bullion: `bullion.square_off_time`,
+  23:00, on the MCX clock)
 - `POST /paper-trades/{id}/close` → close `MANUAL` at current LTP (409 if feed not live)
 
 Exit fill uses the LTP that triggered the exit (no simulated slippage on exit in v1).
@@ -727,14 +767,21 @@ fill quality. The journal shows a badge for anything other than `live`.
 
 ### 10.2 P&L
 ```
-gross = (exit − entry) × quantity
-net   = gross − cost_per_trade × lots
+gross = side × (exit − entry) × quantity        side = −1 for SELL_FUT, else +1
+net   = gross − cost
+cost  = cost_per_trade × lots                                   index options
+cost  = cost_fixed_per_lot × lots
+        + cost_pct_of_value / 100 × entry × quantity × 2        bullion futures
 pct   = (exit − entry) / entry × 100
 ```
-Hit = `net > 0`.
+Hit = `net > 0`. Bullion's cost has a part that scales with value because a GOLD lot is
+worth over a crore. Each market has its own `PaperTradeManager` (`PaperRules`: clock,
+square-off, lots, cost) and restores only its own open trades after a restart; the API
+sends an open or a close to the manager that owns the signal or trade.
 
 ### 10.3 Journal stats
-Per index and overall: trades, hits, hit rate, average win (net), average loss (net),
+Overall (index options only), per index, and, when there are bullion trades, a `bullion`
+total and per metal: trades, hits, hit rate, average win (net), average loss (net),
 net total, gross total, average duration, breakdown by exit reason, count of non-`live`
 fills. Computed on request from `paper_trades`; small enough not to cache.
 
@@ -895,8 +942,14 @@ them ("Panel order" in §13.2).
 - **IndexTabs**: NIFTY / BANKNIFTY, and BULLION while there is bullion data (§6.6);
   selection drives chart, meter, signal, evidence, and chain panel. A selected BULLION
   survives a reconnect, and falls back to the first index if bullion goes away.
-- **BullionView** (Milestone E4, the BULLION tab, in place of the main column's panels; the
-  option-chain column and its divider are not shown):
+- **BULLION tab** (Milestones E4, E6). The main column's panels, the same units in the same
+  trader-set order with the same ↑ ↓ and minimise controls as the index tabs, for the metal
+  picked by a GOLD / SILVER switch above them (`MetalSwitch`, remembered in `localStorage`
+  as `tradedisha.bullionChart`). The tiles unit is `BullionCards` (below) instead of the
+  index tiles; Market view, Signal, Price chart, Evidence (trend group only, no order-flow
+  line), Open paper trades and Signals today show the metal (§9a). The option-chain column
+  and its divider are not shown.
+- **BullionCards** (the BULLION tiles):
   - A card per metal, headed by the contract, expiry and lot:
     - LTP with unit, change and change %
     - Today: open, high, low with range bar, previous close, ATP
@@ -904,8 +957,6 @@ them ("Panel order" in §13.2).
     - Contract, 1 year: high and low with distance and range bar, circuit limits
     - Next month: price, spread over near
   - The gold/silver ratio.
-  - A 1-minute chart with VWAP and a GOLD / SILVER switch remembered in `localStorage`
-    (`tradedisha.bullionChart`), at the index chart's height.
   - `Price`, `Group`, `Fact` and `RangeBar` are shared with IndexTiles (`components/Facts`).
 - **IndexTiles**: spot, futures and ATM for the selected index, with a collapsible
   **details view** underneath showing `IndexStats` (§7.4) in five groups: day open / high

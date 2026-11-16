@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from tradedisha.api.deps import State
 from tradedisha.app_state import AppState
 from tradedisha.engine.outcomes import Outcome, scorecard
+from tradedisha.engine.paper import METALS
 from tradedisha.engine.signals import Gate, Signal
 from tradedisha.market.flow import FlowReading
 from tradedisha.store.ticks import day_bounds_ms
@@ -156,13 +157,18 @@ def flow_readings(state: AppState) -> list[FlowOut]:
 
 
 def active_signals(state: AppState) -> list[SignalOut]:
-    eng = state.session.signals
-    return [signal_out(state, s) for s in eng.active.values()] if eng else []
+    """Index and bullion signals that can still be paper-traded."""
+    eng, desk = state.session.signals, state.session.bullion_desk
+    out = list(eng.active.values()) if eng else []
+    out += list(desk.signals.active.values()) if desk else []
+    return [signal_out(state, s) for s in out]
 
 
 def gates(state: AppState) -> list[GateOut]:
-    eng = state.session.signals
-    return [gate_out(g) for g in eng.gates.values()] if eng else []
+    eng, desk = state.session.signals, state.session.bullion_desk
+    out = list(eng.gates.values()) if eng else []
+    out += list(desk.signals.gates.values()) if desk else []
+    return [gate_out(g) for g in out]
 
 
 def today_signals(state: AppState, index: str | None = None) -> list[SignalOut]:
@@ -213,9 +219,13 @@ def get_scorecard(
     if eng is None or tracker is None:
         return []
     tracker.flush()
-    signals = eng.store.read(
-        day_bounds_ms(first)[0], day_bounds_ms(last)[1], index.upper() if index else None
-    )
+    signals = [  # the yardstick scores NSE spot moves: bullion is not scored
+        s
+        for s in eng.store.read(
+            day_bounds_ms(first)[0], day_bounds_ms(last)[1], index.upper() if index else None
+        )
+        if s.index not in METALS
+    ]
     return [
         ScoreRowOut(**asdict(r)) for r in scorecard(signals, tracker.store.for_signals(signals))
     ]

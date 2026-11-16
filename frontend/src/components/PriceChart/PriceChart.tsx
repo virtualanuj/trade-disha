@@ -18,6 +18,7 @@ import {
 import { useEffect, useRef } from 'react'
 
 import type { CandleOut, OverlayOut, SignalOut } from '../../api/types'
+import { instrumentLabel, isLong } from '../../lib/direction'
 import type { Theme } from '../../theme/useTheme'
 
 const IST_OFFSET_S = 5.5 * 3600
@@ -63,13 +64,13 @@ const STATUS_SHAPE: Record<SignalOut['status'], string> = {
 }
 
 function toMarker(s: SignalOut): SeriesMarker<Time> {
-  const call = s.direction === 'BUY_CE'
+  const call = isLong(s.direction)
   return {
     time: toTime(s.minute_ts),
     position: call ? 'belowBar' : 'aboveBar',
     shape: call ? 'arrowUp' : 'arrowDown',
     color: call ? cssVar('--bull') : cssVar('--bear'),
-    text: `${call ? 'CE' : 'PE'} ${String(s.strike)}${STATUS_SHAPE[s.status]}`,
+    text: `${instrumentLabel(s)}${STATUS_SHAPE[s.status]}`,
   }
 }
 

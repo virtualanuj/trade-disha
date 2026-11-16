@@ -1,39 +1,53 @@
 import { memo } from 'react'
 import type { ReactNode } from 'react'
 
-import type { BullionMetalOut, BullionOut, CandleOut, OverlayOut } from '../../api/types'
+import type { BullionMetalOut, BullionOut } from '../../api/types'
 import { fmtCount, fmtDate, fmtOi, fmtPrice, fmtSigned, pnlColour } from '../../lib/format'
-import { usePref } from '../../lib/usePref'
-import type { Theme } from '../../theme/useTheme'
 import { Fact, Group, Price, RangeBar } from '../Facts/Facts'
-import { PriceChart } from '../PriceChart/PriceChart'
 
 /** MCX quotes gold per 10 g and silver per kg. */
 const UNIT: Record<string, string> = { GOLD: '₹ / 10 g', SILVER: '₹ / kg' }
-const METAL_KEY = 'tradedisha.bullionChart'
 const EMPTY: never[] = []
 
-interface Props {
-  bullion: BullionOut | null
-  candles: Record<string, CandleOut[]>
-  overlays: Record<string, OverlayOut[]>
-  theme: Theme
-  chartHeight: number
+/** Picks the metal every BULLION panel shows: market view, signal, chart, evidence, trades. */
+export function MetalSwitch({
+  names,
+  metal,
+  onSelect,
+}: {
+  names: string[]
+  metal: string
+  onSelect: (metal: string) => void
+}) {
+  return (
+    <div className="flex items-center gap-1" role="group" aria-label="Metal">
+      {names.map((n) => (
+        <button
+          key={n}
+          type="button"
+          aria-pressed={n === metal}
+          onClick={() => {
+            onSelect(n)
+          }}
+          className={`rounded px-2 py-0.5 text-xs font-medium ${
+            n === metal ? 'bg-accent/20 text-fg' : 'text-fg-muted hover:text-fg'
+          }`}
+        >
+          {n}
+        </button>
+      ))}
+    </div>
+  )
 }
 
-/** The BULLION tab: gold and silver MCX futures, display only (spec §6.6, §13.2). */
-export function BullionView({ bullion, candles, overlays, theme, chartHeight }: Props) {
+/** The BULLION tab's tiles: a card per metal and the gold/silver ratio (spec §6.6, §13.2). */
+export function BullionCards({ bullion }: { bullion: BullionOut | null }) {
   const metals = bullion?.metals ?? EMPTY
-  const names = metals.map((m) => m.metal)
-  const [stored, setMetal] = usePref(METAL_KEY, (v) => (typeof v === 'string' ? v : 'GOLD'))
-  const metal = names.includes(stored) ? stored : (names[0] ?? 'GOLD')
   if (metals.length === 0) {
     return (
-      <Box>
-        <p className="text-xs text-fg-muted">
-          Live feed only: gold and silver come from MCX through Upstox.
-        </p>
-      </Box>
+      <p className="text-xs text-fg-muted">
+        Live feed only: gold and silver come from MCX through Upstox.
+      </p>
     )
   }
   return (
@@ -45,46 +59,17 @@ export function BullionView({ bullion, candles, overlays, theme, chartHeight }: 
           </Box>
         ))}
       </div>
-      <Box>
-        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-xs">
-          <span
-            className="text-fg-muted"
-            title="Kilograms of silver one kilogram of gold buys, from the two near-month futures"
-          >
-            Gold / silver ratio
-          </span>
-          <span className="font-mono text-base" data-testid="bullion-ratio">
-            {bullion?.ratio == null ? '—' : bullion.ratio.toFixed(2)}
-          </span>
-        </div>
-      </Box>
-      <Box>
-        <div className="mb-2 flex items-center gap-1" role="group" aria-label="Chart metal">
-          {names.map((n) => (
-            <button
-              key={n}
-              type="button"
-              aria-pressed={n === metal}
-              onClick={() => {
-                setMetal(n)
-              }}
-              className={`rounded px-2 py-0.5 text-xs font-medium ${
-                n === metal ? 'bg-accent/20 text-fg' : 'text-fg-muted hover:text-fg'
-              }`}
-            >
-              {n}
-            </button>
-          ))}
-          <span className="ml-auto text-xs text-fg-muted">1-minute, with VWAP</span>
-        </div>
-        <PriceChart
-          candles={candles[metal] ?? EMPTY}
-          overlays={overlays[metal] ?? EMPTY}
-          dataKey={`bullion-${metal}`}
-          theme={theme}
-          height={chartHeight}
-        />
-      </Box>
+      <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-xs">
+        <span
+          className="text-fg-muted"
+          title="Kilograms of silver one kilogram of gold buys, from the two near-month futures"
+        >
+          Gold / silver ratio
+        </span>
+        <span className="font-mono text-base" data-testid="bullion-ratio">
+          {bullion?.ratio == null ? '—' : bullion.ratio.toFixed(2)}
+        </span>
+      </div>
     </div>
   )
 }

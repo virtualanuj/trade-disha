@@ -1,5 +1,6 @@
 import type {
   BiasOut,
+  BullionOut,
   CandleOut,
   ChainOut,
   IndexPrices,
@@ -9,6 +10,7 @@ import type {
 } from '../api/types'
 import {
   biasSummary,
+  bullionSummary,
   chainSummary,
   chartSummary,
   evidenceSummary,
@@ -31,6 +33,18 @@ const signal = (over: Partial<SignalOut> = {}): SignalOut =>
   }) as SignalOut
 
 describe('panel summaries', () => {
+  it('bullion: the price of each metal and the ratio', () => {
+    const b = {
+      metals: [
+        { metal: 'GOLD', ltp: 135312 },
+        { metal: 'SILVER', ltp: null },
+      ],
+      ratio: 79.51,
+    } as BullionOut
+    expect(bullionSummary(b)).toBe('GOLD 1,35,312.00 · SILVER — · ratio 79.51')
+    expect(bullionSummary(null)).toBe('—')
+  })
+
   it('index: spot and change on the day', () => {
     const prices = { spot_ltp: 24812.4 } as IndexPrices
     const stats = { change_pct: 0.42 } as IndexStatsOut

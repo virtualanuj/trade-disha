@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { closePaperTrade } from '../../api/client'
 import type { PaperTradeOut } from '../../api/types'
+import { instrumentLabel, isLong } from '../../lib/direction'
 import { fmtDuration, fmtIstTime, fmtMoney, fmtPrice, pnlColour } from '../../lib/format'
 
 interface Props {
@@ -55,8 +56,8 @@ export function OpenTrades({ trades, now, canClose, onClose = closePaperTrade }:
         <tbody>
           {trades.map((t) => (
             <tr key={t.id} className="h-7 border-t border-border/60">
-              <td className={t.direction === 'BUY_CE' ? 'text-bull' : 'text-bear'}>
-                {t.strike} {t.direction === 'BUY_CE' ? 'CE' : 'PE'}
+              <td className={isLong(t.direction) ? 'text-bull' : 'text-bear'}>
+                {instrumentLabel(t)}
                 <span className="ml-1 text-fg-muted">×{t.qty}</span>
                 {t.warning === 'bias_reversed' ? (
                   <span

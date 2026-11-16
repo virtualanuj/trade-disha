@@ -196,6 +196,17 @@ class BullionTracker:
         if on_candle is not None:
             self.candles.on_close(lambda cd: on_candle(self._metal_of_near[cd.key], cd))
 
+    def near_key(self, metal: str) -> str:
+        return self.contracts[metal].near.instrument_key
+
+    def metal_of(self, key: str) -> str | None:
+        """The metal whose near contract this is; None for a next-month or other key."""
+        return self._metal_of_near.get(key)
+
+    def ltp(self, metal: str) -> Tick | None:
+        """The near contract's latest tick."""
+        return self._latest.get(self.near_key(metal))
+
     def on_tick(self, st: StampedTick) -> None:
         t = st.tick
         if t.key not in self.keys:
@@ -243,6 +254,11 @@ async def load_contracts(
     except Exception as exc:
         log.warning("MCX instrument file unavailable, no bullion: %s", type(exc).__name__)
         return {}
+    return contracts_from(master, today)
+
+
+def contracts_from(master: list[Instrument], today: date) -> dict[str, BullionContract]:
+    """Metal -> its near and next futures in an MCX instrument list."""
     out: dict[str, BullionContract] = {}
     for metal in METALS:
         months = resolve_commodity_months(master, metal, today)

@@ -53,6 +53,7 @@ describe('Journal', () => {
     render(<Journal indices={['NIFTY', 'BANKNIFTY']} revision={0} load={load} />)
 
     const card = await screen.findByTestId('stats-overall')
+    expect(card).toHaveTextContent('Index options')
     expect(card).toHaveTextContent('+₹1,505')
     expect(card).toHaveTextContent('50%')
     expect(card).toHaveTextContent('1 of 2 net-positive')

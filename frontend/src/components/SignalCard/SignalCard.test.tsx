@@ -52,6 +52,40 @@ const signal: SignalOut = {
 }
 
 describe('SignalCard', () => {
+  it('shows a short bullion future with its point value and gate text', () => {
+    const short: SignalOut = {
+      ...signal,
+      index: 'SILVER',
+      direction: 'SELL_FUT',
+      strike: 0,
+      trading_symbol: 'SILVER FUT 04 DEC 26',
+      lot_size: 30,
+      entry_price: 170000,
+      target_price: 169320,
+      stop_price: 170340,
+      target_basis: 'pct',
+      target_points: null,
+      stop_points: null,
+      delta_used: null,
+    }
+    render(<SignalCard signal={short} gate={undefined} now={short.ts_fired} />)
+    const card = screen.getByTestId('signal-card')
+    expect(card).toHaveTextContent('SELL SILVER FUT')
+    expect(card).toHaveTextContent('₹30 per point per lot')
+    expect(screen.getByText('SELL SILVER FUT')).toHaveClass('text-bear')
+  })
+
+  it('says when bullion signals are switched off', () => {
+    render(
+      <SignalCard
+        signal={undefined}
+        gate={{ index: 'GOLD', minute_ts: 0, fired: false, reason: 'disabled' }}
+        now={0}
+      />,
+    )
+    expect(screen.getByTestId('signal-card')).toHaveTextContent('switched off')
+  })
+
   it('shows the option, levels, countdown and reasons', () => {
     render(<SignalCard signal={signal} gate={undefined} now={1_700_000_100_000} />)
     const card = screen.getByTestId('signal-card')

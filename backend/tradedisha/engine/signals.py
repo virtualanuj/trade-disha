@@ -35,7 +35,8 @@ from tradedisha.parameters.model import ParameterSet
 
 log = logging.getLogger(__name__)
 
-Direction = Literal["BUY_CE", "BUY_PE"]
+# Index options are bought; a bullion future (spec §9a) is bought or sold.
+Direction = Literal["BUY_CE", "BUY_PE", "BUY_FUT", "SELL_FUT"]
 Status = Literal["active", "traded", "lapsed", "reversed"]
 EntryMode = Literal["minute_close", "trigger"]
 NoFireReason = Literal[
@@ -48,6 +49,7 @@ NoFireReason = Literal[
     "no_setup",
     "flow_not_confirmed",
     "spread_wide",
+    "disabled",
 ]
 
 
@@ -187,8 +189,10 @@ class SignalEngine:
 
     def on_bias(self, b: BiasComputed) -> None:
         """Called at every minute close for an index."""
-        p = self._params()
         index = b.index
+        if index not in self._resolved:
+            return  # bullion bias shares the listener list; the bullion desk handles it
+        p = self._params()
         bias = b.bias
         now = b.minute_ts + 60_000  # the close instant of the evaluated minute
         trigger = self.mode(p) == "trigger"

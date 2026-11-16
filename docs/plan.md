@@ -452,6 +452,40 @@ are stale from the last tick, and `feed_events` has the bullion gap rows.
 
 **Design:** spec §6.6 (Hours and liveness) and §14.
 
+## Milestone E6 — Bullion signals and paper trades
+
+**Goal:** gold and silver get their own market view, signals and paper trades, on MCX
+hours, without touching the index engines.
+
+- **Bias:** trend only (EMA cross, VWAP position, supertrend) on the near-month candles,
+  worked out `bullion.eval_offset_seconds` (20 s) after each minute close.
+- **Signals:** buy or sell the near-month future (`BUY_FUT` / `SELL_FUT`) at the bullion
+  entry threshold, with target and stop a % of price; gates for MCX hours (09:15–22:45),
+  bullion liveness and a switch to turn them off.
+- **Paper trades:** long or short, ₹ per point from `qty_multiplier` (GOLD 100, SILVER 30),
+  cost fixed + % of value, square-off 23:00 on the MCX clock; a separate manager that owns
+  only bullion trades.
+- **Journal:** GOLD, SILVER and a bullion total; "overall" is index options only.
+- **Recording:** `bullion_ticks` (migration 011) and bullion candles; a bullion replay
+  (`TRADEDISHA_REPLAY_BULLION`).
+- **UI:** on BULLION, the charted metal's market view, evidence, signal card with
+  Paper-trade, open trades and chart markers; FUT long/short labels everywhere.
+- Tests: the parameters; trend-only aggregation (bounds by hypothesis); the bias engine and
+  its offset; the signal lifecycle and every gate; short P&L, target and stop; point value
+  and cost; MCX square-off; ownership on restore; journal scopes; the API round trip;
+  recording; a replayed evening firing at the offset; the frontend labels and tab.
+
+**Demo:** on a trading evening, open BULLION: see each metal's bias and evidence; when a
+signal fires, paper-trade it and follow it to target, stop or the 23:00 square-off; find it
+under Bullion in the Journal with "Index options" unchanged. The next day, replay the
+evening with `TRADEDISHA_REPLAY_BULLION=true TRADEDISHA_REPLAY_SPEED=0`.
+
+**Status (2026-11-16):** built, with unit and replay tests. On the live feed the bullion
+bias, evidence and panels (same order and controls as the index tabs) were checked; no
+bullion signal had fired yet, so a live paper trade is still to be seen.
+
+**Design:** spec §6.6, §9a, §10, §13.2.
+
 ## Milestone C1 — Editable, versioned config
 
 **Goal:** the trader tunes the parameters in the app, can always get back to an earlier

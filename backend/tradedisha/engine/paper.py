@@ -3,6 +3,11 @@
 A trade opens at the price prevailing when the trader clicks (not the signal's entry
 price) and closes at target, stop, the square-off time, or by hand. Nothing here places a
 real order, and nothing here opens a trade on its own.
+
+Index options are always bought. A bullion future (spec §9a) is bought or sold, so P&L and
+the target/stop checks take the trade's side. Each manager runs one market's rules (its
+clock, square-off, lots, cost) and owns only that market's trades, so the index manager and
+the bullion manager share the `paper_trades` table without touching each other's rows.
 """
 
 from __future__ import annotations
@@ -12,12 +17,12 @@ import sqlite3
 import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, fields, replace
-from datetime import datetime
-from typing import Literal
+from datetime import datetime, time
+from typing import Literal, Protocol
 
 from tradedisha.clock import IST, MarketClock, ist_to_ms, ms_to_ist
 from tradedisha.engine.bias_engine import BiasComputed
-from tradedisha.engine.signals import Direction, SignalEngine
+from tradedisha.engine.signals import Direction, Signal, SignalStore
 from tradedisha.feed.bus import StampedTick
 from tradedisha.parameters.model import ParameterSet
 
@@ -27,6 +32,54 @@ TradeStatus = Literal["open", "closed"]
 ExitReason = Literal["TARGET", "STOP", "SQUARE_OFF", "MANUAL"]
 FillQuality = Literal["live", "after_gap", "stale"]
 Warning = Literal["bias_reversed"]
+
+METALS: frozenset[str] = frozenset({"GOLD", "SILVER"})  # bullion trades, by `index`
+
+
+class SignalSource(Protocol):
+    """What a manager needs from a signal engine (index or bullion)."""
+
+    active: dict[str, Signal]
+    store: SignalStore
+
+    def mark_traded(self, signal_id: str, now_ms: int) -> Signal | None: ...
+
+
+@dataclass(frozen=True)
+class PaperRules:
+    """One market's paper-trading rules."""
+
+    owns: Callable[[str], bool]  # which `index` values this manager trades
+    square_off: Callable[[ParameterSet], time]
+    lots: Callable[[ParameterSet], int]
+    # round-trip cost for the whole trade, fixed at entry: (params, entry price, qty, lots)
+    cost: Callable[[ParameterSet, float, int, int], float]
+
+
+def index_rules() -> PaperRules:
+    """NIFTY / BANK NIFTY options: the `paper` section, a flat fee per lot."""
+    return PaperRules(
+        owns=lambda index: index not in METALS,
+        square_off=lambda p: p.paper.square_off_time,
+        lots=lambda p: p.paper.lots,
+        cost=lambda p, _entry, _qty, lots: p.paper.cost_per_trade * lots,
+    )
+
+
+def bullion_rules() -> PaperRules:
+    """MCX GOLD / SILVER futures: the `bullion` section; cost has a part that scales with
+    value, because a GOLD lot is worth over a crore."""
+
+    def cost(p: ParameterSet, entry: float, qty: int, lots: int) -> float:
+        b = p.bullion
+        return b.cost_fixed_per_lot * lots + b.cost_pct_of_value / 100 * entry * qty * 2
+
+    return PaperRules(
+        owns=lambda index: index in METALS,
+        square_off=lambda p: p.bullion.square_off_time,
+        lots=lambda p: p.bullion.lots,
+        cost=cost,
+    )
 
 
 class PaperError(Exception):
@@ -71,10 +124,21 @@ class PaperTrade:
     def is_open(self) -> bool:
         return self.status == "open"
 
+    @property
+    def side(self) -> int:
+        """+1 for a bought option or future, -1 for a sold (short) future."""
+        return -1 if self.direction == "SELL_FUT" else 1
+
     def pnl_at(self, price: float) -> tuple[float, float]:
         """(gross, net) if the trade were closed at `price`."""
-        gross = round((price - self.entry_price) * self.qty, 2)
+        gross = round(self.side * (price - self.entry_price) * self.qty, 2)
         return gross, round(gross - self.cost, 2)
+
+    def hit_target(self, price: float) -> bool:
+        return self.side * (price - self.target_price) >= 0
+
+    def hit_stop(self, price: float) -> bool:
+        return self.side * (price - self.stop_price) <= 0
 
 
 _COLS = [f.name for f in fields(PaperTrade)]
@@ -142,12 +206,13 @@ class PaperTradeManager:
         clock: MarketClock,
         params: Callable[[], ParameterSet],
         conn: sqlite3.Connection,
-        signals: SignalEngine,
+        signals: SignalSource,
         price: Callable[[str], Price | None],
         feed_live: Callable[[], bool],
         enforce_hours: bool,
         last_recorded: Callable[[str, int], Price | None] | None = None,
         on_trade: Callable[[PaperTrade], None] | None = None,
+        rules: PaperRules | None = None,
     ) -> None:
         self._clock = clock
         self._params = params
@@ -158,6 +223,7 @@ class PaperTradeManager:
         self._enforce_hours = enforce_hours
         self._last_recorded = last_recorded
         self._on_trade = on_trade
+        self.rules = rules or index_rules()
         self.open_trades: dict[str, PaperTrade] = {}
         self._gap: set[str] = set()  # open trades that lived through a feed outage
         self._restore()
@@ -179,15 +245,16 @@ class PaperTradeManager:
         if self._enforce_hours:
             if self._clock.status() != "live":
                 raise PaperError("market is not open")
-            if ms_to_ist(now).time() >= p.paper.square_off_time:
+            if ms_to_ist(now).time() >= self.rules.square_off(p):
                 raise PaperError("past the square-off time")
         if not self._feed_live():
             raise PaperError("feed is not live, so there is no price to trade at")
         price = self._price(signal.instrument_key)
         if price is None:
-            raise PaperError("no price for this option yet")
+            raise PaperError("no price for this instrument yet")
 
-        lots = p.paper.lots
+        lots = self.rules.lots(p)
+        qty = signal.lot_size * lots
         trade = PaperTrade(
             id=uuid.uuid4().hex[:12],
             signal_id=signal.id,
@@ -198,14 +265,14 @@ class PaperTradeManager:
             strike=signal.strike,
             expiry=signal.expiry,
             lots=lots,
-            qty=signal.lot_size * lots,
+            qty=qty,
             signal_entry=signal.entry_price,
             entry_price=price.ltp,
             entry_ts=now,
             slippage=round(price.ltp - signal.entry_price, 2),
             target_price=signal.target_price,
             stop_price=signal.stop_price,
-            cost=round(p.paper.cost_per_trade * lots, 2),
+            cost=round(self.rules.cost(p, price.ltp, qty, lots), 2),
         )
         self._signals.mark_traded(signal.id, now)
         self.open_trades[trade.id] = trade
@@ -223,7 +290,7 @@ class PaperTradeManager:
             raise PaperError("feed is not live, so there is no price to close at")
         price = self._price(trade.instrument_key)
         if price is None:
-            raise PaperError("no price for this option yet")
+            raise PaperError("no price for this instrument yet")
         return self._close(trade, price.ltp, self._clock.now_ms(), "MANUAL", "live", None)
 
     # -- market inputs ---------------------------------------------------------
@@ -236,16 +303,19 @@ class PaperTradeManager:
         for trade in [x for x in self.open_trades.values() if x.instrument_key == t.key]:
             quality: FillQuality = "after_gap" if trade.id in self._gap else "live"
             self._gap.discard(trade.id)  # only the first tick after an outage is "after gap"
-            if t.ltp >= trade.target_price:
+            if trade.hit_target(t.ltp):
                 self._close(trade, t.ltp, t.ts, "TARGET", quality, None)
-            elif t.ltp <= trade.stop_price:
+            elif trade.hit_stop(t.ltp):
                 self._close(trade, t.ltp, t.ts, "STOP", quality, None)
 
     def on_bias(self, b: BiasComputed) -> None:
         """Flag open trades the current view opposes; clear the flag when it no longer does."""
-        opposing = {"Bearish": "BUY_CE", "Bullish": "BUY_PE"}.get(b.bias.label)
+        opposing = {
+            "Bearish": {"BUY_CE", "BUY_FUT"},
+            "Bullish": {"BUY_PE", "SELL_FUT"},
+        }.get(b.bias.label, set())
         for trade in [x for x in self.open_trades.values() if x.index == b.index]:
-            warning: Warning | None = "bias_reversed" if trade.direction == opposing else None
+            warning: Warning | None = "bias_reversed" if trade.direction in opposing else None
             if warning != trade.warning:
                 updated = replace(trade, warning=warning)
                 self.open_trades[trade.id] = updated
@@ -264,7 +334,7 @@ class PaperTradeManager:
             self._gap.update(self.open_trades)
         if not self._enforce_hours:
             return
-        if ms_to_ist(now_ms).time() < self._params().paper.square_off_time:
+        if ms_to_ist(now_ms).time() < self.rules.square_off(self._params()):
             return
         for trade in list(self.open_trades.values()):
             price = self._price(trade.instrument_key)
@@ -282,13 +352,15 @@ class PaperTradeManager:
         """Pick up trades left open by a restart. The app was away, so that is a gap."""
         today = self._clock.today()
         for trade in self.store.read(status="open"):
+            if not self.rules.owns(trade.index):
+                continue  # another market's manager restores it
             entry_day = ms_to_ist(trade.entry_ts).date()
             if entry_day >= today:
                 self.open_trades[trade.id] = trade
                 self._gap.add(trade.id)
                 continue
             # Left open on an earlier day: it should have been squared off then.
-            sq = self._params().paper.square_off_time
+            sq = self.rules.square_off(self._params())
             sq_ms = ist_to_ms(datetime.combine(entry_day, sq, tzinfo=IST))
             last = self._last_recorded(trade.instrument_key, sq_ms) if self._last_recorded else None
             if last is None:
@@ -338,7 +410,7 @@ class PaperTradeManager:
 
 @dataclass(frozen=True)
 class JournalStats:
-    scope: str  # "overall" or an index name
+    scope: str  # "overall" (index options), an index, "bullion" or a metal
     trades: int
     hits: int
     hit_rate: float | None  # share of closed trades with net > 0
@@ -377,9 +449,16 @@ def _stats(scope: str, closed: list[PaperTrade]) -> JournalStats:
 
 
 def journal_stats(trades: Iterable[PaperTrade]) -> list[JournalStats]:
-    """Overall first, then one entry per index. Only closed trades count."""
+    """Overall (index options only) first, then one entry per index; then, when there are
+    bullion trades, a `bullion` total and one entry per metal. Only closed trades count."""
     closed = [t for t in trades if not t.is_open]
-    out = [_stats("overall", closed)]
-    for index in sorted({t.index for t in closed}):
-        out.append(_stats(index, [t for t in closed if t.index == index]))
+    options = [t for t in closed if t.index not in METALS]
+    bullion = [t for t in closed if t.index in METALS]
+    out = [_stats("overall", options)]
+    for index in sorted({t.index for t in options}):
+        out.append(_stats(index, [t for t in options if t.index == index]))
+    if bullion:
+        out.append(_stats("bullion", bullion))
+        for metal in sorted({t.index for t in bullion}):
+            out.append(_stats(metal, [t for t in bullion if t.index == metal]))
     return out

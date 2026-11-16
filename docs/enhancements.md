@@ -199,6 +199,25 @@ Builder's calls:
 - The previous close comes from the feed's `cp`, falling back to the quote's
   `last_price − net_change`.
 
+### 10. Bullion signals and paper trades
+
+Asked for (2026-11-16): create signals and paper trades for bullion (gold, silver), with
+the bullion engines offset from the minute close so all engines do not run at once.
+
+Decided with the owner on 2026-11-16:
+- The near-month GOLD and SILVER futures (the full contracts already on the tab), long or
+  short.
+- Trend-only evidence (EMA cross, VWAP position, supertrend) on the bullion candles.
+- The full MCX session: signals 09:15–22:45, square-off 23:00, all editable.
+- Bullion ticks recorded to their own table, with a bullion replay.
+- Journal: GOLD, SILVER and a bullion total; "overall" stays index options only.
+- Bullion bias and signals run `eval_offset_seconds` (20) after each minute close.
+
+Builder's calls:
+- Minute-close entry only; no trigger, order-flow or shadow rule for bullion.
+- Cost = fixed per lot + a % of round-trip turnover (CTT and charges scale with value).
+- Bullion signals are not scored by the outcome yardstick (it measures NSE spot).
+
 ## Deferred
 
 ### Chart zoom buttons

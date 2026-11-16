@@ -111,16 +111,21 @@ Things that are easy to get wrong:
   paper-trade entry and manual close are refused, and fills after the gap are marked. See
   `feed_live()`, `_track_gap()` and spec §14. Liveness means NSE ticks arriving: bullion
   ticks share the socket but are judged separately against MCX hours (`mcx_clock`,
-  `bullion_status()`, display only). Upstox stamps ticks with its send time, so a price
-  frozen at the source (seen on 2026-11-16: index spot stuck from 15:15 while futures
-  traded) still counts as live. Check the `ticks` table for distinct `ltp` per minute
-  before blaming the app.
-- **Bullion is display only** (spec §6.6). GOLD and SILVER MCX futures come from the same
-  Upstox socket but must never reach the shared `CandleBuilder` (it drives the bias
-  engine) or `TickStore` (MCX trades until 23:30 and would stretch replays). Every bullion
-  load step fails soft so the index feed always starts. Upstox's full quote returns the
-  live price in `ohlc.close`, and an untraded future's daily candles carry placeholder
-  prices (`parse_range(..., traded_only=True)`).
+  `bullion_status()`), and only gate bullion signals and trades. Upstox stamps ticks with
+  its send time, so a price frozen at the source (seen on 2026-11-16: index spot stuck from
+  15:15 while futures traded) still counts as live. Check the `ticks` table for distinct
+  `ltp` per minute before blaming the app.
+- **Bullion has its own pipeline** (spec §6.6, §9a). GOLD and SILVER MCX futures come
+  from the same Upstox socket but must never reach the shared `CandleBuilder` (it drives
+  the index bias engine) or the `ticks` table (MCX trades until 23:30 and would stretch
+  replays); they go to `BullionTracker`'s own builder and `bullion_ticks`.
+  `engine/bullion_desk.py` runs bullion bias -> signals -> paper trades on `mcx_clock`,
+  `eval_offset_seconds` after each minute close. Bullion signals are futures, long or short
+  (`BUY_FUT` / `SELL_FUT`); paper P&L is side-aware and each `PaperTradeManager` owns only
+  its market's trades (`PaperRules`). "overall" in the journal is index options only.
+  Every bullion load step fails soft so the index feed always starts. Upstox's full quote
+  returns the live price in `ohlc.close`, and an untraded future's daily candles carry
+  placeholder prices (`parse_range(..., traded_only=True)`).
 - **Generated code.** `feed/upstox_proto/` is protoc output and is excluded from ruff and
   mypy; do not edit it by hand.
 

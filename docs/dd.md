@@ -34,15 +34,20 @@ each group. Where TradeDisha gives a term a specific meaning or value, that is s
 
 ## 1a. Bullion and MCX terms
 
-Bullion is display only: no indicator, signal or paper trade reads it (spec §6.6).
+Bullion has its own trend bias, signals and paper trades (spec §9a), apart from the index
+ones: nothing of bullion feeds the index market view or recommendations.
 
 | Term | Meaning |
 |---|---|
 | **ATP (average traded price)** | The exchange's own volume-weighted average price for the day, sent with each full-mode tick. Shown as "ATP (VWAP)" on the metal card. |
 | **Bullion** | Gold and silver. In TradeDisha, the MCX `GOLD` and `SILVER` futures shown on the BULLION tab. Upstox has no spot price for either, so the near-month future stands in for it. |
+| **BUY_FUT / SELL_FUT** | A bullion signal's direction: buy (long) or sell (short) the near-month future. A short gains when the price falls; its target is below the entry and its stop above. |
+| **Bullion bias** | The trend-only bias of one metal: EMA cross, VWAP position and supertrend on its near-month 1-minute candles, the trend group carrying the whole weight. Worked out `eval_offset_seconds` after each minute close. |
 | **Bullion gap** | An MCX outage while MCX is open: no bullion tick for `bullion_live_max_tick_age_ms` (15 s). Logged to `feed_events` as `bullion_gap_start` / `bullion_gap_end`; nothing else reacts. |
-| **Bullion status** | `live`, `stale`, `closed` or `holiday`: MCX status combined with how fresh the last bullion tick is. `stale` means MCX is open but no bullion tick has arrived recently. Sent in the health response; drives the BULLION tab's banner and top-bar pills. |
+| **Bullion status** | `live`, `stale`, `closed` or `holiday`: MCX status combined with how fresh the last bullion tick is. `stale` means MCX is open but no bullion tick has arrived recently. Sent in the health response; drives the BULLION tab's banner and top-bar pills, and only `live` lets bullion signals fire and paper trades open or close. |
+| **Bullion signal** | A recommendation to buy or sell a metal's near-month future, fired when its bullion bias reaches `bullion.entry_threshold` within the bullion signal hours (09:15–22:45). Target and stop are a % of the price. Paper only. |
 | **Buy / sell quantity** | Total buy quantity (TBQ) and total sell quantity (TSQ): all buy and sell orders pending on the exchange for the contract. The **buy/sell ratio** is TBQ ÷ TSQ; above 1 means more waiting to buy than to sell. |
+| **CTT (Commodity Transaction Tax)** | The tax on commodity futures sales on MCX (0.01 % of the sell value). Part of the bullion paper-trade cost's `cost_pct_of_value`. |
 | **Calendar spread** | Next-month price minus near-month price, also shown as a % of the near price. Normally positive (contango), reflecting the cost of carry. |
 | **Circuit limits** | The upper and lower prices the exchange allows the contract to trade at today. From the full quote at start. |
 | **Contract one-year range** | The contract's highest high and lowest low over a year of daily candles up to yesterday, widened by today's range. Days with no volume are skipped (see Placeholder price). |
@@ -56,6 +61,7 @@ Bullion is display only: no indicator, signal or paper trade reads it (spec §6.
 | **MCX hours** | 09:00 to 23:30 IST, extended to 23:55 while the US is on standard time (roughly November to March). Settings `mcx_open` and `mcx_close`; the close is changed by hand with the season. |
 | **Mini / petal contracts** | Smaller gold and silver contracts (`GOLDM`, `GOLDPETAL`, `SILVERM` and others). Excluded: only the full-size `GOLD` and `SILVER` contracts are shown. |
 | **Near / next month** | The near contract is the one with the nearest expiry strictly after today; the next is the one after it. Prices and charts are for the near contract; the next contract's price is shown for the calendar spread. |
+| **Point value / qty multiplier** | Rupees gained or lost per one-point price move, per lot: the MCX file's `qty_multiplier` (GOLD 100: priced per 10 g on a 1 kg lot; SILVER 30). Stored as a bullion signal's `lot_size`; paper P&L = side × move × point value × lots. |
 | **Placeholder price** | A made-up price on the daily candles of a future's early days, before it trades (one gold contract showed ₹2,47,917). Recognised by zero volume and skipped. |
 | **Previous close (bullion)** | Yesterday's settlement price. From the feed's `cp` field; before the first tick it is worked out from the full quote as last price − net change. |
 | **Roll** | Switching from the expiring contract to the next one. Bullion rolls on expiry day. |
@@ -196,7 +202,9 @@ Bullion is display only: no indicator, signal or paper trade reads it (spec §6.
 | **Chain state** | The in-memory option chain for one index, with derived values (ATM, PCR, OI changes, max pain) kept up to date per tick. |
 | **Coalescing** | When several updates arrive within one throttle window, sending only the latest state rather than every intermediate one. |
 | **Degraded mode** | NSE market is live but auth is missing/expired or the index feed is silent (see Index liveness). Last-known data is shown greyed; bias still computed but greyed; no new signals; paper-trade entry and manual close refused; target/stop checked again from the first tick after the feed returns (`after_gap`); the square-off timer still fires at the last known price (`stale`). |
-| **Display only** | Shown to the trader but never an input to the bias, signals or paper trades, and never recorded or replayed. Applies to bullion. |
+| **Display only** | Shown to the trader but never an input to the bias, signals or paper trades, and never recorded or replayed. Applied to bullion until E6; bullion now has its own pipeline (see Bullion desk). |
+| **Bullion desk** | `engine/bullion_desk.py:BullionDesk`: bullion bias, signals and paper trades together, on the MCX clock and bullion liveness. |
+| **Evaluation offset** | `bullion.eval_offset_seconds`: how long after a minute close the bullion bias and signals run, so they never run at the same instant as the index engines. |
 | **DTO (data transfer object)** | A typed structure that defines the shape of data crossing a boundary (API request/response, websocket frame). Generated into TypeScript from the backend's OpenAPI schema. |
 | **Event bus** | The in-process publish/subscribe mechanism through which components announce `CandleClosed`, `BiasComputed`, `SignalFired`, `PaperTradeUpdated`, etc. |
 | **Event-loop lag** | How late asyncio runs a task compared to when it was due. Sampled every 100 ms; a sign the hot path is blocked. |
@@ -260,6 +268,7 @@ Bullion is display only: no indicator, signal or paper trade reads it (spec §6.
 | `config_versions` | one saved set of tunable parameters, numbered and tagged |
 | `paper_trades` | one paper trade from open to close, including exit fill quality |
 | `app_state` | one key/value (schema version) |
+| `bullion_ticks` | one bullion (MCX) tick: the `ticks` columns plus the feed's day open, high and low |
 | `feed_events` | one operational event (disconnect, gap, bullion gap, re-centre, backfill, config reload) |
 | `latency_samples` | one hop's latency percentiles for one minute |
 
@@ -273,6 +282,7 @@ Bullion is display only: no indicator, signal or paper trade reads it (spec §6.
 | ATP | average traded price |
 | ATR | average true range (used inside supertrend) |
 | CE / PE | call European / put European (NSE option suffixes) |
+| CTT | Commodity Transaction Tax |
 | DII | Domestic Institutional Investors |
 | EMA | exponential moving average |
 | F&O | futures and options |

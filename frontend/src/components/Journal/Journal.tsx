@@ -18,6 +18,13 @@ import {
   fmtSigned,
   pnlColour,
 } from '../../lib/format'
+import { instrumentLabel, isLong } from '../../lib/direction'
+
+/** "overall" is index options only; bullion has its own total (spec §10). */
+const SCOPE_LABEL: Partial<Record<string, string>> = {
+  overall: 'Index options',
+  bullion: 'Bullion',
+}
 
 const REASON_TEXT: Record<ExitReason, string> = {
   TARGET: 'Target',
@@ -237,7 +244,7 @@ function StatsCard({ stats: s }: { stats: JournalStatsOut }) {
     <div className="rounded border border-border bg-bg-elev p-3" data-testid={`stats-${s.scope}`}>
       <div className="flex items-baseline justify-between">
         <span className="text-[10px] uppercase tracking-wide text-fg-muted">
-          {s.scope === 'overall' ? 'Overall' : s.scope}
+          {SCOPE_LABEL[s.scope] ?? s.scope}
         </span>
         <span className="text-fg-muted">
           {s.trades} closed trade{s.trades === 1 ? '' : 's'}
@@ -298,8 +305,8 @@ function TradeRow({ t }: { t: PaperTradeOut }) {
   return (
     <tr className="h-7 border-t border-border/60">
       <td className="text-fg-muted">{fmtDate(t.entry_ts)}</td>
-      <td className={t.direction === 'BUY_CE' ? 'text-bull' : 'text-bear'}>
-        {t.index} {t.strike} {t.direction === 'BUY_CE' ? 'CE' : 'PE'}
+      <td className={isLong(t.direction) ? 'text-bull' : 'text-bear'}>
+        {t.index} {instrumentLabel(t)}
       </td>
       <td className="text-right">{t.qty}</td>
       <td className="text-right">{fmtIstTime(t.entry_ts)}</td>

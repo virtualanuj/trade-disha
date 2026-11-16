@@ -46,6 +46,37 @@ describe('EvidenceTable', () => {
     expect(t).toHaveTextContent('+0.300')
     expect(t).toHaveTextContent('(warming)')
   })
+  it('shows only the trend group for bullion, which has no option chain', () => {
+    const gold: BiasOut = {
+      ...bias,
+      index: 'GOLD',
+      group_scores: { trend: 0.75, oi: 0, premium: 0 },
+      group_weights: { trend: 1, oi: 0, premium: 0 },
+      indicators: [
+        {
+          name: 'ema_cross',
+          group: 'trend',
+          score: 0.75,
+          note: 'EMA9 above EMA21 by 0.12%',
+          quality: 'ok',
+          value: {},
+          weight: 1,
+          contribution: 0.75,
+        },
+      ],
+    }
+    render(<EvidenceTable bias={gold} />)
+    const t = screen.getByTestId('evidence')
+    expect(t).toHaveTextContent('Price trend')
+    expect(t).not.toHaveTextContent('Open interest')
+    expect(t).not.toHaveTextContent('Premium behaviour')
+  })
+
+  it('keeps an index group with weight even before its indicators report', () => {
+    render(<EvidenceTable bias={bias} />)
+    expect(screen.getByTestId('evidence')).toHaveTextContent('Premium behaviour')
+  })
+
   it('shows a placeholder before the first bias', () => {
     render(<EvidenceTable bias={undefined} />)
     expect(screen.getByText(/after the first minute/)).toBeInTheDocument()

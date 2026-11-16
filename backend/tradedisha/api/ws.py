@@ -202,8 +202,9 @@ class WsHub:
 
     def hello(self) -> str:
         s = self._state
-        engine = s.session.bias
+        engine, desk = s.session.bias, s.session.bullion_desk
         latest = list(engine.latest.values()) if engine else []
+        latest += list(desk.bias.latest.values()) if desk else []  # GOLD / SILVER
         payload = {
             "health": build_health(s).model_dump(),
             "instruments": [resolved_out(r).model_dump() for r in s.session.resolved.values()],

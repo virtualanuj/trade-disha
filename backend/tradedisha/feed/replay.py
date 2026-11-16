@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import heapq
 from collections.abc import AsyncIterator
 from datetime import date
 
@@ -24,8 +25,10 @@ class ReplayProvider:
         speed: float = 1.0,
         clock: DrivenClock | None = None,
         drop_ranges: list[tuple[int, int]] | None = None,
+        extra: TickStore | None = None,
     ) -> None:
         self._store = store
+        self._extra = extra  # e.g. bullion ticks, merged in by time
         self._day = day
         self._speed = speed
         self._clock = clock
@@ -63,6 +66,8 @@ class ReplayProvider:
 
     async def ticks(self) -> AsyncIterator[Tick]:
         rows = self._store.read_day(self._day)
+        if self._extra is not None:
+            rows = list(heapq.merge(rows, self._extra.read_day(self._day), key=lambda t: t.ts))
         prev_ts: int | None = None
         for tick in rows:
             if self._closed:
