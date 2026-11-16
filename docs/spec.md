@@ -450,6 +450,15 @@ or the `ticks` table, and there is no real-order path for it.
 - Gaps (no ticks in a minute) produce a carry-forward candle (O=H=L=C=prev close, V=0)
   flagged `synthetic=True`, so indicator windows stay aligned.
 - VWAP is maintained on the futures stream from session open: `Σ(price×vol) / Σvol`.
+- **Net volume (Milestone E8).** Upstox does not say which side started a trade, so each
+  tick's volume change is signed (`trade_side`): at or above the ask as it stood before the
+  tick is a buy; at or below the bid, a sell; in between, the **tick rule** (up from the
+  last trade is a buy, down a sell, unchanged keeps the last side). Each candle keeps
+  `buy_volume` and `sell_volume`; `None` where there is no side information (an index has no
+  volume; backfilled minutes come from the candle API without trades). On a recorded day
+  the quote rule alone classified 85 % of NIFTY and 90 % of BANK NIFTY futures volume; the
+  tick rule covers the rest. It is display only: no indicator reads it. The order-flow
+  score (§8.5) signs trades its own way over seconds and is unchanged.
 
 ### 7.2 Chain state
 Per index, in memory:
@@ -870,7 +879,7 @@ applied in order at startup and tracked by `PRAGMA user_version`.
 | `instruments` | instrument_key, symbol, exchange, type, expiry, strike, lot_size, step, loaded_on | daily master subset |
 | `ticks` | key, ts, ltp, volume, oi, bid, ask, iv, delta, close_prev, bid_qty, ask_qty, bid_qty5, ask_qty5, tbq, tsq, atp, ltq | raw NSE feed, replay source |
 | `bullion_ticks` | the `ticks` columns plus day_open, day_high, day_low | raw MCX bullion feed (E6), kept apart so evening ticks never stretch an NSE replay |
-| `candles_1m` | key, minute_ts, o, h, l, c, v, synthetic | index and bullion candles, keyed by instrument |
+| `candles_1m` | key, minute_ts, o, h, l, c, v, synthetic, bv, sv | index and bullion candles, keyed by instrument; bv/sv = buyer-/seller-initiated volume (E8, migration 012), NULL with no side information |
 | `chain_minutes` | index, minute_ts, strike, ce_*, pe_* | per-strike per-minute chain snapshot |
 | `bias_minutes` | index, minute_ts, bias, label, strength, breakdown_json | evidence history (indices and GOLD / SILVER) |
 | `signals` | the `Signal` fields (§9.2), with `index` stored as `idx` | every signal, live and shadow, index and bullion |
@@ -903,7 +912,7 @@ is reclaimable without a full rewrite.
 | GET | `/instruments` | resolved spot/futures/expiry/window per index |
 | GET | `/chain/{index}` | current `ChainState` snapshot + derived values |
 | GET | `/stats/{index}` | `IndexStats` for the details view (§7.4) |
-| GET | `/candles/{index}?minutes=375` | today's spot candles with EMA/VWAP/supertrend series |
+| GET | `/candles/{index}?minutes=375` | today's spot candles with EMA/VWAP/supertrend series, and `fut_candles` (the near-month future's, whose `bv`/`sv` give net volume) |
 | GET | `/bias/{index}` | latest bias + breakdown |
 | GET | `/bias/{index}/history?date=` | per-minute bias for a day |
 | GET | `/signals?index=&status=&day=` | signals of a day (index and bullion) |
@@ -944,7 +953,7 @@ Server → client JSON frames `{type, ts, payload}`:
 | `stats` | leading-edge throttle, max 1/s per index | `IndexStats` |
 | `tick` | leading-edge throttle, max 20/s per index | `{index, spot_ltp, spot_ts, fut_ltp, fut_ts}` |
 | `chain` | leading-edge throttle, max 2/s per index | full window (21 rows) + derived values; small enough that diffs are not worth it |
-| `candle` | per minute | closed candle + indicator series point |
+| `candle` | per minute | closed candle (`role` spot or fut; every candle carries `bv`/`sv`) |
 | `bias` | per minute | bias + breakdown |
 | `signal` | on change | full `Signal` with the current gates, shadow ones included (flagged) |
 | `signal_live` | 1/s while any signal is active | the active signals with their `live` levels (§9.3) |
@@ -1094,7 +1103,11 @@ them ("Panel order" in §13.2).
 - **PriceChart**: resizes with its container (it has no fixed height once the layout is
   resizable). `lightweight-charts` candlestick; EMA9, EMA21, VWAP line series;
   supertrend as coloured line; signal markers (▲ CE, ▼ PE) with tooltips; paper-trade
-  entry/exit markers.
+  entry/exit markers. A second pane below shows **net volume** per minute (E8): a
+  histogram of buy − sell volume, green above zero and red below, from the near-month
+  future on index tabs and the metal's future on BULLION. The legend gives net, buy and
+  sell for the minute under the crosshair (or the latest); minutes without side data have
+  no bar.
 - **SignalCard**: direction, symbol, the Fired and Live rows of entry/target/stop (E7;
   points shown on expiry day; a future shows its rupees per point), countdown, an
   open-trades block when there are open trades on that index or metal (each with

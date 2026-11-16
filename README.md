@@ -44,6 +44,8 @@ Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by
   with their own Journal rows.
 - **E7:** a waiting signal shows its fired and live entry, target and stop, and a paper
   trade takes the live levels at its fill.
+- **E8:** a net-volume histogram under the price chart: buyer- minus seller-initiated
+  volume per minute, signed from the futures ticks (Upstox does not supply it).
 
 ## Documents
 

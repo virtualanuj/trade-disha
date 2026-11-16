@@ -2,23 +2,28 @@ import {
   CandlestickSeries,
   ColorType,
   CrosshairMode,
+  HistogramSeries,
   LineSeries,
   LineStyle,
   createChart,
   createSeriesMarkers,
   type CandlestickData,
+  type HistogramData,
   type IChartApi,
   type ISeriesApi,
   type ISeriesMarkersPluginApi,
   type LineData,
+  type MouseEventParams,
   type SeriesMarker,
   type Time,
   type UTCTimestamp,
 } from 'lightweight-charts'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { CandleOut, OverlayOut, SignalOut } from '../../api/types'
 import { instrumentLabel, isLong } from '../../lib/direction'
+import { fmtCount } from '../../lib/format'
+import { netVolumeAt, netVolumeBars } from '../../lib/netVolume'
 import type { Theme } from '../../theme/useTheme'
 
 const IST_OFFSET_S = 5.5 * 3600
@@ -26,6 +31,11 @@ const IST_OFFSET_S = 5.5 * 3600
 /** lightweight-charts renders times as UTC; shift so the axis reads IST. */
 function toTime(ms: number): UTCTimestamp {
   return (Math.floor(ms / 1000) + IST_OFFSET_S) as UTCTimestamp
+}
+
+/** The chart's time back to epoch ms, the inverse of `toTime`. */
+function fromTime(t: Time): number {
+  return ((t as number) - IST_OFFSET_S) * 1000
 }
 
 function cssVar(name: string): string {
@@ -54,6 +64,9 @@ interface Props {
   theme: Theme
   /** pixels; the chart follows its container when this changes */
   height?: number
+  /** candles whose buy/sell split is drawn as net volume in a pane below (Milestone E8);
+   * the near-month future's. Omitted: no volume pane. */
+  netVolume?: CandleOut[]
 }
 
 const STATUS_SHAPE: Record<SignalOut['status'], string> = {
@@ -81,6 +94,12 @@ interface Series {
   vwap: ISeriesApi<'Line'>
   supertrend: ISeriesApi<'Line'>
   markers: ISeriesMarkersPluginApi<Time>
+  netVolume: ISeriesApi<'Histogram'> | null
+}
+
+/** Volume with its sign, compact: +12.3K, −4,500. */
+function fmtNet(v: number): string {
+  return v > 0 ? `+${fmtCount(v)}` : v < 0 ? `−${fmtCount(-v)}` : '0'
 }
 
 export function PriceChart({
@@ -90,11 +109,17 @@ export function PriceChart({
   dataKey,
   theme,
   height = 320,
+  netVolume,
 }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
   const series = useRef<Series | null>(null)
   const lastCount = useRef({ candles: 0, overlays: 0, key: '' })
+  const withVolume = netVolume !== undefined
+  const bars = useMemo(() => netVolumeBars(netVolume ?? []), [netVolume])
+  /** the minute under the crosshair, epoch ms; null = the latest */
+  const [hovered, setHovered] = useState<number | null>(null)
+  const shown = netVolumeAt(bars, hovered)
 
   // create / destroy
   useEffect(() => {
@@ -148,17 +173,34 @@ export function PriceChart({
         lastValueVisible: false,
       }),
       markers: undefined as unknown as ISeriesMarkersPluginApi<Time>,
+      netVolume: withVolume
+        ? c.addSeries(
+            HistogramSeries,
+            { priceFormat: { type: 'volume' }, priceLineVisible: false, lastValueVisible: false },
+            1,
+          )
+        : null,
+    }
+    if (withVolume) {
+      // price above, net volume below, in a fixed proportion as the chart is resized
+      c.panes()[0]?.setStretchFactor(4)
+      c.panes()[1]?.setStretchFactor(1)
     }
     s.markers = createSeriesMarkers(s.candles, [])
+    const onMove = (p: MouseEventParams) => {
+      setHovered(p.time === undefined ? null : fromTime(p.time))
+    }
+    c.subscribeCrosshairMove(onMove)
     chart.current = c
     series.current = s
     lastCount.current = { candles: 0, overlays: 0, key: '' }
     return () => {
+      c.unsubscribeCrosshairMove(onMove)
       c.remove()
       chart.current = null
       series.current = null
     }
-  }, [theme])
+  }, [theme, withVolume])
 
   // data: full set on (re)mount or when history shrinks/replaces; incremental otherwise
   useEffect(() => {
@@ -208,6 +250,20 @@ export function PriceChart({
     s.markers.setMarkers(sorted.map(toMarker))
   }, [signals, theme])
 
+  // net volume: a few hundred bars at most, so the whole set is simply replaced
+  useEffect(() => {
+    const s = series.current?.netVolume
+    if (!s) return
+    const up = cssVar('--bull')
+    const down = cssVar('--bear')
+    const data: HistogramData[] = bars.map((b) => ({
+      time: toTime(b.time),
+      value: b.value,
+      color: b.value >= 0 ? up : down,
+    }))
+    s.setData(data)
+  }, [bars, theme, withVolume])
+
   return (
     <div className="relative w-full shrink-0" style={{ height }}>
       <div ref={host} className="h-full w-full" data-testid="price-chart" />
@@ -216,6 +272,21 @@ export function PriceChart({
         <span style={{ color: '#5b9cff' }}>EMA slow</span>
         <span style={{ color: '#a78bfa' }}>VWAP</span>
         <span>Supertrend</span>
+        {withVolume ? (
+          <span data-testid="net-volume-legend">
+            {shown ? (
+              <>
+                Net vol{' '}
+                <span className={shown.value >= 0 ? 'text-bull' : 'text-bear'}>
+                  {fmtNet(shown.value)}
+                </span>{' '}
+                · buy {fmtCount(shown.buy)} · sell {fmtCount(shown.sell)}
+              </>
+            ) : (
+              'Net volume appears from live or replayed ticks'
+            )}
+          </span>
+        ) : null}
       </div>
       {candles.length === 0 ? (
         <div className="absolute inset-0 flex items-center justify-center text-fg-muted">

@@ -36,6 +36,10 @@ class CandleOut(BaseModel):
     c: float
     v: int
     synthetic: bool
+    # Buyer- and seller-initiated volume (Milestone E8); None where the candle has no side
+    # information: an index, or a minute backfilled from the candle API.
+    bv: int | None = None
+    sv: int | None = None
 
 
 class OverlayOut(BaseModel):
@@ -52,6 +56,7 @@ class CandlesResponse(BaseModel):
     spot_key: str
     candles: list[CandleOut]
     overlays: list[OverlayOut]
+    fut_candles: list[CandleOut] = []  # the near-month future's, for net volume
 
 
 class IndicatorOut(BaseModel):
@@ -136,7 +141,15 @@ class ReloadError(BaseModel):
 
 def candle_out(c: Candle) -> CandleOut:
     return CandleOut(
-        t=c.minute_ts, o=c.open, h=c.high, l=c.low, c=c.close, v=c.volume, synthetic=c.synthetic
+        t=c.minute_ts,
+        o=c.open,
+        h=c.high,
+        l=c.low,
+        c=c.close,
+        v=c.volume,
+        synthetic=c.synthetic,
+        bv=c.buy_volume,
+        sv=c.sell_volume,
     )
 
 
@@ -171,6 +184,7 @@ def bias_out(b: BiasComputed) -> BiasOut:
 def candles_response(state: AppState, index: str, minutes: int) -> CandlesResponse:
     r = state.session.resolved[index]
     candles = state.session.candles.closed(r.spot.instrument_key)[-minutes:]
+    fut = state.session.candles.closed(r.future.instrument_key)[-minutes:]
     engine = state.session.bias
     overlays = engine.overlays.get(index, [])[-minutes:] if engine else []
     return CandlesResponse(
@@ -178,6 +192,7 @@ def candles_response(state: AppState, index: str, minutes: int) -> CandlesRespon
         spot_key=r.spot.instrument_key,
         candles=[candle_out(c) for c in candles],
         overlays=[overlay_out(o) for o in overlays],
+        fut_candles=[candle_out(c) for c in fut],
     )
 
 

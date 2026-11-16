@@ -110,6 +110,9 @@ Per index, the engine reads:
 | Chain history | one snapshot per minute, last 60 kept | anything that compares "now" with "N minutes ago" |
 | Order flow | quote and volume fields on futures and ATM option ticks | the trigger entry rule |
 
+The net-volume histogram under the chart (buy minus sell volume per minute, signed from
+the same futures ticks) is shown for the trader only; no indicator or rule reads it.
+
 **Which strike is "ATM" here.** The chain is centred on a strike, and that centre only
 moves when spot has travelled 2 strikes away from it (`chain.recenter_strikes`). So the
 strike the engine calls ATM can be up to about two strikes from the true nearest strike.

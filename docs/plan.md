@@ -70,6 +70,7 @@ version, then enhancements, configuration and signal quality).
 | E5 | NSE and MCX hours apart | 2026-11-16 | built; checked on the live feed |
 | E6 | Bullion signals and paper trades | 2026-11-16 | built; bias and panels checked live, a live bullion trade still to see |
 | E7 | Live signal levels | 2026-11-16 | built, with unit tests |
+| E8 | Net volume per candle | 2026-11-16 | built, with unit and replay tests |
 | S3 | Switch the trigger on, on evidence | — | planned: after five live sessions of shadow data |
 
 ---
@@ -542,6 +543,34 @@ see the trade's target and stop match the Live row.
 **Status (2026-11-16):** built, with unit tests.
 
 **Design:** spec §9.3, §10.1.
+
+## Milestone E8 — Net volume per candle
+
+**Goal:** see, minute by minute, whether buyers or sellers drove the traded volume.
+
+- Upstox sends no buy/sell split, so each tick's volume is signed in the candle builder:
+  quote rule against the quote before the tick, tick rule for prints between bid and ask.
+  Candles keep buy and sell volume (`candles_1m.bv` / `sv`, migration 012); `None` where
+  there is no side information (index spot, backfilled minutes).
+- The API's candles carry `bv` / `sv`, and the index candles response adds the near-month
+  future's candles (`fut_candles`); the future's `candle` frames are kept by the store.
+- The price chart gets a second pane: a net-volume histogram (green buying, red selling)
+  from the near-month future, or the metal's future on BULLION, with net, buy and sell for
+  the minute under the crosshair.
+- Display only: not an input to the bias or the signals.
+- Tests: the trade-side rule (quote and tick rule cases); the builder signing against the
+  quote before the tick, resetting each minute, gaps and no-volume series; storage and
+  migration; replay rebuilding the same split; the API, the future's candle frame and the
+  bullion candles; the frontend bar and legend helpers and the store.
+
+**Demo:** on a live or replayed day, NIFTY, BANK NIFTY and BULLION show the histogram under
+the chart; hover a minute for its buy, sell and net volume. Backfilled minutes from before
+the app started have no bar.
+
+**Status (2026-11-16):** built, with unit and replay tests; checked in a browser on the
+synthetic feed.
+
+**Design:** spec §7.1, §11, §12, §13.2.
 
 ## Milestone C1 — Editable, versioned config
 

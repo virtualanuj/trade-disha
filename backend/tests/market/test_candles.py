@@ -1,7 +1,9 @@
 """Candle builder: minute boundaries, gap fill, volume deltas, VWAP, stale flush."""
 
+import pytest
+
 from tradedisha.feed.provider import Tick
-from tradedisha.market.candles import CandleBuilder, CandleStore
+from tradedisha.market.candles import Candle, CandleBuilder, CandleStore, trade_side
 from tradedisha.store.db import connect
 
 M = 60_000
@@ -77,3 +79,83 @@ def test_store_roundtrip() -> None:
     assert len(rows) == 1
     assert rows[0].close == 100.0
     assert store.count() == 1
+
+
+# -- net volume: which side initiated each trade (Milestone E8) -------------------------------
+
+
+@pytest.mark.parametrize(
+    ("ltp", "bid", "ask", "prev_ltp", "prev_side", "side"),
+    [
+        (101.0, 100.0, 101.0, None, 0, 1),  # at the ask: a buyer paid up
+        (101.5, 100.0, 101.0, None, 0, 1),  # through the ask
+        (100.0, 100.0, 101.0, None, 0, -1),  # at the bid: a seller hit it
+        (99.5, 100.0, 101.0, None, 0, -1),
+        (100.5, 100.0, 101.0, 100.2, 0, 1),  # between: tick rule, up from the last trade
+        (100.5, 100.0, 101.0, 100.8, 0, -1),  # between, down
+        (100.5, 100.0, 101.0, 100.5, -1, -1),  # between, unchanged: keeps the last side
+        (100.5, None, None, 100.0, 0, 1),  # no quote yet: tick rule alone
+        (100.5, None, None, None, 0, 0),  # nothing known
+        (100.5, 100.0, 101.0, None, 0, 0),  # between with no previous trade
+    ],
+)
+def test_trade_side(
+    ltp: float,
+    bid: float | None,
+    ask: float | None,
+    prev_ltp: float | None,
+    prev_side: int,
+    side: int,
+) -> None:
+    assert trade_side(ltp, bid, ask, prev_ltp, prev_side) == side
+
+
+def fq(ts: int, ltp: float, vol: int, bid: float, ask: float) -> Tick:
+    return Tick(key="F", ts=ts, ltp=ltp, volume=vol, bid=bid, ask=ask)
+
+
+def test_trades_are_signed_against_the_quote_before_the_tick() -> None:
+    b = CandleBuilder()
+    b.apply(fq(T0, 100.0, 1_000, 99.5, 100.0))  # first: no trade to sign yet
+    # Printed at 100.0, the ask as it stood; the tick's own quote has moved up after it.
+    b.apply(fq(T0 + 1_000, 100.0, 1_050, 100.0, 100.5))
+    # Printed at 100.0, now the bid (from the last tick): a sell.
+    b.apply(fq(T0 + 2_000, 100.0, 1_080, 99.5, 100.0))
+    # Between 99.5 and 100.0, up from 100.0? No, down to 99.8: a sell by the tick rule.
+    b.apply(fq(T0 + 3_000, 99.8, 1_100, 99.5, 100.0))
+    c = b.current("F")
+    assert c is not None
+    assert (c.volume, c.buy_volume, c.sell_volume) == (100, 50, 50)
+
+
+def test_net_volume_resets_each_minute_and_gaps_are_zero() -> None:
+    b = CandleBuilder()
+    b.apply(fq(T0, 100.0, 1_000, 99.5, 100.0))
+    b.apply(fq(T0 + 1_000, 100.0, 1_040, 99.5, 100.0))  # 40 bought
+    closed = b.apply(fq(T0 + 3 * M, 99.5, 1_060, 99.5, 100.0))  # 20 sold, two minutes later
+    assert [(c.buy_volume, c.sell_volume) for c in closed] == [(40, 0), (0, 0), (0, 0)]
+    cur = b.current("F")
+    assert cur is not None
+    assert (cur.buy_volume, cur.sell_volume) == (0, 20)
+
+
+def test_no_volume_means_no_side_information() -> None:
+    b = CandleBuilder()
+    b.apply(tick(T0, 25_000.0))  # an index: no volume field
+    closed = b.apply(tick(T0 + 2 * M, 25_010.0))
+    assert [(c.buy_volume, c.sell_volume) for c in closed] == [(None, None), (None, None)]
+
+
+def test_seeded_candles_keep_unknown_sides() -> None:
+    b = CandleBuilder()
+    b.seed("F", [Candle("F", T0, 1, 1, 1, 1, volume=500)])
+    assert b.closed("F")[0].buy_volume is None
+
+
+def test_store_roundtrip_with_and_without_sides() -> None:
+    conn = connect(":memory:")
+    store = CandleStore(conn)
+    store.write(Candle("F", T0, 1, 2, 0.5, 1.5, 100, buy_volume=60, sell_volume=30))
+    store.write_many([Candle("F", T0 + M, 1, 1, 1, 1, 10)])
+    got = store.read("F", T0, T0 + 2 * M)
+    assert [(c.buy_volume, c.sell_volume) for c in got] == [(60, 30), (None, None)]

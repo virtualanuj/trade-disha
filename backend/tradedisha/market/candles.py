@@ -3,6 +3,12 @@
 Minute boundaries are driven by exchange timestamps. A wall-clock fallback (`flush_stale`)
 closes a candle when no tick arrives for a while. Minutes with no ticks produce a
 carry-forward candle flagged synthetic so indicator windows stay aligned.
+
+Net volume (Milestone E8): Upstox does not say which side started a trade, so each tick's
+volume is signed here. A print at or above the ask, as it stood before the tick, is a buy;
+at or below the bid, a sell; in between, the tick rule decides (`trade_side`). Candles keep
+`buy_volume` and `sell_volume`; `None` means no side information (an index has no volume,
+and backfilled minutes come without trades).
 """
 
 from __future__ import annotations
@@ -16,6 +22,28 @@ from tradedisha.feed.provider import Tick
 MINUTE_MS = 60_000
 
 
+def trade_side(
+    ltp: float, bid: float | None, ask: float | None, prev_ltp: float | None, prev_side: int
+) -> int:
+    """+1 if the trade was buyer-initiated, -1 seller-initiated, 0 if it cannot be told.
+
+    Quote rule first, against the quote standing before the trade; for a print between bid
+    and ask, the tick rule: up from the last trade is a buy, down a sell, unchanged takes
+    the last trade's side.
+    """
+    if ask is not None and ltp >= ask:
+        return 1
+    if bid is not None and ltp <= bid:
+        return -1
+    if prev_ltp is None:
+        return 0
+    if ltp > prev_ltp:
+        return 1
+    if ltp < prev_ltp:
+        return -1
+    return prev_side
+
+
 @dataclass
 class Candle:
     key: str
@@ -27,6 +55,8 @@ class Candle:
     volume: int = 0
     synthetic: bool = False
     ticks: int = 0
+    buy_volume: int | None = None  # buyer-initiated volume; None = no side information
+    sell_volume: int | None = None
 
     def update(self, ltp: float, dvol: int) -> None:
         self.high = max(self.high, ltp)
@@ -34,6 +64,15 @@ class Candle:
         self.close = ltp
         self.volume += dvol
         self.ticks += 1
+
+    def add_trade(self, side: int, qty: int) -> None:
+        """Count `qty` on `side` (+1 buy, -1 sell, 0 unknown) once sides are tracked."""
+        if self.buy_volume is None or self.sell_volume is None:
+            self.buy_volume = self.sell_volume = 0
+        if side > 0:
+            self.buy_volume += qty
+        elif side < 0:
+            self.sell_volume += qty
 
 
 @dataclass
@@ -43,6 +82,11 @@ class _Series:
     last_cum_volume: int | None = None
     pv_sum: float = 0.0  # sum of close x volume over closed candles, for VWAP
     v_sum: int = 0
+    # The quote standing before the next tick, and the last trade, for `trade_side`.
+    bid: float | None = None
+    ask: float | None = None
+    last_ltp: float | None = None
+    last_side: int = 0
 
     @property
     def vwap(self) -> float | None:
@@ -73,27 +117,62 @@ class CandleBuilder:
                 dvol = max(0, t.volume - s.last_cum_volume)
             s.last_cum_volume = t.volume
 
+        side = self._side(s, t, dvol)
         closed: list[Candle] = []
         cur = s.current
         if cur is None:
-            s.current = Candle(t.key, minute, t.ltp, t.ltp, t.ltp, t.ltp, dvol, ticks=1)
+            s.current = self._open(t, minute, dvol, side)
             return closed
         if minute < cur.minute_ts:
             return closed  # late tick for an already-closed minute; ignore
         if minute > cur.minute_ts:
             closed.append(self._close(s, cur))
             # gap-fill minutes with no ticks
+            sides = 0 if cur.buy_volume is not None else None
             m = cur.minute_ts + MINUTE_MS
             while m < minute:
                 gap = Candle(
-                    t.key, m, cur.close, cur.close, cur.close, cur.close, 0, synthetic=True
+                    t.key,
+                    m,
+                    cur.close,
+                    cur.close,
+                    cur.close,
+                    cur.close,
+                    0,
+                    synthetic=True,
+                    buy_volume=sides,
+                    sell_volume=sides,
                 )
                 closed.append(self._close(s, gap))
                 m += MINUTE_MS
-            s.current = Candle(t.key, minute, t.ltp, t.ltp, t.ltp, t.ltp, dvol, ticks=1)
+            s.current = self._open(t, minute, dvol, side)
             return closed
         cur.update(t.ltp, dvol)
+        if t.volume is not None:
+            cur.add_trade(side, dvol)
         return closed
+
+    @staticmethod
+    def _side(s: _Series, t: Tick, dvol: int) -> int:
+        """Sign this tick's trade against the quote before it, then remember the new quote."""
+        side = 0
+        if dvol > 0:
+            side = trade_side(t.ltp, s.bid, s.ask, s.last_ltp, s.last_side)
+            if side:
+                s.last_side = side
+        s.last_ltp = t.ltp
+        if t.bid is not None:
+            s.bid = t.bid
+        if t.ask is not None:
+            s.ask = t.ask
+        return side
+
+    @staticmethod
+    def _open(t: Tick, minute: int, dvol: int, side: int) -> Candle:
+        c = Candle(t.key, minute, t.ltp, t.ltp, t.ltp, t.ltp, dvol, ticks=1)
+        if t.volume is not None:  # a traded instrument: sides are tracked from here
+            c.add_trade(side, dvol)
+        return c
 
     def flush_stale(self, now_ms: int, *, grace_ms: int = 2_000) -> list[Candle]:
         """Close any current candle whose minute ended more than `grace_ms` ago."""
@@ -142,30 +221,36 @@ class CandleBuilder:
 
 class CandleStore:
     INSERT = (
-        "INSERT OR REPLACE INTO candles_1m (key, minute_ts, o, h, l, c, v, synthetic)"
-        " VALUES (?,?,?,?,?,?,?,?)"
+        "INSERT OR REPLACE INTO candles_1m (key, minute_ts, o, h, l, c, v, synthetic, bv, sv)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?)"
     )
+
+    @staticmethod
+    def _row(c: Candle) -> tuple[object, ...]:
+        return (
+            c.key,
+            c.minute_ts,
+            c.open,
+            c.high,
+            c.low,
+            c.close,
+            c.volume,
+            int(c.synthetic),
+            c.buy_volume,
+            c.sell_volume,
+        )
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
 
     def write(self, c: Candle) -> None:
         with self._conn:
-            self._conn.execute(
-                self.INSERT,
-                (c.key, c.minute_ts, c.open, c.high, c.low, c.close, c.volume, int(c.synthetic)),
-            )
+            self._conn.execute(self.INSERT, self._row(c))
 
     def write_many(self, candles: list[Candle]) -> None:
         """Backfilled candles, in one transaction."""
         with self._conn:
-            self._conn.executemany(
-                self.INSERT,
-                [
-                    (c.key, c.minute_ts, c.open, c.high, c.low, c.close, c.volume, int(c.synthetic))
-                    for c in candles
-                ],
-            )
+            self._conn.executemany(self.INSERT, [self._row(c) for c in candles])
 
     def read(self, key: str, start_ms: int, end_ms: int) -> list[Candle]:
         rows = self._conn.execute(
@@ -183,6 +268,8 @@ class CandleStore:
                 r["c"],
                 r["v"],
                 bool(r["synthetic"]),
+                buy_volume=r["bv"],
+                sell_volume=r["sv"],
             )
             for r in rows
         ]

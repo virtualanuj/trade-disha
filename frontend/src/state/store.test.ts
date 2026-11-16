@@ -68,6 +68,20 @@ describe('market store', () => {
   })
 })
 
+describe('futures candles for net volume', () => {
+  it('keeps the futures candles from frames, apart from the spot ones', () => {
+    useMarketStore.setState({ candles: {}, futCandles: {} })
+    const { applyCandle } = useMarketStore.getState()
+    const k = (t: number) => ({ t, o: 1, h: 1, l: 1, c: 1, v: 5, synthetic: false, bv: 3, sv: 2 })
+    applyCandle('NIFTY', 'spot', k(1))
+    applyCandle('NIFTY', 'fut', k(1))
+    applyCandle('NIFTY', 'fut', k(2))
+    const s = useMarketStore.getState()
+    expect(s.candles.NIFTY?.map((x) => x.t)).toEqual([1])
+    expect(s.futCandles.NIFTY?.map((x) => x.t)).toEqual([1, 2])
+  })
+})
+
 describe('bullion in the store', () => {
   const metal = { metal: 'GOLD' } as BullionMetalOut
 

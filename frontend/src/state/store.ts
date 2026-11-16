@@ -48,6 +48,8 @@ interface MarketStore {
   lastFrameAt: Record<string, number>
   chains: Record<string, ChainOut>
   candles: Record<string, CandleOut[]>
+  /** the near-month future's candles per index: their buy/sell split is the net volume */
+  futCandles: Record<string, CandleOut[]>
   overlays: Record<string, OverlayOut[]>
   bias: Record<string, BiasOut>
   parameters: ParametersOut | null
@@ -112,6 +114,7 @@ export const useMarketStore = create<MarketStore>((set) => ({
   lastFrameAt: {},
   chains: {},
   candles: {},
+  futCandles: {},
   overlays: {},
   bias: {},
   parameters: null,
@@ -154,9 +157,11 @@ export const useMarketStore = create<MarketStore>((set) => ({
       chainsByIndex[c.index] = c
     }
     const candlesByIndex: Record<string, CandleOut[]> = {}
+    const futCandlesByIndex: Record<string, CandleOut[]> = {}
     const overlaysByIndex: Record<string, OverlayOut[]> = {}
     for (const c of candles) {
       candlesByIndex[c.index] = c.candles
+      futCandlesByIndex[c.index] = c.fut_candles
       overlaysByIndex[c.index] = c.overlays
     }
     const biasByIndex: Record<string, BiasOut> = {}
@@ -173,6 +178,7 @@ export const useMarketStore = create<MarketStore>((set) => ({
       prices: byIndex,
       chains: chainsByIndex,
       candles: candlesByIndex,
+      futCandles: futCandlesByIndex,
       overlays: overlaysByIndex,
       bias: biasByIndex,
       parameters,
@@ -239,7 +245,12 @@ export const useMarketStore = create<MarketStore>((set) => ({
     set((s) => ({ chains: { ...s.chains, [c.index]: c } }))
   },
   applyCandle: (index, role, c) => {
-    if (role !== 'spot') return
+    if (role === 'fut') {
+      set((s) => ({
+        futCandles: { ...s.futCandles, [index]: pushCapped(s.futCandles[index] ?? [], c) },
+      }))
+      return
+    }
     set((s) => ({ candles: { ...s.candles, [index]: pushCapped(s.candles[index] ?? [], c) } }))
   },
   applyBias: (b, o, gates) => {

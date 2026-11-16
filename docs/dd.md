@@ -107,6 +107,7 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | Term | Meaning |
 |---|---|
 | **Aggregator** | The function that combines group scores with their weights into one bias value. |
+| **Aggressor side** | Which side initiated a trade by accepting the other's price: the buyer (paying the ask) or the seller (hitting the bid). |
 | **Bias** | TradeDisha's overall view of one index: a number in [−1, +1], negative bearish, positive bullish. Recomputed every minute. |
 | **Bias label** | `Bullish` if bias ≥ `neutral_band`, `Bearish` if bias ≤ −`neutral_band`, else `Neutral`. Default band 0.20. |
 | **Candle (1-minute)** | Open, high, low, close, and volume of an instrument over one minute. Built from ticks; the unit on which indicators run. |
@@ -122,10 +123,12 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Indicator** | A pure function from candles and/or chain state to an `IndicatorResult` (score, raw values, note, quality). Nine in v1. |
 | **Lapse** | A signal that was not paper-traded within its time-to-live (default 5 minutes). |
 | **Momentum / ROC (rate of change)** | Percentage change of a value over N minutes. Used for ATM call vs put premium momentum (5 minutes). |
+| **Net volume** | Buyer-initiated minus seller-initiated traded volume in one minute, worked out from the ticks (Upstox does not supply it): see Quote rule and Tick rule. Shown as a histogram under the price chart, from the near-month future (an index has no volume). Display only. |
 | **Neutral band** | Absolute bias below which the label is `Neutral`. Default 0.20. |
 | **Points** | Index points, the unit of index movement (NIFTY 24,500 → 24,540 is 40 points). Expiry-day targets and stops are set in points. |
 | **Premium confirmation** | Whether call/put premium changes agree with the spot move over the last 5 minutes. |
 | **Quality (indicator)** | `ok`, `warming` (not enough history yet), or `partial` (baseline uncertain, for example opening OI). Non-`ok` indicators show greyed and contribute 0. |
+| **Quote rule** | Signing a trade by where it printed against the quote standing before it: at or above the ask, a buy; at or below the bid, a sell. |
 | **Reversal** | Bias changes sign, or falls inside the neutral band, while a signal is active. Ends the signal. Also flags opposing open paper trades with "bias reversed". |
 | **Score** | An indicator's output in [−1, +1]. |
 | **Signal / recommendation** | A concrete trade suggestion: index, option (strike, expiry, CE/PE), entry premium, target, stop, time, evidence. Fires at a minute close when \|bias\| ≥ entry threshold, no signal is active on that index, it is within signal hours, and the feed is live. Open paper trades never block it. For gold and silver see **Bullion signal** (§1a). |
@@ -135,6 +138,7 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Strength** | `round(|bias| × 100)`, shown 0–100 on the meter. |
 | **Supertrend** | A trend-following indicator built from average true range (period 10, multiplier 3). Price above the line is bullish, below is bearish. |
 | **Target** | Price at which a trade is closed at a profit. Index options: entry × (1 + 30 %); expiry day: entry + \|delta\| × target points. Bullion: 0.40 % of the future's price in the signal's favour (below the entry for a short). |
+| **Tick rule** | Signing a trade that printed between bid and ask by the price move: up from the last trade, a buy; down, a sell; unchanged, the last trade's side. |
 | **Trend (price trend)** | The indicator group reading direction and momentum of the index: EMA crossover, VWAP position, supertrend. |
 | **VWAP (volume-weighted average price)** | Σ(price × volume) / Σ volume from session open, on the futures contract. Price above VWAP is bullish. |
 | **Weight** | The share of the bias assigned to a group. Defaults: trend 0.40, OI 0.35, premium 0.25. On expiry day the OI weight is halved and redistributed. |
@@ -265,7 +269,7 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | `sessions` | one Upstox login (token, obtained, expires) |
 | `instruments` | one tradable instrument from the daily master subset |
 | `ticks` | one tick for one instrument |
-| `candles_1m` | one 1-minute candle for one instrument |
+| `candles_1m` | one 1-minute candle for one instrument, with its buyer- and seller-initiated volume where known |
 | `chain_minutes` | one strike of one index at one minute close (CE and PE values) |
 | `bias_minutes` | one index's bias and evidence at one minute close |
 | `signals` | one signal (index or bullion) with its evidence, final status and the config version it fired under |

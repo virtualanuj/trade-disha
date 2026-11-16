@@ -226,6 +226,10 @@ export interface CandleOut {
   c: number
   v: number
   synthetic: boolean
+  /** buyer- and seller-initiated volume (E8); null with no side information (an index, a
+   * backfilled minute) */
+  bv: number | null
+  sv: number | null
 }
 
 export interface OverlayOut {
@@ -242,6 +246,8 @@ export interface CandlesResponse {
   spot_key: string
   candles: CandleOut[]
   overlays: OverlayOut[]
+  /** the near-month future's candles, for net volume under the index chart */
+  fut_candles: CandleOut[]
 }
 
 export interface IndicatorOut {

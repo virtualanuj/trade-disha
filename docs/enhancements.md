@@ -266,6 +266,28 @@ Builder's calls:
   not move an open offer.
 - Live levels go out once a second, with open-trade P&L.
 
+### 12. Net volume per candle
+
+Asked for (2026-11-16): does Upstox give data to show net volume for each one-minute
+candle?
+
+It does not: the feed and the candle API give total volume only. It can be derived from
+the recorded ticks (volume change, last price, best bid and ask). On the last recorded day
+the quote rule alone classified 85 % of NIFTY and 90 % of BANK NIFTY futures volume.
+
+Status: built in Milestone E8. Design in [spec.md](spec.md) §7.1 and §13.2; planned in
+[plan.md](plan.md) Milestone E8.
+
+Decided with the owner on 2026-11-16:
+- Prints between bid and ask are signed by the tick rule.
+- A histogram under the price chart, from the near-month future (the metal's future on
+  BULLION), with buy / sell / net in the legend.
+
+Builder's calls:
+- Display only; the order-flow score keeps its own seconds-scale signing.
+- Minutes backfilled at start have no side data and show no bar; a replay rebuilds the
+  split from the recorded ticks.
+
 ## Deferred
 
 ### Chart zoom buttons

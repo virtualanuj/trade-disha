@@ -132,6 +132,7 @@ export default function App() {
   const selectIndex = useMarketStore((s) => s.selectIndex)
   const indexCandles = useMarketStore((s) => s.candles[s.selectedIndex]) ?? EMPTY
   const indexOverlays = useMarketStore((s) => s.overlays[s.selectedIndex]) ?? EMPTY
+  const indexFutCandles = useMarketStore((s) => s.futCandles[s.selectedIndex]) ?? EMPTY
   const flow = useMarketStore((s) => s.flow[s.selectedIndex])
   const signalHistory = useMarketStore((s) => s.signalHistory)
   const biasByIndex = useMarketStore((s) => s.bias)
@@ -152,6 +153,8 @@ export default function App() {
   const focus = onBullion ? metal : selected
   const candles = onBullion ? (bullionCandles[metal] ?? EMPTY) : indexCandles
   const overlays = onBullion ? (bullionOverlays[metal] ?? EMPTY) : indexOverlays
+  /** net volume comes from a traded future: the index's, or the metal itself */
+  const netVolume = onBullion ? candles : indexFutCandles
   const bias = biasByIndex[focus]
   const signal = signalByIndex[focus]
   const gate = gateByIndex[focus]
@@ -313,6 +316,7 @@ export default function App() {
             candles={candles}
             overlays={overlays}
             signals={markers}
+            netVolume={netVolume}
             dataKey={onBullion ? `bullion-${metal}` : selected}
             theme={theme}
             height={layout.chartHeight}
