@@ -1409,7 +1409,10 @@ wall-clock fallback when ticks are sparse; the detection delay is reported separ
 ### Frontend techniques
 See §13.3 Performance. Additionally: WS parsing in the main thread (frames are small);
 React 19 automatic batching; no state in context that changes per tick; `React.memo` on
-chain rows keyed by strike; chart updates via `series.update()` not `setData()`.
+chain rows keyed by strike; chart updates via `series.update()` not `setData()`. The
+production build (`vite.config.ts`) splits the libraries from the app's code: `charts`
+(`lightweight-charts`), `vendor` (React, Zustand) and the app, so no file passes Vite's
+500 kB warning and the library files stay cached when only the app changes.
 
 ### Measurement
 - Every WS frame carries `t_src`, `t_in`, `t_out`; the client stamps `t_recv` and

@@ -5,6 +5,24 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    rolldownOptions: {
+      output: {
+        // Libraries apart from the app's own code: no file over the 500 kB warning, and the
+        // browser keeps the library files cached when only the app changes.
+        codeSplitting: {
+          groups: [
+            {
+              name: (id) => {
+                if (!id.includes('node_modules')) return null
+                return /lightweight-charts|fancy-canvas/.test(id) ? 'charts' : 'vendor'
+              },
+            },
+          ],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {
