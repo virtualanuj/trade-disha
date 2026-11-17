@@ -57,7 +57,13 @@ from tradedisha.market.bullion import BullionTracker
 from tradedisha.market.candles import MINUTE_MS, Candle, CandleBuilder, CandleStore
 from tradedisha.market.chain_manager import ChainManager, SubscriptionChange
 from tradedisha.market.flow import FlowReading, FlowTracker
-from tradedisha.market.stats import VIX_KEY, IndexStats, compute_stats
+from tradedisha.market.stats import (
+    VIX_KEY,
+    IndexStats,
+    compute_stats,
+    market_wide_keys,
+    sector_quotes,
+)
 from tradedisha.metrics.latency import LatencyTracker
 from tradedisha.parameters.model import ParameterSet
 from tradedisha.store.ticks import FeedEventLog, TickStore
@@ -262,8 +268,7 @@ class FeedSession:
         self.provider = self._build_provider()
         await self.provider.connect()
         keys = [k for r in self.resolved.values() for k in r.all_keys]
-        if self.settings.feed_provider != "synthetic":  # the generated market has no VIX
-            keys.append(VIX_KEY)
+        keys += market_wide_keys(self.settings)  # India VIX and the sector indices
         keys.extend(sorted(self.bullion_keys))
         await self.provider.subscribe(keys)
         self.feed_log.write(
@@ -605,6 +610,11 @@ class FeedSession:
             vix=self.prices.ltp.get(VIX_KEY),
             vix_prev_close=self.prices.close_prev.get(VIX_KEY),
             updated_ts=self.prices.ts.get(spot_key),
+            sectors=sector_quotes(
+                self.settings.sector_indices.get(index, []),
+                self.prices.ltp,
+                self.prices.close_prev,
+            ),
         )
 
     @property

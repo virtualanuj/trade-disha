@@ -1,27 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { fmtIstTime, fmtPrice } from '../../lib/format'
+import { useFlash } from '../../lib/useFlash'
 
 /** The small building blocks of the index and bullion detail views. */
-
-function useFlash(value: number | null): 'up' | 'down' | null {
-  const prev = useRef<number | null>(null)
-  const [dir, setDir] = useState<'up' | 'down' | null>(null)
-  useEffect(() => {
-    const p = prev.current
-    prev.current = value
-    if (value == null || p == null || value === p) return
-    setDir(value > p ? 'up' : 'down')
-    const id = setTimeout(() => {
-      setDir(null)
-    }, 150)
-    return () => {
-      clearTimeout(id)
-    }
-  }, [value])
-  return dir
-}
 
 export function Price({
   label,

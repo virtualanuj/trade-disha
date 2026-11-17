@@ -348,6 +348,34 @@ Builder's calls:
 - Collapse is the panel's minimise; hide is a × on the panel and a Headlines toggle in the
   top bar.
 
+### 15. Sector indices on the Index panel
+
+Asked for (2026-11-17): add sector indices such as auto, FMCG and IT to the NIFTY 50
+Index panel, and move ATM into the details section.
+
+Status: built in Milestone E11; the owner checks it in the browser. Design in
+[spec.md](spec.md) §7.4 and §13.2 (IndexTiles); planned in [plan.md](plan.md) Milestone E11.
+
+Decided with the owner on 2026-11-17:
+- NIFTY shows the main ten sectoral indices: Auto, FMCG, IT, Pharma, Metal, Energy,
+  Realty, Media, Fin Service, PSU Bank.
+- BANK NIFTY shows its bank sub-indices in the same place: PSU Bank, Pvt Bank, Fin Service.
+- Each sector shows its name, level and change %.
+- Then (2026-11-17): each sector in a small box like the NIFTY 50 figures, three lines:
+  name, value, and change with change % in brackets.
+- Then (2026-11-17): the sectors collapse like the details section, and the sector name
+  is easy to read (it was small and muted).
+
+Builder's calls:
+- The lists are a setting (`sector_indices`), not a config parameter: they change the
+  feed subscription, which is made at start.
+- The Sectors block starts open and is remembered once closed; closed, it shows how many
+  sectors are up and down. The change is green up and red
+  down like the index's own change, and the value flashes on a tick like spot; boxes run
+  five across on medium screens and up; hover shows the full name and previous close.
+- ATM moves on both tabs, with the strike count, into a first Details group, Options.
+- Sector ticks are recorded like VIX, so replays show them.
+
 ## Deferred
 
 ### Chart zoom buttons

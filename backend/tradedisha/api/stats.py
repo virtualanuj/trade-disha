@@ -13,6 +13,17 @@ from tradedisha.app_state import AppState
 router = APIRouter()
 
 
+class SectorOut(BaseModel):
+    """A sector index on the index's panel (Milestone E11). Display only."""
+
+    name: str
+    label: str
+    ltp: float | None
+    prev_close: float | None
+    change: float | None
+    change_pct: float | None
+
+
 class IndexStatsOut(BaseModel):
     index: str
     day_open: float | None
@@ -28,6 +39,7 @@ class IndexStatsOut(BaseModel):
     vix: float | None
     vix_change_pct: float | None
     updated_ts: int | None
+    sectors: list[SectorOut]
 
 
 def all_stats(state: AppState) -> list[IndexStatsOut]:

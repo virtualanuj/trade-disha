@@ -127,6 +127,7 @@ Fields of `config.py:Settings`, set as `TRADEDISHA_<NAME>` in the environment or
 | `feed_provider` | `synthetic` | `synthetic`, `replay` or `upstox` |
 | `db_path`, `data_dir` | `data/tradedisha.sqlite`, `data/` | live recordings usually use `data/live.sqlite` |
 | `indices` | `NIFTY, BANKNIFTY` | |
+| `sector_indices` | NIFTY: Auto, FMCG, IT, Pharma, Metal, Energy, Realty, Media, Fin Service, PSU Bank; BANKNIFTY: PSU Bank, Pvt Bank, Fin Service | Upstox `NSE_INDEX` names (`"Nifty Auto"`) per index; JSON in the environment; subscribed at start, so a change needs a restart (§7.4) |
 | `market_open`, `market_close`, `pre_open_start` | 09:15, 15:30, 09:00 | NSE, IST |
 | `holidays_file` | `config/nse-holidays.txt` | |
 | `mcx_open`, `mcx_close` | 09:00, 23:30 | MCX; set the close to 23:55 while the US is on standard time |
@@ -548,6 +549,13 @@ class IndexStats:
     fut_premium: float | None      # futures LTP − spot LTP
     vix, vix_change_pct: float | None
     updated_ts: int | None
+    sectors: tuple[SectorQuote, ...]   # Milestone E11
+
+class SectorQuote:
+    name: str                      # Upstox NSE_INDEX name: "Nifty Fin Service"
+    label: str                     # without "Nifty ": "Fin Service"
+    ltp, prev_close: float | None
+    change, change_pct: float | None
 ```
 
 | Value | Source |
@@ -558,14 +566,22 @@ class IndexStats:
 | 52-week high / low | the range before today from §6.5 step 3, widened by today's high/low on every update, so a new extreme shows the moment it happens |
 | Futures premium | latest futures LTP − latest spot LTP |
 | India VIX and its change % | the VIX key's LTP and previous close (§6.2) |
+| Sectors (E11) | for each name in `sector_indices[index]`, in that order, the `NSE_INDEX|<name>` key's LTP and previous close; change = LTP − previous close |
 
 Any value without a source is `None` and shown as "—". On the synthetic feed that is the
-52-week range, previous close and VIX; on replay it is the 52-week range, and previous
+52-week range, previous close, VIX and the sectors; on replay it is the 52-week range, and previous
 close and VIX for days recorded before E1 (previous close is stored with ticks from E1 on,
 once per instrument whenever it changes).
 
 Recomputed on spot, futures and VIX ticks; cheap enough not to cache beyond the latest
 value.
+
+**Sector indices (Milestone E11).** `market_wide_keys()` subscribes India VIX and every
+configured sector key once (Fin Service and PSU Bank serve both indices), on every feed but
+the synthetic one. Their ticks are recorded in `ticks` like VIX, so a replay brings them
+back, and they count toward NSE liveness as VIX does; nothing else reads them (the candle
+builder takes spot and futures keys only). The default names were checked against the
+Upstox instrument file; a wrong name is not rejected, it just never ticks and shows "—".
 
 ---
 
@@ -1028,7 +1044,8 @@ On reconnect the client receives a fresh `hello`, so no event replay is needed.
 ├────────────────────────────────────────────────┬─────────────────────────────┤
 │  [NIFTY]  [BANKNIFTY]                          │ OPTION CHAIN             [–]│
 │  ┌ INDEX ─────────────────────────────── [–] ┐ │ NIFTY  17/11/2026           │
-│  │ Spot 24,512.40  Fut 24,548.10  ATM 24500  │ │ PCR 1.18   Max pain 24500   │
+│  │ Spot 24,512.40  Fut 24,548.10             │ │ PCR 1.18   Max pain 24500   │
+│  │ [AUTO 24,512 +0.82%] [IT 37,880 +1.24%] … │ │                             │
 │  │ ▸ Details                                 │ │─────────────────────────────│
 │  └───────────────────────────────────────────┘ │ OI ΔOI IV LTP │STRIKE│ LTP… │
 │  ┌ SIGNAL ────────────────────────────── [–] ┐ │ ...                         │
@@ -1125,13 +1142,24 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
     - Next month: price, spread over near
   - The gold/silver ratio.
   - `Price`, `Group`, `Fact` and `RangeBar` are shared with IndexTiles (`components/Facts`).
-- **IndexTiles**: spot, futures and ATM for the selected index, with a collapsible
-  **details view** underneath showing `IndexStats` (§7.4) in five groups: day open / high
+- **IndexTiles**: spot and futures for the selected index; under them the **Sectors**
+  block (E11), which opens and closes like Details (open by default, remembered as
+  `tradedisha.sectorsOpen`; closed, it shows how many sectors are up and down, e.g.
+  `6 up · 4 down`). Open, it is a small box per sector in config order with three lines:
+  name (normal size, semi-bold, full text colour, to be easily read), value (flashing on
+  each tick like spot), and
+  change in points with change % in brackets, `+464.00 (+1.24%)` (green up, red down,
+  muted at zero; "—" without a price). Two boxes across narrow, three on small and five
+  on medium screens and up (NIFTY's ten in two rows); the full name and previous close on
+  hover; no block for an index with no sectors. Then a collapsible
+  **details view** showing `IndexStats` (§7.4) in six groups: options (ATM and the number
+  of strikes in the chain window, moved here from the top row in E11); day open / high
   / low with a small range bar marking the current price; 52-week high / low with the
   distance of the current price from each; previous close with change and change %;
   futures premium over spot; India VIX with its change %. Closed by default *(my call)*;
   a chevron button toggles it and the state is remembered. Missing values render as "—".
-  The view follows the index tabs; VIX is the same in both.
+  The view follows the index tabs; VIX is the same in both. NIFTY shows ten sectors,
+  BANK NIFTY its three bank sub-indices.
 - **Resizable layout**: two draggable dividers *(my call)* — a vertical one between the
   main column and the chain panel, and a horizontal one under the price chart setting its
   height. Each is a 4 px handle with a wider hit area, `role="separator"`, keyboard

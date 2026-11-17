@@ -39,6 +39,23 @@ class Settings(BaseSettings):
     params_path: Path = REPO_ROOT / "config" / "params.toml"
 
     indices: list[str] = ["NIFTY", "BANKNIFTY"]
+    # Sector indices shown on each index's panel (display only, Milestone E11): Upstox
+    # NSE_INDEX names. Changing them changes the subscription, so it needs a restart.
+    sector_indices: dict[str, list[str]] = {
+        "NIFTY": [
+            "Nifty Auto",
+            "Nifty FMCG",
+            "Nifty IT",
+            "Nifty Pharma",
+            "Nifty Metal",
+            "Nifty Energy",
+            "Nifty Realty",
+            "Nifty Media",
+            "Nifty Fin Service",
+            "Nifty PSU Bank",
+        ],
+        "BANKNIFTY": ["Nifty PSU Bank", "Nifty Pvt Bank", "Nifty Fin Service"],
+    }
     market_open: time = time(9, 15)
     market_close: time = time(15, 30)
     pre_open_start: time = time(9, 0)

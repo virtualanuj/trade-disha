@@ -534,6 +534,21 @@ export interface IndexStatsOut {
   vix: number | null
   vix_change_pct: number | null
   updated_ts: number | null
+  /** sector indices shown on the panel, in config order (E11); display only */
+  sectors: SectorOut[]
+}
+
+/** A sector index beside the index it helps explain (E11). */
+export interface SectorOut {
+  /** Upstox NSE_INDEX name: "Nifty Fin Service" */
+  name: string
+  /** shown: "Fin Service" */
+  label: string
+  ltp: number | null
+  prev_close: number | null
+  /** points */
+  change: number | null
+  change_pct: number | null
 }
 
 export interface StatsFrame extends FrameBase {

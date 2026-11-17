@@ -646,6 +646,36 @@ Not yet checked in a browser: the owner verifies it by hand.
 **Design:** spec §3.1, §6.7, §12.2, §13.1 (Right column with headlines), §13.2 (Headlines,
 SidePanel, PanelFrame, Resizable layout).
 
+## Milestone E11 — Sector indices, ATM in Details
+
+**Goal:** see how the sectors behind the index are moving, beside spot and futures.
+
+- `sector_indices` setting: NIFTY shows Auto, FMCG, IT, Pharma, Metal, Energy, Realty,
+  Media, Fin Service and PSU Bank; BANK NIFTY shows PSU Bank, Pvt Bank and Fin Service.
+  Upstox `NSE_INDEX` keys, subscribed beside India VIX on every feed but the synthetic one
+  (`market_wide_keys()`), each once.
+- `IndexStats.sectors` (`sector_quotes()`): level, previous close, change and change %;
+  sent with the index's stats (REST and the `stats` frame).
+- The Index panel: spot and futures on top; a Sectors block of small boxes, one per
+  sector: name (readable size and colour), value, and change with change %
+  (`+464.00 (+1.24%)`), coloured; it collapses like Details (open by default, remembered),
+  showing how many sectors are up and down while closed;
+  ATM and the strike count move into Details as an Options group.
+- Display only: no indicator, signal or paper trade reads sector data.
+- Tests: sector keys, labels and quotes (missing prices empty); the subscription list
+  (VIX first, each sector once, none on synthetic); the default lists; the stats API on
+  the synthetic feed; the panel (ATM only in Details, sector boxes and colours, dashes,
+  no block without sectors).
+
+**Demo:** on the live feed the NIFTY tab lists ten sectors with level and change %, BANK
+NIFTY its three bank sub-indices; Details opens on ATM and the strike count. On the
+synthetic feed the sectors show "—".
+
+**Status (2026-11-17):** built, with unit tests; `make check` green. Not yet checked in a
+browser: the owner verifies it by hand.
+
+**Design:** spec §3.1, §7.4, §13.1, §13.2 (IndexTiles).
+
 ## Milestone C1 — Editable, versioned config
 
 **Goal:** the trader tunes the parameters in the app, can always get back to an earlier

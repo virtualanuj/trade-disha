@@ -191,6 +191,7 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Protobuf** | Protocol Buffers, the binary encoding Upstox uses for websocket market data. |
 | **Re-centre** | Moving the strike window when ATM has shifted by `recenter_strikes` (default 2): subscribe new strikes, unsubscribe old ones, fetch baselines for the new ones. |
 | **Replay** | Feeding recorded ticks back through the system at real or accelerated speed. Used for tests, after-hours demos, load testing, and fault injection. |
+| **Sector index** | An NSE index of one sector's stocks (Nifty Auto, Nifty IT, Nifty PSU Bank, …). Shown with its level and change on the Index panel beside the index it helps explain (Milestone E11); configured per index in `sector_indices`. Display only. |
 | **Session** | (Auth sense) one day's login record. See also "trading day / session" in §1. |
 | **Subscription** | Telling the websocket which instrument keys to stream. Subject to a provider-set cap on count. |
 | **Synthetic candle** | A carry-forward candle created for a minute with no ticks (O=H=L=C=previous close, volume 0) so indicator windows stay aligned. |

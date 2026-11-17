@@ -4,9 +4,19 @@ from datetime import date
 
 import httpx
 
+from tradedisha.config import Settings
 from tradedisha.market.backfill import fetch_52w_range, parse_range
 from tradedisha.market.candles import Candle
-from tradedisha.market.stats import IndexStats, compute_stats
+from tradedisha.market.stats import (
+    VIX_KEY,
+    IndexStats,
+    SectorQuote,
+    compute_stats,
+    market_wide_keys,
+    sector_key,
+    sector_label,
+    sector_quotes,
+)
 
 
 def _c(minute: int, o: float, h: float, low: float, c: float) -> Candle:
@@ -107,3 +117,65 @@ async def test_52_week_fetch_asks_for_the_year_up_to_yesterday() -> None:
     async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
         found = await fetch_52w_range(client, "tok", "NSE_INDEX|Nifty 50", date(2026, 11, 13))
     assert found == (26_010.0, 21_743.65)
+
+
+# -- sector indices (Milestone E11) -------------------------------------------------
+
+
+def test_sector_key_and_label() -> None:
+    assert sector_key("Nifty Auto") == "NSE_INDEX|Nifty Auto"
+    assert sector_label("Nifty Fin Service") == "Fin Service"
+    assert sector_label("Nifty PSU Bank") == "PSU Bank"
+    assert sector_label("NIFTY OIL AND GAS") == "OIL AND GAS"
+    assert sector_label("India Consumption") == "India Consumption"  # no prefix to strip
+
+
+def test_sector_quotes_level_change_and_percent_in_config_order() -> None:
+    ltp = {"NSE_INDEX|Nifty IT": 37_880.0, "NSE_INDEX|Nifty Auto": 24_512.4}
+    prev = {"NSE_INDEX|Nifty IT": 37_416.0, "NSE_INDEX|Nifty Auto": 24_712.4}
+    assert sector_quotes(["Nifty IT", "Nifty Auto"], ltp, prev) == (
+        SectorQuote("Nifty IT", "IT", 37_880.0, 37_416.0, 464.0, 1.24),
+        SectorQuote("Nifty Auto", "Auto", 24_512.4, 24_712.4, -200.0, -0.81),
+    )
+
+
+def test_a_sector_without_prices_has_empty_fields() -> None:
+    ltp = {"NSE_INDEX|Nifty IT": 37_880.0}
+    assert sector_quotes(["Nifty IT", "Nifty Metal"], ltp, {}) == (
+        SectorQuote("Nifty IT", "IT", 37_880.0, None, None, None),
+        SectorQuote("Nifty Metal", "Metal", None, None, None, None),
+    )
+    assert sector_quotes([], ltp, {}) == ()
+
+
+def test_compute_stats_carries_the_sectors() -> None:
+    sectors = (SectorQuote("Nifty IT", "IT", 1.0, None, None, None),)
+    assert _stats(sectors=sectors).sectors == sectors
+    assert _stats().sectors == ()
+
+
+def test_market_wide_keys_are_vix_and_each_sector_once() -> None:
+    settings = Settings(_env_file=None, feed_provider="upstox")
+    keys = market_wide_keys(settings)
+    assert keys[0] == VIX_KEY
+    assert len(keys) == len(set(keys))
+    nifty = [sector_key(n) for n in settings.sector_indices["NIFTY"]]
+    bank = [sector_key(n) for n in settings.sector_indices["BANKNIFTY"]]
+    assert set(keys) == {VIX_KEY, *nifty, *bank}
+
+
+def test_the_synthetic_feed_has_no_market_wide_keys() -> None:
+    assert market_wide_keys(Settings(_env_file=None, feed_provider="synthetic")) == []
+
+
+def test_default_sectors_as_decided() -> None:
+    sectors = Settings(_env_file=None).sector_indices
+    assert [sector_label(n) for n in sectors["NIFTY"]] == [
+        "Auto", "FMCG", "IT", "Pharma", "Metal",
+        "Energy", "Realty", "Media", "Fin Service", "PSU Bank",
+    ]  # fmt: skip
+    assert [sector_label(n) for n in sectors["BANKNIFTY"]] == [
+        "PSU Bank",
+        "Pvt Bank",
+        "Fin Service",
+    ]

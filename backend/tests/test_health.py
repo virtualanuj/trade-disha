@@ -121,6 +121,18 @@ def test_stats_endpoint_shape_on_the_synthetic_feed(client: TestClient) -> None:
     assert body["fut_premium"] is not None
     # the generated market has no previous close, 52-week history or VIX
     assert (body["prev_close"], body["high_52w"], body["vix"]) == (None, None, None)
+    # sectors are listed in config order; the generated market has no prices for them
+    assert [x["label"] for x in body["sectors"]][:3] == ["Auto", "FMCG", "IT"]
+    assert body["sectors"][0] == {
+        "name": "Nifty Auto",
+        "label": "Auto",
+        "ltp": None,
+        "prev_close": None,
+        "change": None,
+        "change_pct": None,
+    }
+    bank = client.get("/api/stats/banknifty").json()
+    assert [x["label"] for x in bank["sectors"]] == ["PSU Bank", "Pvt Bank", "Fin Service"]
     assert client.get("/api/stats/FOO").status_code == 404
     with client.websocket_connect("/ws") as ws:
         hello = ws.receive_json()

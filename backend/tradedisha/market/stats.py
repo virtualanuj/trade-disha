@@ -5,12 +5,47 @@ Display only: no indicator, signal or paper trade reads these.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
+from tradedisha.config import Settings
 from tradedisha.market.candles import Candle
 
 VIX_KEY = "NSE_INDEX|India VIX"
+SECTOR_PREFIX = "Nifty "
+
+
+@dataclass(frozen=True)
+class SectorQuote:
+    """A sector index beside the index it helps explain (Milestone E11)."""
+
+    name: str  # Upstox NSE_INDEX name: "Nifty Fin Service"
+    label: str  # shown: "Fin Service"
+    ltp: float | None = None
+    prev_close: float | None = None
+    change: float | None = None  # points
+    change_pct: float | None = None
+
+
+def sector_key(name: str) -> str:
+    return f"NSE_INDEX|{name}"
+
+
+def sector_label(name: str) -> str:
+    """The name without its "Nifty " prefix, any case: "Nifty PSU Bank" -> "PSU Bank"."""
+    if name.lower().startswith(SECTOR_PREFIX.lower()):
+        return name[len(SECTOR_PREFIX) :]
+    return name
+
+
+def market_wide_keys(settings: Settings) -> list[str]:
+    """India VIX and every configured sector index, each once; none on the synthetic feed."""
+    if settings.feed_provider == "synthetic":  # the generated market has neither
+        return []
+    keys = [VIX_KEY]
+    for names in settings.sector_indices.values():
+        keys += [k for k in map(sector_key, names) if k not in keys]
+    return keys
 
 
 @dataclass(frozen=True)
@@ -29,12 +64,26 @@ class IndexStats:
     vix: float | None = None
     vix_change_pct: float | None = None
     updated_ts: int | None = None
+    sectors: tuple[SectorQuote, ...] = ()
 
 
 def _pct(value: float | None, base: float | None) -> float | None:
     if value is None or not base:
         return None
     return round((value - base) / base * 100, 2)
+
+
+def sector_quotes(
+    names: Iterable[str], ltp: Mapping[str, float], close_prev: Mapping[str, float]
+) -> tuple[SectorQuote, ...]:
+    """Level and change for each sector, in the order given; unknown prices stay None."""
+    out: list[SectorQuote] = []
+    for name in names:
+        key = sector_key(name)
+        price, prev = ltp.get(key), close_prev.get(key)
+        change = round(price - prev, 2) if price is not None and prev else None
+        out.append(SectorQuote(name, sector_label(name), price, prev, change, _pct(price, prev)))
+    return tuple(out)
 
 
 def compute_stats(  # noqa: PLR0913 -- one argument per source of the view
@@ -48,6 +97,7 @@ def compute_stats(  # noqa: PLR0913 -- one argument per source of the view
     vix: float | None,
     vix_prev_close: float | None,
     updated_ts: int | None,
+    sectors: tuple[SectorQuote, ...] = (),
 ) -> IndexStats:
     """`candles` are today's spot candles in time order, the forming one last.
 
@@ -89,4 +139,5 @@ def compute_stats(  # noqa: PLR0913 -- one argument per source of the view
         vix=vix,
         vix_change_pct=_pct(vix, vix_prev_close),
         updated_ts=updated_ts,
+        sectors=sectors,
     )

@@ -51,6 +51,8 @@ Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by
   and BANK NIFTY stocks, newest first, grouped by day, with unseen ones marked and stock
   chips coloured by index. It collapses, hides (a top-bar toggle brings it back) and
   shows alone on the BULLION tab. Display only.
+- **E11:** the Index panel lists sector indices with level and change: ten sectors on
+  NIFTY, the bank sub-indices on BANK NIFTY. ATM moves into Details.
 
 ## Documents
 
