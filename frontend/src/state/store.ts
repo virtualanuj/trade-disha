@@ -12,6 +12,7 @@ import type {
   HealthResponse,
   IndexPrices,
   IndexStatsOut,
+  NewsOut,
   OverlayOut,
   PaperTradeOut,
   ParametersOut,
@@ -69,6 +70,8 @@ interface MarketStore {
   bullion: BullionOut | null
   bullionCandles: Record<string, CandleOut[]>
   bullionOverlays: Record<string, OverlayOut[]>
+  /** headlines (spec §6.7); null until the first hello */
+  news: NewsOut | null
   /** an index, or BULLION_TAB */
   selectedIndex: string
 
@@ -93,6 +96,7 @@ interface MarketStore {
   /** the snapshot; with candles (from hello) the chart series are replaced too */
   applyBullion: (b: BullionOut, candles?: BullionCandlesOut[]) => void
   applyBullionCandle: (metal: string, c: CandleOut, o: OverlayOut) => void
+  applyNews: (news: NewsOut) => void
   applyTrades: (t: PaperTradeOut[]) => void
   applyTick: (p: IndexPrices, recvAt: number) => void
   applyHealth: (h: HealthResponse) => void
@@ -128,10 +132,14 @@ export const useMarketStore = create<MarketStore>((set) => ({
   bullion: null,
   bullionCandles: {},
   bullionOverlays: {},
+  news: null,
   selectedIndex: 'NIFTY',
 
   setWs: (ws) => {
     set({ ws })
+  },
+  applyNews: (news) => {
+    set({ news })
   },
   applyHello: (
     health,

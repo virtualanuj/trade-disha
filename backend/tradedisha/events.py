@@ -39,7 +39,12 @@ class ParametersChanged:
     effective_from_minute_ts: int
 
 
-Event = FeedHealthChanged | AuthChanged | WindowChanged | ParametersChanged
+@dataclass(frozen=True)
+class NewsChanged:
+    """The headlines list or its status changed (spec §6.7)."""
+
+
+Event = FeedHealthChanged | AuthChanged | WindowChanged | ParametersChanged | NewsChanged
 E = TypeVar("E", bound=Event)
 Handler = Callable[[Any], Awaitable[None] | None]
 

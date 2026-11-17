@@ -1,12 +1,14 @@
-/** Sizes of the two resizable panels, in pixels. */
+/** Sizes of the resizable panels, in pixels. */
 export interface Layout {
-  /** width of the option-chain panel */
+  /** width of the right-hand column (option chain and headlines) */
   chainWidth: number
   /** height of the price chart */
   chartHeight: number
+  /** height of the headlines under the option chain (E10) */
+  newsHeight: number
 }
 
-export const DEFAULT_LAYOUT: Layout = { chainWidth: 640, chartHeight: 320 }
+export const DEFAULT_LAYOUT: Layout = { chainWidth: 640, chartHeight: 320, newsHeight: 280 }
 
 export const LIMITS = {
   chainMin: 420,
@@ -15,6 +17,8 @@ export const LIMITS = {
   chainShare: 0.6,
   chartMin: 200,
   chartMax: 700,
+  newsMin: 120,
+  newsMax: 900,
 } as const
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -30,20 +34,27 @@ export function clampLayout(l: Layout, windowWidth: number): Layout {
   return {
     chainWidth: Math.round(clamp(l.chainWidth, LIMITS.chainMin, chainMax)),
     chartHeight: Math.round(clamp(l.chartHeight, LIMITS.chartMin, LIMITS.chartMax)),
+    newsHeight: Math.round(clamp(l.newsHeight, LIMITS.newsMin, LIMITS.newsMax)),
   }
 }
 
-/** A stored layout, if it is one; anything else falls back to the default. */
+function isSize(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v)
+}
+
+/**
+ * A stored layout, if it is one; anything else falls back to the default. A layout stored
+ * before E10 has no headlines height and gets the default one.
+ */
 export function parseLayout(v: unknown): Layout {
   if (typeof v === 'object' && v !== null) {
-    const { chainWidth, chartHeight } = v as Record<string, unknown>
-    if (
-      typeof chainWidth === 'number' &&
-      typeof chartHeight === 'number' &&
-      Number.isFinite(chainWidth) &&
-      Number.isFinite(chartHeight)
-    ) {
-      return { chainWidth, chartHeight }
+    const { chainWidth, chartHeight, newsHeight } = v as Record<string, unknown>
+    if (isSize(chainWidth) && isSize(chartHeight)) {
+      return {
+        chainWidth,
+        chartHeight,
+        newsHeight: isSize(newsHeight) ? newsHeight : DEFAULT_LAYOUT.newsHeight,
+      }
     }
   }
   return DEFAULT_LAYOUT

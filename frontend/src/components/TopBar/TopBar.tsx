@@ -26,6 +26,10 @@ interface Props {
   /** a panel is minimised */
   panelsChanged?: boolean
   onRestorePanels?: () => void
+  /** the headlines are taken out of the right-hand column (E10) */
+  newsHidden?: boolean
+  /** shows the Headlines toggle on the dashboard */
+  onToggleNews?: () => void
 }
 
 const MARKET_LABEL: Record<HealthResponse['market_status'], string> = {
@@ -139,7 +143,7 @@ export function TopBar(props: Props) {
   const { health, ws, now, lastTickTs, theme, onToggleTheme, debug, onToggleDebug, configControl } =
     props
   const { view, onToggleView, openTradeCount = 0, dataControl, bullionTab = false } = props
-  const { panelsChanged = false, onRestorePanels } = props
+  const { panelsChanged = false, onRestorePanels, newsHidden = false, onToggleNews } = props
   return (
     <header className="flex h-11 items-center gap-4 border-b border-border bg-bg-elev px-4 text-xs whitespace-nowrap">
       <span className="font-semibold tracking-wide">TradeDisha</span>
@@ -158,6 +162,17 @@ export function TopBar(props: Props) {
           title="Expand every minimised panel"
         >
           Restore panels
+        </button>
+      ) : null}
+      {onToggleNews && view !== 'journal' ? (
+        <button
+          type="button"
+          onClick={onToggleNews}
+          className={`rounded border border-border px-2 py-0.5 ${newsHidden ? 'text-fg-muted' : 'text-accent'} hover:text-fg`}
+          aria-pressed={!newsHidden}
+          title={newsHidden ? 'Show the headlines' : 'Hide the headlines'}
+        >
+          Headlines
         </button>
       ) : null}
       {view && onToggleView ? (

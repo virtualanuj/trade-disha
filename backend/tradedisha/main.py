@@ -32,6 +32,7 @@ from tradedisha.auth import AuthService
 from tradedisha.clock import IST, DrivenClock, MarketClock, load_holidays
 from tradedisha.config import Settings, load_settings
 from tradedisha.events import EventBus
+from tradedisha.market.news import NewsService, load_news_stocks
 from tradedisha.market.session import FeedSession
 from tradedisha.metrics.latency import LatencyTracker, sample_loop_lag
 from tradedisha.parameters import ParameterService
@@ -82,6 +83,26 @@ def build_state(settings: Settings) -> AppState:
         auth=auth,
         session=session,
         params=params,
+        news=build_news(settings, auth, events, params),
+    )
+
+
+def build_news(
+    settings: Settings, auth: AuthService, events: EventBus, params: ParameterService
+) -> NewsService:
+    """The headlines poller (spec §6.7). A bad stock list is shown in the panel, not raised."""
+    config_error = None
+    try:
+        stocks = load_news_stocks(settings.news_stocks_file)
+    except ValueError as exc:
+        log.error("headlines off: %s: %s", settings.news_stocks_file.name, exc)
+        stocks, config_error = (), f"{settings.news_stocks_file.name}: {exc}"
+    return NewsService(
+        auth=auth,
+        events=events,
+        stocks=stocks,
+        poll_seconds=lambda: params.params.news.poll_seconds,
+        config_error=config_error,
     )
 
 
@@ -115,9 +136,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lag_task = asyncio.create_task(sample_loop_lag(state.latency), name="loop-lag")
         await start_feed(state)
         hub.start()
+        state.news.start()
         try:
             yield
         finally:
+            await state.news.stop()
             await hub.stop()
             await state.session.stop()
             lag_task.cancel()

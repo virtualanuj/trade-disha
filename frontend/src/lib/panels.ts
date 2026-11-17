@@ -11,6 +11,7 @@ export const PANEL_IDS = [
   'chart',
   'history',
   'chain',
+  'news', // "Headlines", under the option chain (E10)
 ] as const
 
 export type PanelId = (typeof PANEL_IDS)[number]
@@ -28,12 +29,13 @@ export const NONE_MINIMISED: Minimised = {
   chart: false,
   history: false,
   chain: false,
+  news: false,
 }
 
 /**
  * What moves up and down the left column: every panel on its own (since E9 the signal has
- * its own row and Market view holds the evidence). The option chain has its own column and
- * does not move.
+ * its own row and Market view holds the evidence). The option chain and the headlines share
+ * the right-hand column and do not move.
  */
 export const UNIT_IDS = ['tiles', 'signal', 'bias', 'chart', 'trades', 'history'] as const
 
@@ -41,11 +43,13 @@ export type UnitId = (typeof UNIT_IDS)[number]
 export type Order = readonly UnitId[]
 
 export const ORDER_KEY = 'tradedisha.panelOrder'
+/** Headlines taken out of the right-hand column (E10); separate from minimised */
+export const NEWS_HIDDEN_KEY = 'tradedisha.newsHidden'
 export const DEFAULT_ORDER: Order = UNIT_IDS
 
 /** The unit a panel moves with; null for a panel that does not move. */
 export function unitOf(id: PanelId): UnitId | null {
-  return id === 'chain' ? null : id
+  return id === 'chain' || id === 'news' ? null : id
 }
 
 /**
@@ -113,8 +117,11 @@ export interface Panels {
   minimised: Minimised
   /** the left column's units, top to bottom */
   order: Order
-  /** true when any panel is minimised or the order is not the default */
+  /** true when any panel is minimised, headlines are hidden, or the order is not the default */
   changed: boolean
+  /** headlines taken out of the right-hand column (E10) */
+  newsHidden: boolean
+  setNewsHidden: (hidden: boolean) => void
   toggleMinimise: (id: PanelId) => void
   /** expand a minimised panel; does nothing to one that is already showing */
   open: (id: PanelId) => void
@@ -122,7 +129,7 @@ export interface Panels {
   canMove: (id: PanelId, dir: -1 | 1) => boolean
   /** move a panel's unit one place; market view and signal go together */
   move: (id: PanelId, dir: -1 | 1) => void
-  /** every panel expanded again, in the default order */
+  /** every panel expanded again, headlines shown, in the default order */
   restoreAll: () => void
 }
 
@@ -179,23 +186,34 @@ export function usePanels(): Panels {
     [order],
   )
 
+  const [newsHidden, storeNewsHidden] = usePref(NEWS_HIDDEN_KEY, (v) => v === true)
+  const setNewsHidden = useCallback(
+    (hidden: boolean) => {
+      storeNewsHidden(hidden)
+    },
+    [storeNewsHidden],
+  )
+
   const restoreAll = useCallback(() => {
     write((m) => (PANEL_IDS.some((id) => m[id]) ? NONE_MINIMISED : m))
     writeOrder(DEFAULT_ORDER)
-  }, [write, writeOrder])
+    storeNewsHidden(false)
+  }, [write, writeOrder, storeNewsHidden])
 
   return useMemo(
     () => ({
       minimised,
       order,
-      changed: PANEL_IDS.some((id) => minimised[id]) || order !== DEFAULT_ORDER,
+      changed: PANEL_IDS.some((id) => minimised[id]) || order !== DEFAULT_ORDER || newsHidden,
+      newsHidden,
+      setNewsHidden,
       toggleMinimise,
       open,
       canMove,
       move,
       restoreAll,
     }),
-    [minimised, order, toggleMinimise, open, canMove, move, restoreAll],
+    [minimised, order, newsHidden, setNewsHidden, toggleMinimise, open, canMove, move, restoreAll],
   )
 }
 

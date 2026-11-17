@@ -9,6 +9,7 @@ from tradedisha.auth import AuthService
 from tradedisha.clock import MarketClock
 from tradedisha.config import Settings
 from tradedisha.events import EventBus
+from tradedisha.market.news import NewsService
 from tradedisha.market.session import FeedSession
 from tradedisha.metrics.latency import LatencyTracker
 from tradedisha.parameters import ParameterService
@@ -24,3 +25,4 @@ class AppState:
     auth: AuthService
     session: FeedSession
     params: ParameterService
+    news: NewsService  # headlines (spec §6.7), apart from the feed

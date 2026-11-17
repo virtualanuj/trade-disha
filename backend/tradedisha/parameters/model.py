@@ -433,6 +433,21 @@ class Bullion(BaseModel):
         return self
 
 
+class News(BaseModel):
+    """The Headlines panel (spec §6.7). Display only: nothing here shapes a signal."""
+
+    model_config = ConfigDict(extra="forbid")
+    poll_seconds: int = Field(
+        180,
+        ge=30,
+        le=3600,
+        description=(
+            "Seconds between asks to Upstox for headlines while logged in. Unlike the signal "
+            "parameters, a change applies as soon as it is saved."
+        ),
+    )
+
+
 class ParameterSet(BaseModel):
     """The whole tunable configuration. Unknown keys are rejected so typos surface."""
 
@@ -447,3 +462,4 @@ class ParameterSet(BaseModel):
     chain: Chain = Field(default_factory=Chain)
     paper: Paper = Field(default_factory=Paper)
     bullion: Bullion = Field(default_factory=Bullion)
+    news: News = Field(default_factory=News)

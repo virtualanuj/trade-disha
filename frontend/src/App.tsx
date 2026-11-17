@@ -12,6 +12,7 @@ import { DebugOverlay } from './components/DebugOverlay/DebugOverlay'
 import { Divider } from './components/Divider/Divider'
 import { EvidenceTable } from './components/EvidenceTable/EvidenceTable'
 import { FlowLine } from './components/FlowLine/FlowLine'
+import { Headlines } from './components/Headlines/Headlines'
 import { IndexTabs } from './components/IndexTabs/IndexTabs'
 import { IndexTiles } from './components/IndexTiles/IndexTiles'
 import { Journal } from './components/Journal/Journal'
@@ -19,13 +20,14 @@ import { OpenTrades } from './components/OpenTrades/OpenTrades'
 import { OptionChain } from './components/OptionChain/OptionChain'
 import { PanelFrame } from './components/PanelFrame/PanelFrame'
 import { PriceChart } from './components/PriceChart/PriceChart'
+import { RightColumn } from './components/RightColumn/RightColumn'
 import { SignalCard } from './components/SignalCard/SignalCard'
-import { SidePanel } from './components/SidePanel/SidePanel'
 import { SignalHistory } from './components/SignalHistory/SignalHistory'
 import { currentBanner } from './components/StatusBanner/banner'
 import { StatusBanner } from './components/StatusBanner/StatusBanner'
 import { TopBar } from './components/TopBar/TopBar'
 import { clampLayout, DEFAULT_LAYOUT, LIMITS, parseLayout } from './lib/layout'
+import { newsSummary } from './lib/news'
 import type { Layout } from './lib/layout'
 import { unitOf, useOpenOnNew, usePanels } from './lib/panels'
 import type { PanelId, UnitId } from './lib/panels'
@@ -42,6 +44,7 @@ import {
 import { useNow } from './lib/useNow'
 import { isLong } from './lib/direction'
 import { useBullionMetal } from './lib/useBullionMetal'
+import { useNewsSeen } from './lib/useNewsSeen'
 import { usePref } from './lib/usePref'
 import { BULLION_TAB, useMarketStore } from './state/store'
 import { useTheme } from './theme/useTheme'
@@ -145,6 +148,10 @@ export default function App() {
   const bullion = useMarketStore((s) => s.bullion)
   const bullionCandles = useMarketStore((s) => s.bullionCandles)
   const bullionOverlays = useMarketStore((s) => s.bullionOverlays)
+  const news = useMarketStore((s) => s.news)
+  /** the headlines list is on screen: dots stay, and the newest is recorded as seen */
+  const newsVisible = view === 'dashboard' && !panels.newsHidden && !panels.minimised.news
+  const newsSeenTs = useNewsSeen(news, newsVisible)
   const onBullion = selected === BULLION_TAB
   const metalNames = useMemo(() => (bullion?.metals ?? []).map((m) => m.metal), [bullion])
   const [metal, setMetal] = useBullionMetal(metalNames)
@@ -378,6 +385,10 @@ export default function App() {
         openTradeCount={openTrades.length}
         panelsChanged={panels.changed}
         onRestorePanels={panels.restoreAll}
+        newsHidden={panels.newsHidden}
+        onToggleNews={() => {
+          panels.setNewsHidden(!panels.newsHidden)
+        }}
         dataControl={<DataPanel />}
         configControl={
           <ConfigControl
@@ -405,41 +416,51 @@ export default function App() {
                 <Fragment key={unit}>{units[unit]}</Fragment>
               ))}
             </section>
-            {onBullion || panels.minimised.chain ? null : (
-              <Divider
-                orientation="vertical"
-                label="Option chain width"
-                value={layout.chainWidth}
-                min={LIMITS.chainMin}
-                max={LIMITS.chainMax}
-                onDrag={(d) => {
-                  setLayout({ chainWidth: layout.chainWidth - d })
-                }}
-                onReset={() => {
-                  setLayout({ chainWidth: DEFAULT_LAYOUT.chainWidth })
-                }}
-              />
-            )}
-            {onBullion ? null : (
-              <SidePanel
-                name="option chain"
-                open={!panels.minimised.chain}
-                onToggle={() => {
-                  panels.toggleMinimise('chain')
-                }}
-                width={layout.chainWidth}
-                className={staleCls}
-              >
+            <RightColumn
+              chain={
+                onBullion ? null : (
+                  <PanelFrame
+                    {...frame('chain')}
+                    title="Option chain"
+                    summary={chainSummary(chains[selected])}
+                    fill
+                  >
+                    <OptionChain chain={chains[selected]} />
+                  </PanelFrame>
+                )
+              }
+              chainMinimised={panels.minimised.chain}
+              news={
                 <PanelFrame
-                  {...frame('chain')}
-                  title="Option chain"
-                  summary={chainSummary(chains[selected])}
+                  {...frame('news')}
+                  title="Headlines"
+                  summary={newsSummary(news, newsSeenTs, now)}
+                  onClose={() => {
+                    panels.setNewsHidden(true)
+                  }}
                   fill
+                  bodyClassName=""
                 >
-                  <OptionChain chain={chains[selected]} />
+                  <Headlines news={news} seenTs={newsSeenTs} now={now} />
                 </PanelFrame>
-              </SidePanel>
-            )}
+              }
+              newsMinimised={panels.minimised.news}
+              newsHidden={panels.newsHidden}
+              onExpandAll={() => {
+                panels.open('chain')
+                panels.open('news')
+                panels.setNewsHidden(false)
+              }}
+              width={layout.chainWidth}
+              onWidth={(chainWidth) => {
+                setLayout({ chainWidth })
+              }}
+              newsHeight={layout.newsHeight}
+              onNewsHeight={(newsHeight) => {
+                setLayout({ newsHeight })
+              }}
+              chainClassName={staleCls}
+            />
           </>
         )}
       </main>

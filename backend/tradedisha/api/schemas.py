@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -131,3 +133,22 @@ class ChainOut(BaseModel):
     max_abs_oi_chg: int
     updated_ts: int | None
     rows: list[ChainRowOut]
+
+
+class HeadlineOut(BaseModel):
+    heading: str
+    summary: str | None
+    link: str | None
+    published_ts: int
+    symbols: list[str]
+
+
+class NewsOut(BaseModel):
+    """The Headlines panel (spec §6.7): in `hello` and the `news` frame."""
+
+    status: Literal["needs_login", "loading", "ok", "error"]
+    error: str | None
+    fetched_at: int | None
+    items: list[HeadlineOut]
+    # each listed stock's indices ("NIFTY", "BANKNIFTY"), for the colour of its chip
+    stock_indices: dict[str, list[str]]

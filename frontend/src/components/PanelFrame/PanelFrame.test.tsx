@@ -92,4 +92,29 @@ describe('PanelFrame', () => {
     movable(vi.fn(), vi.fn(), 'market view and signal')
     expect(screen.getByRole('button', { name: 'Move market view and signal up' })).toBeEnabled()
   })
+
+  it('offers a hide button only when given onClose', () => {
+    setup(false)
+    expect(screen.queryByRole('button', { name: 'Hide price chart' })).not.toBeInTheDocument()
+  })
+
+  it('the hide button calls onClose, expanded or minimised', () => {
+    const onClose = vi.fn()
+    const frame = (minimised: boolean) => (
+      <PanelFrame
+        id="news"
+        title="Headlines"
+        minimised={minimised}
+        onToggle={vi.fn()}
+        onClose={onClose}
+      >
+        <div>list</div>
+      </PanelFrame>
+    )
+    const { rerender } = render(frame(false))
+    fireEvent.click(screen.getByRole('button', { name: 'Hide headlines' }))
+    rerender(frame(true))
+    fireEvent.click(screen.getByRole('button', { name: 'Hide headlines' }))
+    expect(onClose).toHaveBeenCalledTimes(2)
+  })
 })

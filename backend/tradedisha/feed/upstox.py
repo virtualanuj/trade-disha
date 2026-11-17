@@ -25,6 +25,8 @@ log = logging.getLogger(__name__)
 
 AUTHORIZE_URL = "https://api.upstox.com/v3/feed/market-data-feed/authorize"
 FULL_QUOTE_URL = "https://api.upstox.com/v2/market-quote/quotes"
+NEWS_URL = "https://api.upstox.com/v2/news"
+NEWS_MAX_PAGES = 100  # Upstox's own limit on page_number
 LTP_URLS = (
     "https://api.upstox.com/v3/market-quote/ltp",
     "https://api.upstox.com/v2/market-quote/ltp",
@@ -233,6 +235,37 @@ async def fetch_quotes(
         key = str(row.get("instrument_token") or str(label).replace(":", "|", 1))
         out[key] = parse_full_quote(row)
     return out
+
+
+async def fetch_news(
+    client: httpx.AsyncClient, token: str, keys: list[str]
+) -> dict[str, list[dict[str, Any]]]:
+    """Every page of Upstox news for these instrument keys, merged per key (spec §6.7)."""
+    out: dict[str, list[dict[str, Any]]] = {}
+    page = 1
+    while True:
+        params: dict[str, str | int] = {
+            "category": "instrument_keys",
+            "instrument_keys": ",".join(keys),
+            "page_number": page,
+            "page_size": 100,
+        }
+        resp = await client.get(NEWS_URL, params=params, headers=_bearer(token))
+        if resp.status_code == 401:
+            raise Unauthorized("news request rejected")
+        resp.raise_for_status()
+        body = resp.json()
+        data = body.get("data")
+        if isinstance(data, dict):
+            for key, items in data.items():
+                if isinstance(items, list):
+                    out.setdefault(str(key), []).extend(i for i in items if isinstance(i, dict))
+        meta = body.get("metadata")
+        info = meta.get("page") if isinstance(meta, dict) else None
+        total = info.get("total_pages") if isinstance(info, dict) else None
+        if not isinstance(total, int) or page >= min(total, NEWS_MAX_PAGES):
+            return out
+        page += 1
 
 
 # -- provider ---------------------------------------------------------------------

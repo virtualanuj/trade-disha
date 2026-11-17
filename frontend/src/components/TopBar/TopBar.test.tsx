@@ -129,6 +129,52 @@ describe('TopBar', () => {
     expect(onRestorePanels).toHaveBeenCalledTimes(1)
   })
 
+  it('toggles the headlines, showing whether they are on', () => {
+    const onToggleNews = vi.fn()
+    const bar = (hidden: boolean) => (
+      <TopBar
+        health={health}
+        ws="open"
+        now={1400}
+        lastTickTs={1000}
+        theme="dark"
+        onToggleTheme={noop}
+        debug={false}
+        onToggleDebug={noop}
+        view="dashboard"
+        newsHidden={hidden}
+        onToggleNews={onToggleNews}
+      />
+    )
+    const { rerender } = render(bar(false))
+    const button = screen.getByRole('button', { name: 'Headlines' })
+    expect(button).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(button)
+    expect(onToggleNews).toHaveBeenCalledTimes(1)
+    rerender(bar(true))
+    expect(screen.getByRole('button', { name: 'Headlines' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+  })
+
+  it('has no headlines toggle on the journal or without a handler', () => {
+    const base = {
+      health,
+      ws: 'open' as const,
+      now: 1400,
+      lastTickTs: 1000,
+      theme: 'dark' as const,
+      onToggleTheme: noop,
+      debug: false,
+      onToggleDebug: noop,
+    }
+    const { rerender } = render(<TopBar {...base} view="dashboard" />)
+    expect(screen.queryByRole('button', { name: 'Headlines' })).not.toBeInTheDocument()
+    rerender(<TopBar {...base} view="journal" onToggleView={noop} onToggleNews={noop} />)
+    expect(screen.queryByRole('button', { name: 'Headlines' })).not.toBeInTheDocument()
+  })
+
   describe('NSE and MCX keep different hours', () => {
     const closedNse: HealthResponse = { ...health, market_status: 'closed', feed_live: false }
     const pill = (h: HealthResponse, bullionTab = false, lastTickTs = 1000) =>

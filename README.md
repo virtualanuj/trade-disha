@@ -47,6 +47,10 @@ Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by
   volume per minute, signed from the futures ticks (Upstox does not supply it).
 - **E9:** one full-width Market view panel (the meter with its evidence and order flow),
   with the signal on its own row above it.
+- **E10:** a Headlines panel under the option chain: Upstox news for the 30 heaviest NIFTY
+  and BANK NIFTY stocks, newest first, grouped by day, with unseen ones marked and stock
+  chips coloured by index. It collapses, hides (a top-bar toggle brings it back) and
+  shows alone on the BULLION tab. Display only.
 
 ## Documents
 

@@ -88,11 +88,18 @@ MarketDataProvider (feed/synthetic | replay | upstox)
 
 Bullion is loaded with the `upstox` provider, or in replay with `replay_bullion`.
 
+Headlines (spec §6.7) sit outside this pipeline: `market/news.py:NewsService` hangs on
+`AppState.news`, polls Upstox's news API while the login is valid, and publishes
+`NewsChanged` on the `EventBus`; `WsHub` sends a `news` frame. Display only, nothing stored,
+and it never touches `FeedSession`. Upstox has news for `NSE_EQ` stocks only, so the stocks
+come from `config/news-stocks.txt` (at most 30).
+
 Things that are easy to get wrong:
 
 - **Two fan-out mechanisms.** Hot-path data (ticks, candles, bias, signals, trades) goes
   through synchronous callback lists on `FeedSession`. `events.py:EventBus` is only for
-  low-rate state changes (feed health, auth, strike-window change, parameters reloaded).
+  low-rate state changes (feed health, auth, strike-window change, parameters reloaded,
+  headlines changed).
 - **Time.** Nothing reads the wall clock directly. Use the injected `MarketClock`
   (`clock.py`) for market time, which in replay is a `DrivenClock` advanced by tick
   timestamps, so cut-offs and the 15:15 square-off behave as they did live.
@@ -145,8 +152,8 @@ Things that are easy to get wrong:
 - `api/ws.ts:MarketSocket` keeps one WebSocket with exponential reconnect and feeds the
   Zustand store in `state/store.ts`. The `hello` frame replaces all live state; later
   frames (`tick`, `chain`, `candle`, `bias`, `signal`, `signal_live`, `paper_trade`,
-  `stats`, `flow`, `bullion`, `bullion_candle`, `health`, `parameters`) update it. Live
-  data is never polled.
+  `stats`, `flow`, `bullion`, `bullion_candle`, `health`, `parameters`, `news`) update it.
+  Live data is never polled.
 - `selectedIndex` is an index or `BULLION_TAB` (`state/store.ts`), which is not in
   `instruments`; code keyed by the selected index must allow for it. The tab shows only
   while bullion data exists. The main-column panels show the **focus** (`App.tsx`): the

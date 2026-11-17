@@ -15,6 +15,8 @@
   --bear: #ff5c5c;
   --neutral: #94a3b8;
   --warn: #f5b942;
+  /* a BANK NIFTY stock's chip in the headlines; apart from bull, bear, warn and accent */
+  --index-bank: #a78bfa;
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -32,6 +34,7 @@
   --bear: #dc2626;
   --neutral: #64748b;
   --warn: #b45309;
+  --index-bank: #7c3aed;
 }
 
 @theme inline {
@@ -46,6 +49,7 @@
   --color-bear: var(--bear);
   --color-neutral: var(--neutral);
   --color-warn: var(--warn);
+  --color-index-bank: var(--index-bank);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
 }

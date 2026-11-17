@@ -92,3 +92,6 @@ stop_pct = 0.20
 lots = 1
 cost_fixed_per_lot = 60.0      # rupees per round trip per lot
 cost_pct_of_value = 0.012      # % of round-trip turnover (CTT, exchange, stamp, GST)
+
+[news]                         # the Headlines panel; display only, never an input to a signal
+poll_seconds = 180             # seconds between asks to Upstox while logged in; applies at once

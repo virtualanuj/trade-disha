@@ -25,6 +25,7 @@ from tradedisha.api.bullion import all_bullion_candles, bullion_out, vwap_overla
 from tradedisha.api.chain import chain_out
 from tradedisha.api.health import build_health
 from tradedisha.api.instruments import resolved_out
+from tradedisha.api.news import news_out
 from tradedisha.api.paper import open_trades, today_trades, trade_out
 from tradedisha.api.signals import (
     active_signals,
@@ -40,7 +41,13 @@ from tradedisha.clock import epoch_ms_now
 from tradedisha.engine.bias_engine import BiasComputed
 from tradedisha.engine.paper import PaperTrade
 from tradedisha.engine.signals import Signal
-from tradedisha.events import AuthChanged, FeedHealthChanged, ParametersChanged, WindowChanged
+from tradedisha.events import (
+    AuthChanged,
+    FeedHealthChanged,
+    NewsChanged,
+    ParametersChanged,
+    WindowChanged,
+)
 from tradedisha.feed.bus import StampedTick
 from tradedisha.market.candles import Candle
 from tradedisha.market.chain import ChainState
@@ -78,6 +85,7 @@ class WsHub:
         state.events.subscribe(AuthChanged, self._on_health)
         state.events.subscribe(WindowChanged, self._on_window)
         state.events.subscribe(ParametersChanged, self._on_params)
+        state.events.subscribe(NewsChanged, self._on_news)
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -163,6 +171,11 @@ class WsHub:
         }
         self._immediate.append(self._frame("parameters", payload, t_src=None, t_in=None))
 
+    def _on_news(self, _: NewsChanged) -> None:
+        news = self._state.news
+        payload = news_out(self._state).model_dump()
+        self._immediate.append(self._frame("news", payload, t_src=news.fetched_at, t_in=None))
+
     def _index_for(self, key: str) -> str | None:
         for r in self._state.session.resolved.values():
             if key in (r.spot.instrument_key, r.future.instrument_key):
@@ -221,6 +234,7 @@ class WsHub:
             "stats": [x.model_dump() for x in all_stats(s)],
             "bullion": bullion_out(s).model_dump(mode="json"),
             "bullion_candles": [x.model_dump() for x in all_bullion_candles(s, 900)],
+            "news": news_out(s).model_dump(),
         }
         return self._frame("hello", payload, t_src=None, t_in=None)
 

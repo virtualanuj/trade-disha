@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     mcx_close: time = time(23, 30)
     mcx_holidays_file: Path = REPO_ROOT / "config" / "mcx-holidays.txt"
     bullion_live_max_tick_age_ms: int = 15_000
+    # Headlines (display only, spec §6.7): which stocks. How often is `news.poll_seconds`
+    # in the parameters, edited in the app.
+    news_stocks_file: Path = REPO_ROOT / "config" / "news-stocks.txt"
 
     feed_provider: FeedProviderName = "synthetic"
     # None = enforce unless the feed is synthetic (which ticks around the clock anyway)

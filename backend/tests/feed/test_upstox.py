@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from tradedisha.feed.provider import Tick
-from tradedisha.feed.upstox import Unauthorized, UpstoxProvider, decode, fetch_ltp
+from tradedisha.feed.upstox import Unauthorized, UpstoxProvider, decode, fetch_ltp, fetch_news
 from tradedisha.feed.upstox_proto import MarketDataFeed_pb2 as pb
 
 NOW = 1_794_548_100_000
@@ -246,3 +246,67 @@ async def test_fetch_ltp_raises_unauthorized_on_401() -> None:
     async with httpx.AsyncClient(transport=transport) as client:
         with pytest.raises(Unauthorized):
             await fetch_ltp(client, "tok", ["NSE_INDEX|Nifty 50"])
+
+
+# -- news (spec §6.7) ---------------------------------------------------------------
+
+
+def _news_page(page: int, total_pages: int | None, items: dict[str, list[object]]) -> object:
+    meta = (
+        None if total_pages is None else {"page": {"page_number": page, "total_pages": total_pages}}
+    )
+    return {"status": "success", "data": items, "metadata": meta}
+
+
+async def test_fetch_news_asks_for_the_keys_and_merges_every_page() -> None:
+    pages: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        p = request.url.params
+        assert request.headers["authorization"] == "Bearer tok"
+        assert p["category"] == "instrument_keys"
+        assert p["instrument_keys"] == "NSE_EQ|A,NSE_EQ|B"
+        assert p["page_size"] == "100"
+        pages.append(p["page_number"])
+        page = int(p["page_number"])
+        return httpx.Response(200, json=_news_page(page, 2, {"NSE_EQ|A": [{"heading": str(page)}]}))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        out = await fetch_news(client, "tok", ["NSE_EQ|A", "NSE_EQ|B"])
+
+    assert pages == ["1", "2"]
+    assert out == {"NSE_EQ|A": [{"heading": "1"}, {"heading": "2"}]}
+
+
+async def test_fetch_news_stops_at_100_pages() -> None:
+    calls = 0
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json=_news_page(calls, 500, {}))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        await fetch_news(client, "tok", ["NSE_EQ|A"])
+    assert calls == 100
+
+
+async def test_fetch_news_with_no_data_or_metadata_is_empty_after_one_request() -> None:
+    calls = 0
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"status": "success", "data": None})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        assert await fetch_news(client, "tok", ["NSE_EQ|A"]) == {}
+    assert calls == 1
+
+
+async def test_fetch_news_401_is_unauthorized_and_500_raises() -> None:
+    for status, exc in ((401, Unauthorized), (500, httpx.HTTPStatusError)):
+        transport = httpx.MockTransport(lambda _, s=status: httpx.Response(s, json={}))
+        async with httpx.AsyncClient(transport=transport) as client:
+            with pytest.raises(exc):
+                await fetch_news(client, "tok", ["NSE_EQ|A"])

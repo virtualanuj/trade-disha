@@ -599,6 +599,53 @@ synthetic feed, including a pre-E9 stored layout carried over.
 
 **Design:** spec §13.1, §13.2 (Panel order, PanelFrame).
 
+## Milestone E10 — Headlines
+
+**Goal:** a quick check on what is moving the market: Upstox headlines for the heaviest
+NIFTY and BANK NIFTY stocks, newest first, under the option chain.
+
+- Display only: no news reaches `engine/`, `indicators/` or the bias and signal path; no
+  table, migration or REST endpoint. A news failure never touches the feed.
+- Built in this order, one test cycle each:
+  1. `config/news-stocks.txt` (30 `SYMBOL NSE_EQ|ISIN N|B|NB` lines, keys checked against the
+     instrument file), `load_news_stocks` in `market/news.py`, the `news_stocks_file`
+     setting, and the `news.poll_seconds` parameter (edited in the app, applied at once).
+  2. `parse_news` (pure: merge by link then heading, symbols kept, newest first) and
+     `fetch_news` in `feed/upstox.py` (all pages, 401 -> `Unauthorized`).
+  3. `NewsService` and the `NewsChanged` event: poll every 180 s while the token is
+     valid, wake on `AuthChanged("valid")`, statuses `needs_login` / `loading` / `ok` /
+     `error`.
+  4. Wiring: `AppState.news`, `build_state`, the lifespan; `HeadlineOut` / `NewsOut` in
+     `schemas.py`, `news` in `hello`, the `news` frame from `WsHub`.
+  5. Frontend data: `api/types.ts`, the store's `news` and `applyNews`, `api/ws.ts`.
+  6. `components/Headlines`: day groups, rows, chips coloured by index, freshness colours,
+     link, summary toggle, unseen bar, states, and the
+     minimised summary.
+  7. Panel state: `news` in `lib/panels.ts` (does not move), the hidden flag,
+     `newsHeight` in `lib/layout.ts`, `PanelFrame.onClose`, the TopBar Headlines toggle.
+  8. `components/RightColumn`: the chain / headlines rules of spec §13.1, wired into
+     `App.tsx` in place of the chain's `SidePanel` block.
+  9. Docs (spec, dd, CLAUDE.md frame list, README status), `make check`, demo.
+- Tests: the stock file (comments, bad lines, more than 30, the shipped file valid);
+  `parse_news` table cases, including items with no summary, no heading or a non-numeric
+  time; `fetch_news` paging, 401 and 500; `NewsService` with a mock transport: no token
+  -> no request, a change publishes once, the same list publishes nothing, 500 and
+  timeouts keep the last list and recover, 401 marks the token expired, a bad stock file
+  shows its error, a login wakes the poller; `hello` and the `news` frame; the Headlines
+  component (order, times, chips, a `javascript:` link shown as text, states, new count);
+  panel and layout parsing with old stored values; every RightColumn case.
+
+**Demo:** with the live login, headlines appear under the chain within seconds, newest
+first. Collapse them (the chain fills), hide them (the top bar's toggle brings them back),
+minimise the chain (headlines fill), open BULLION (headlines alone), Restore panels. On the
+synthetic feed the panel says it needs the Upstox login.
+
+**Status (2026-11-17):** built, with unit tests (backend and frontend); `make check` green.
+Not yet checked in a browser: the owner verifies it by hand.
+
+**Design:** spec §3.1, §6.7, §12.2, §13.1 (Right column with headlines), §13.2 (Headlines,
+SidePanel, PanelFrame, Resizable layout).
+
 ## Milestone C1 — Editable, versioned config
 
 **Goal:** the trader tunes the parameters in the app, can always get back to an earlier

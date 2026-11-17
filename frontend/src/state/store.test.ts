@@ -3,6 +3,7 @@ import type {
   CandleOut,
   FlowOut,
   HealthResponse,
+  NewsOut,
   OverlayOut,
   ParametersOut,
   ResolvedIndexOut,
@@ -136,5 +137,17 @@ describe('bullion in the store', () => {
     s.applyBullionCandle('GOLD', c(1, 11), o(1))
     s.applyBullionCandle('GOLD', c(2, 12), o(2))
     expect(useMarketStore.getState().bullionCandles.GOLD?.map((x) => x.c)).toEqual([11, 12])
+  })
+
+  it('keeps the latest headlines as sent', () => {
+    const news: NewsOut = {
+      status: 'ok',
+      error: null,
+      fetched_at: 5,
+      stock_indices: {},
+      items: [{ heading: 'H', summary: null, link: null, published_ts: 1, symbols: ['SBIN'] }],
+    }
+    useMarketStore.getState().applyNews(news)
+    expect(useMarketStore.getState().news).toBe(news)
   })
 })

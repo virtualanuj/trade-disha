@@ -21,28 +21,31 @@ describe('fmtDate', () => {
 
 describe('layout', () => {
   it('keeps sizes within their limits', () => {
-    expect(clampLayout({ chainWidth: 100, chartHeight: 50 }, 1920)).toEqual({
+    expect(clampLayout({ chainWidth: 100, chartHeight: 50, newsHeight: 10 }, 1920)).toEqual({
       chainWidth: 420,
       chartHeight: 200,
+      newsHeight: 120,
     })
-    expect(clampLayout({ chainWidth: 5000, chartHeight: 5000 }, 1920)).toEqual({
+    expect(clampLayout({ chainWidth: 5000, chartHeight: 5000, newsHeight: 5000 }, 1920)).toEqual({
       chainWidth: 900,
       chartHeight: 700,
+      newsHeight: 900,
     })
   })
 
   it('never lets the option chain take more than 60% of the window', () => {
-    expect(clampLayout({ chainWidth: 900, chartHeight: 320 }, 1280).chainWidth).toBe(768)
+    expect(clampLayout({ ...DEFAULT_LAYOUT, chainWidth: 900 }, 1280).chainWidth).toBe(768)
   })
 
   it('still shows the chain at its minimum on a very narrow window', () => {
-    expect(clampLayout({ chainWidth: 640, chartHeight: 320 }, 600).chainWidth).toBe(420)
+    expect(clampLayout(DEFAULT_LAYOUT, 600).chainWidth).toBe(420)
   })
 
   it('reads a stored layout and falls back to the default for anything else', () => {
-    expect(parseLayout({ chainWidth: 700, chartHeight: 400 })).toEqual({
+    expect(parseLayout({ chainWidth: 700, chartHeight: 400, newsHeight: 300 })).toEqual({
       chainWidth: 700,
       chartHeight: 400,
+      newsHeight: 300,
     })
     for (const bad of [
       undefined,
@@ -53,5 +56,17 @@ describe('layout', () => {
     ]) {
       expect(parseLayout(bad)).toEqual(DEFAULT_LAYOUT)
     }
+  })
+
+  it('gives a layout stored before E10 the default headlines height', () => {
+    expect(parseLayout({ chainWidth: 700, chartHeight: 400 })).toEqual({
+      chainWidth: 700,
+      chartHeight: 400,
+      newsHeight: DEFAULT_LAYOUT.newsHeight,
+    })
+    expect(parseLayout({ chainWidth: 700, chartHeight: 400, newsHeight: 'tall' }).newsHeight).toBe(
+      DEFAULT_LAYOUT.newsHeight,
+    )
+    expect(DEFAULT_LAYOUT.newsHeight).toBe(280)
   })
 })

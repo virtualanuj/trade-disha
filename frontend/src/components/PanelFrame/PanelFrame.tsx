@@ -11,6 +11,8 @@ interface Props {
   minimised: boolean
   /** minimise, or expand again when already minimised */
   onToggle: () => void
+  /** shows a hide (×) button that takes the panel off the page (the headlines, E10) */
+  onClose?: (() => void) | undefined
   /**
    * shows the move up / down buttons; a direction with nowhere to go is null and its
    * button is disabled
@@ -55,6 +57,7 @@ export function PanelFrame({
   summary,
   minimised,
   onToggle,
+  onClose,
   move,
   moveLabel,
   keepMounted = false,
@@ -113,6 +116,19 @@ export function PanelFrame({
               <path d={minimised ? 'M2.5 4.5 6 8l3.5-3.5' : 'M2.5 9.5h7'} />
             </svg>
           </button>
+          {onClose ? (
+            <button
+              type="button"
+              className={BUTTON}
+              aria-label={`Hide ${name}`}
+              title={`Hide ${name}`}
+              onClick={onClose}
+            >
+              <svg {...ICON}>
+                <path d="M3 3l6 6M9 3l-6 6" />
+              </svg>
+            </button>
+          ) : null}
         </span>
       </div>
       {minimised ? (

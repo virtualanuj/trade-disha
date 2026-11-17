@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react'
 
 import {
   DEFAULT_ORDER,
+  NEWS_HIDDEN_KEY,
   NONE_MINIMISED,
   ORDER_KEY,
   PANELS_KEY,
@@ -47,6 +48,7 @@ describe('panel order', () => {
     expect(unitOf('signal')).toBe('signal')
     expect(unitOf('chart')).toBe('chart')
     expect(unitOf('chain')).toBeNull()
+    expect(unitOf('news')).toBeNull()
   })
 
   it('starts with signal above market view', () => {
@@ -154,6 +156,42 @@ describe('usePanels', () => {
     })
     expect(result.current.minimised.signal).toBe(false)
     expect(result.current.minimised.trades).toBe(false)
+  })
+
+  it('a panel state stored before E10 leaves headlines expanded', () => {
+    expect(parsePanels({ chain: true }).news).toBe(false)
+    expect(NONE_MINIMISED.news).toBe(false)
+  })
+
+  it('hides and shows headlines, remembers it, and counts it as a change', () => {
+    const { result } = renderHook(() => usePanels())
+    expect(result.current.newsHidden).toBe(false)
+    act(() => {
+      result.current.setNewsHidden(true)
+    })
+    expect(result.current.newsHidden).toBe(true)
+    expect(result.current.changed).toBe(true)
+    expect(localStorage.getItem(NEWS_HIDDEN_KEY)).toBe('true')
+    expect(renderHook(() => usePanels()).result.current.newsHidden).toBe(true)
+    act(() => {
+      result.current.setNewsHidden(false)
+    })
+    expect(result.current.newsHidden).toBe(false)
+    expect(result.current.changed).toBe(false)
+  })
+
+  it('restoreAll shows hidden headlines again', () => {
+    const { result } = renderHook(() => usePanels())
+    act(() => {
+      result.current.setNewsHidden(true)
+      result.current.toggleMinimise('news')
+    })
+    act(() => {
+      result.current.restoreAll()
+    })
+    expect(result.current.newsHidden).toBe(false)
+    expect(result.current.minimised.news).toBe(false)
+    expect(result.current.changed).toBe(false)
   })
 
   it('restoreAll expands everything', () => {

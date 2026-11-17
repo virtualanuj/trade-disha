@@ -92,11 +92,13 @@ TradeDisha/
 │                                # IndexTabs, IndexTiles, BullionView, BiasMeter, PriceChart,
 │                                # SignalCard, EvidenceTable, OpenTrades, SignalHistory,
 │                                # OptionChain, Journal, ConfigControl, DataPanel,
-│                                # StatusBanner, PanelFrame, SidePanel, Divider, DebugOverlay, …
+│                                # StatusBanner, PanelFrame, SidePanel, RightColumn,
+│                                # Headlines, Divider, DebugOverlay, …
 ├── config/
 │   ├── params.toml              # starting parameters for a new database
 │   ├── nse-holidays.txt         # NSE trading holidays
-│   └── mcx-holidays.txt         # MCX holidays and evening-only days
+│   ├── mcx-holidays.txt         # MCX holidays and evening-only days
+│   └── news-stocks.txt          # stocks whose news fills the Headlines panel (E10)
 ├── data/                        # SQLite files, instrument caches (gitignored)
 ├── scripts/check.sh             # every gate, run by `make check`
 └── docs/
@@ -129,6 +131,7 @@ Fields of `config.py:Settings`, set as `TRADEDISHA_<NAME>` in the environment or
 | `holidays_file` | `config/nse-holidays.txt` | |
 | `mcx_open`, `mcx_close` | 09:00, 23:30 | MCX; set the close to 23:55 while the US is on standard time |
 | `mcx_holidays_file` | `config/mcx-holidays.txt` | `YYYY-MM-DD` closed, `YYYY-MM-DD HH:MM` opens late |
+| `news_stocks_file` | `config/news-stocks.txt` | headlines (§6.7); how often is the `news.poll_seconds` parameter (§3.2) |
 | `enforce_signal_hours` | unset | unset = enforce unless the feed is synthetic |
 | `feed_live_max_tick_age_ms` | 5000 | index liveness (§14) |
 | `bullion_live_max_tick_age_ms` | 15000 | bullion liveness (§6.6) |
@@ -186,6 +189,7 @@ by section. Each field carries a one-line description, which the editor shows as
 | Bullion | `first_signal_time`, `last_signal_time`, `square_off_time` | 09:15, 22:45, 23:00 |
 | Bullion | `target_pct`, `stop_pct` | 0.40, 0.20 (% of the future's price) |
 | Bullion | `lots`, `cost_fixed_per_lot`, `cost_pct_of_value` | 1, ₹60, 0.012 % |
+| News | `poll_seconds` | 180 (30–3600; display only, §6.7) |
 
 **Versions (Milestone C1).** The database is the source of truth. Table
 `config_versions` holds every saved set: `version` (1, 2, 3, …), `tag` (typed by the
@@ -215,7 +219,9 @@ or deleted, and the highest one is in force.
 start of each minute-close evaluation, so a save takes effect at the next minute, never
 mid-computation. Open paper trades keep the target/stop they were opened with.
 Chain-window parameters (`strike_window`, `recenter_strikes`) take effect at the next
-re-centre check.
+re-centre check. `news.poll_seconds` applies as soon as it is saved: the poller re-reads it
+and the next fetch falls due that long after the last one (at once, if that is past); a
+save never fetches early.
 
 **Starter file.** The repository ships `config/params.toml` with the defaults above,
 commented. It supplies version 1 for a new database and is what the tests and the scoring
@@ -435,6 +441,43 @@ or the `ticks` table, and there is no real-order path for it.
     silence is shown muted.
   - `bullion` and `bullion_candles` in `hello`
   - a `bullion` frame throttled like `tick`, and a `bullion_candle` frame on each close
+
+### 6.7 News headlines (Milestone E10)
+
+A quick check on what is moving the market. **Display only**: news is not an input to the
+bias, signals or paper trades, and nothing about it is stored.
+
+- **Source:** Upstox `GET /v2/news?category=instrument_keys&instrument_keys=…` with the
+  daily login's Bearer token. Up to 30 keys a call; the last 7 days; paged
+  (`page_number` 1–100, `page_size` 1–100). Each item has `heading`, `summary`,
+  `thumbnail`, `article_link` and `published_time` (epoch ms), grouped by the key it is
+  attached to. Tested on 16/11/2026: only `NSE_EQ` stock keys carry news; `NSE_INDEX`,
+  `NSE_FO`, `MCX_FO` keys and `category=positions` return nothing, so there is no
+  bullion news. Volume is low (about 25 items a week over 11 heavyweights), much of it
+  market wraps, and one story is often attached to several stocks.
+- **Which stocks:** `config/news-stocks.txt`, one `SYMBOL INSTRUMENT_KEY INDEX` per line,
+  `#` comments, at most 30 (one call); the heaviest NIFTY and BANK NIFTY stocks, edited by
+  hand (Upstox publishes no index weights). `INDEX` is `N` (NIFTY), `B` (BANK NIFTY) or
+  `NB` (both) and only colours the stock's chip; it may be left out. A malformed file does
+  not stop the app: the panel shows the error.
+- **`market/news.py`:** `parse_news` (pure) flattens the per-key lists, merges items with
+  the same `article_link` (else the same `heading`) into one headline carrying every
+  symbol, and sorts newest first; items without a heading or a numeric time are skipped.
+  `fetch_news` (in `feed/upstox.py` beside the other REST helpers) reads every page.
+  `NewsService` is built in `build_state`, hung on `AppState.news`, and started and
+  stopped in the lifespan. It is independent of `FeedSession`, so a login that has not
+  started the feed still gets news, and it can never hold up the feed. Every
+  `news.poll_seconds` (a parameter, §3.2; default 180, edited in the Config control) while
+  `AuthService.token` is valid it fetches, and when the list or status changed publishes
+  `NewsChanged` on the `EventBus`. `AuthChanged("valid")` makes it fetch at once;
+  `ParametersChanged` makes it re-read the interval without fetching early.
+- **Status:** `needs_login` (no valid token: always so on synthetic and replay),
+  `loading` (token valid, first fetch pending), `ok`, `error`. A 401 calls
+  `auth.mark_expired()`; any other failure (HTTP error, timeout) sets `error` and keeps
+  the last good list; the next success clears it.
+- **API:** `news` (`NewsOut`: status, error, fetched_at, items of `HeadlineOut`: heading,
+  summary, link, published_ts, symbols; and `stock_indices`, each listed symbol's indices)
+  in `hello`, and a `news` frame on change. No REST endpoint.
 
 ---
 
@@ -949,7 +992,7 @@ Server → client JSON frames `{type, ts, payload}`:
 
 | type | cadence | payload |
 |---|---|---|
-| `hello` | on connect | full snapshot: health, instruments, prices, chain per index, candles, bias (indices and metals), parameters, active signals, today's signals, gates, flow, today's trades, index stats, bullion snapshot and candles |
+| `hello` | on connect | full snapshot: health, instruments, prices, chain per index, candles, bias (indices and metals), parameters, active signals, today's signals, gates, flow, today's trades, index stats, bullion snapshot and candles, news |
 | `stats` | leading-edge throttle, max 1/s per index | `IndexStats` |
 | `tick` | leading-edge throttle, max 20/s per index | `{index, spot_ltp, spot_ts, fut_ltp, fut_ts}` |
 | `chain` | leading-edge throttle, max 2/s per index | full window (21 rows) + derived values; small enough that diffs are not worth it |
@@ -963,6 +1006,7 @@ Server → client JSON frames `{type, ts, payload}`:
 | `bullion` | leading-edge throttle like `tick` | the GOLD / SILVER snapshot |
 | `bullion_candle` | per closed bullion minute | `{metal, candle, overlay}` |
 | `parameters` | on a save or revert | version, tag, created_ts, the set, effective-from minute |
+| `news` | on change (at most once per poll, §6.7) | `NewsOut`: status, error, fetched_at, headlines newest first |
 
 Every frame carries `t_src` (exchange ts), `t_in` (backend ingest), `t_out` (backend send)
 so the client can compute per-hop latency. Frames are serialised with pydantic and the
@@ -1020,6 +1064,33 @@ Minimum supported width 1280 px. The chain panel and the price chart are resizab
 The main column scrolls; its panels come in the order drawn above until the trader moves
 them ("Panel order" in §13.2).
 
+**Right column with headlines (Milestone E10).** The right column holds the option chain on
+top and Headlines (§6.7) below it, with a horizontal drag divider between them:
+
+```
+NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
+┌────────────────────────┐           ┌──────────────────┐   ┌──────────────────┐
+│ OPTION CHAIN       [–] │           │ OPTION CHAIN [▾] │   │ HEADLINES  [–][×]│
+│  strikes …             │           ├──────────────────┤   │ TODAY            │
+├────── drag ────────────┤           │ HEADLINES  [–][×]│   │▌09:50 SBIN BHART…│
+│ HEADLINES      [–][×]  │           │ TODAY            │   │▌SENSEX up 400 …  │
+│ TODAY                  │           │▌09:50 SBIN BHART…│   │ YESTERDAY        │
+│▌09:50  SBIN BHARTIARTL │           │▌SENSEX up 400 …  │   │ 15:58 ITC BHARTI…│
+│▌SENSEX up 400 pts, …   │           │ YESTERDAY        │   │ Market wrap …    │
+│ YESTERDAY              │           │ 15:58 ITC …      │   │                  │
+└────────────────────────┘           └──────────────────┘   └──────────────────┘
+▌ = unseen (accent bar). Earlier days' rows are muted.
+```
+
+- Both expanded: the chain fills, headlines take the remembered height.
+- One minimised: it is its title bar and the other fills the column.
+- Headlines hidden (×, or the top bar's Headlines toggle): the column is the chain alone,
+  as before E10.
+- Nothing expanded (chain minimised or absent, headlines minimised or hidden): the column
+  becomes the 28 px strip; its button expands both and shows headlines again.
+- BULLION tab: there is no chain, so the column shows headlines alone (it was absent
+  before E10); with headlines hidden there is no column.
+
 ### 13.2 Components
 - **TopBar**: market status pill (pre-open / live / closed / holiday, with clock), feed
   health with tick age colour (green < 2 s, amber < 10 s, red otherwise), auth state with
@@ -1068,9 +1139,11 @@ them ("Panel order" in §13.2).
   never more than 60% of the window; chart 200–700 px. Sizes are stored in `localStorage`
   and clamped again on load and on window resize, so a layout saved on a large screen
   cannot hide a panel on a small one. Dragging is throttled to one layout per animation
-  frame. No library is added for this.
-- **PanelFrame**: the frame around each of the seven dashboard panels (`tiles`, `bias`
-  "Market view", `signal`, `trades`, `chart`, `history`, `chain`). It owns the box and a
+  frame. No library is added for this. E10 adds a third, horizontal, between the chain
+  and Headlines in the right column (headlines 120–900 px), shown only while both are
+  expanded.
+- **PanelFrame**: the frame around each of the eight dashboard panels (`tiles`, `bias`
+  "Market view", `signal`, `trades`, `chart`, `history`, `chain`, `news` "Headlines"). It owns the box and a
   32 px title bar with the panel's title and one minimise / expand button; the panel
   components inside draw no box or duplicate heading of their own. Minimised, only the
   title bar is left, with a one-line summary (`lib/panelSummary.ts`: spot and change;
@@ -1106,7 +1179,33 @@ them ("Panel order" in §13.2).
   button and the panel's name; the main column takes the freed width (the chart resizes
   with it). The divider is not rendered while hidden, and the remembered width is used
   again on show. Hidden means not rendered only: the chain keeps updating in the store,
-  and indicators, signals and recording are unaffected.
+  and indicators, signals and recording are unaffected. Since E10 the column also holds
+  Headlines and its rules are in `RightColumn` (§13.1 "Right column with headlines"); the
+  strip appears only when nothing in the column is expanded.
+- **Headlines** (Milestone E10, §6.7): a scrolling list, newest first, grouped by IST day
+  under sticky headers: Today, Yesterday, then `Fri 14/11`. Each row: time (`HH:MM`; the
+  day is in the header), the stock symbols as chips, the heading as a link opening the
+  article in a new tab (`rel="noopener noreferrer"`; a link that is not http(s) is shown
+  as plain text), and the summary behind a click (`aria-expanded`). No thumbnails.
+
+  Colour (`lib/news.ts`), never green or red, which mean bullish and bearish here:
+  - Freshness: the time is accent within the last hour, normal earlier today; an earlier
+    day's row (time and heading) is muted, and so is its header.
+  - Unseen: an accent bar down the row's left edge (`lib/useNewsSeen.ts`). While the list
+    is on screen the newest headline is recorded as seen (`tradedisha.newsSeen`), but the
+    bar is measured against what had been seen when the panel opened, so a new headline
+    keeps its bar until the panel is next opened; nothing is unseen on a first visit.
+  - Chips by index, from the stock list: violet (`--index-bank`) for a BANK NIFTY stock,
+    whether or not it is also in NIFTY; a neutral tint for NIFTY only; muted for a stock
+    with no index given. The chip's tooltip names its indices.
+
+  Stale-price dimming applies to the chain only, never to the headlines. States: "News needs the Upstox login", "Loading
+  headlines", "No headlines in the last 7 days", and a muted error line under the last
+  good list. Minimised, the summary is the new count and the newest headline. The panel id
+  is `news`; it does not move. Hidden is its own remembered flag (`tradedisha.newsHidden`),
+  set by the frame's × button (`PanelFrame.onClose`) or the TopBar's Headlines toggle;
+  "Restore panels" clears it. Its height is `newsHeight` in the stored layout (default
+  280 px, 120–900, clamped like the others; a layout stored before E10 gets the default).
 - **BiasMeter**: horizontal gauge −100…+100 with label and strength; animates on update.
 - **PriceChart**: resizes with its container (it has no fixed height once the layout is
   resizable). `lightweight-charts` candlestick; EMA9, EMA21, VWAP line series;

@@ -312,6 +312,42 @@ Also asked (2026-11-16): make the bullion panel's details collapsible like the i
 panel's. Each metal card keeps its price and change on show; the rest sits behind a
 Details toggle, closed by default, one remembered choice for both cards.
 
+### 14. Headlines
+
+Asked for (2026-11-16): does Upstox provide a news API for NIFTY, BANK NIFTY, gold and
+silver; then, a headlines panel on the right (show, hide, collapse) with relevant news
+from Upstox, latest first.
+
+Upstox's News API (live since 17/04/2026) gives news per stock only: index, F&O and MCX
+keys return nothing, so there is no gold or silver news. Over 11 heavyweight stocks it gave
+about 25 items in 7 days, much of it market wraps.
+
+Status: built in Milestone E10; the owner checks it in the browser. Design in
+[spec.md](spec.md) §6.7, §13.1 and §13.2; planned in [plan.md](plan.md) Milestone E10.
+
+Decided with the owner on 2026-11-16:
+- The purpose is a quick check on what is moving the market, not an input to the signal.
+- Headlines share the option chain's column, below the chain, rather than a column of
+  their own.
+
+Also asked (2026-11-17): how to tell today's news from the latest, and some colour.
+Decided: headlines grouped by day under Today / Yesterday / date headers, earlier days
+muted; the time in accent for the last hour; an accent bar for headlines not yet seen; and
+stock chips coloured by index (BANK NIFTY violet, NIFTY only neutral). No green or red,
+since they mean bullish and bearish in this app and Upstox gives no sentiment. Left out:
+relative times ("12m ago"), a pre-open label, and a MARKET tag for market wraps.
+
+Builder's calls:
+- One market-wide list for every tab, from a hand-edited list of the 30 heaviest NIFTY and
+  BANK NIFTY stocks (one Upstox call).
+- Each story shown once, with chips for every stock it was attached to; summary on click;
+  link opens the article in a new tab.
+- The backend polls every 180 s while logged in and pushes changes; nothing is stored.
+  Asked for (2026-11-17): the interval is a config parameter, `news.poll_seconds`
+  (30–3600 s), edited and versioned in the app like the others; a save applies at once.
+- Collapse is the panel's minimise; hide is a × on the panel and a Headlines toggle in the
+  top bar.
+
 ## Deferred
 
 ### Chart zoom buttons

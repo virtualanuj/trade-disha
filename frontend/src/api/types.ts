@@ -125,6 +125,7 @@ export interface HelloFrame extends FrameBase {
     stats: IndexStatsOut[]
     bullion: BullionOut
     bullion_candles: BullionCandlesOut[]
+    news: NewsOut
   }
 }
 
@@ -177,6 +178,7 @@ export type Frame =
   | FlowFrame
   | BullionFrame
   | BullionCandleFrame
+  | NewsFrame
 
 export type BuildUp =
   'long_buildup' | 'short_buildup' | 'short_covering' | 'long_unwinding' | 'none'
@@ -610,4 +612,33 @@ export interface BullionFrame extends FrameBase {
 export interface BullionCandleFrame extends FrameBase {
   type: 'bullion_candle'
   payload: { metal: string; candle: CandleOut; overlay: OverlayOut }
+}
+
+/** One story from Upstox's news API (spec §6.7), merged across the stocks it names. */
+export interface HeadlineOut {
+  heading: string
+  summary: string | null
+  link: string | null
+  /** epoch ms */
+  published_ts: number
+  /** every listed stock the story was attached to */
+  symbols: string[]
+}
+
+export type NewsStatus = 'needs_login' | 'loading' | 'ok' | 'error'
+
+/** The Headlines panel: in `hello` and the `news` frame. Items are newest first. */
+export interface NewsOut {
+  status: NewsStatus
+  error: string | null
+  /** epoch ms of the last successful fetch */
+  fetched_at: number | null
+  items: HeadlineOut[]
+  /** each listed stock's indices ('NIFTY', 'BANKNIFTY'), for the colour of its chip */
+  stock_indices: Record<string, string[]>
+}
+
+export interface NewsFrame extends FrameBase {
+  type: 'news'
+  payload: NewsOut
 }
