@@ -8,7 +8,9 @@ Net volume (Milestone E8): Upstox does not say which side started a trade, so ea
 volume is signed here. A print at or above the ask, as it stood before the tick, is a buy;
 at or below the bid, a sell; in between, the tick rule decides (`trade_side`). Candles keep
 `buy_volume` and `sell_volume`; `None` means no side information (an index has no volume,
-and backfilled minutes come without trades).
+and backfilled minutes come without trades). After a silence of more than `SIDE_GAP_MS`
+the first tick's volume is every trade missed, so it is counted in the volume but has no
+side (Milestone E13).
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from dataclasses import dataclass, field
 from tradedisha.feed.provider import Tick
 
 MINUTE_MS = 60_000
+SIDE_GAP_MS = 30_000  # a volume jump after a longer silence is not one trade: no side
 
 
 def trade_side(
@@ -87,6 +90,7 @@ class _Series:
     ask: float | None = None
     last_ltp: float | None = None
     last_side: int = 0
+    last_ts: int | None = None  # the previous tick, to tell a feed gap
 
     @property
     def vwap(self) -> float | None:
@@ -156,11 +160,13 @@ class CandleBuilder:
     def _side(s: _Series, t: Tick, dvol: int) -> int:
         """Sign this tick's trade against the quote before it, then remember the new quote."""
         side = 0
-        if dvol > 0:
+        gap = s.last_ts is not None and t.ts - s.last_ts > SIDE_GAP_MS
+        if dvol > 0 and not gap:
             side = trade_side(t.ltp, s.bid, s.ask, s.last_ltp, s.last_side)
             if side:
                 s.last_side = side
         s.last_ltp = t.ltp
+        s.last_ts = t.ts
         if t.bid is not None:
             s.bid = t.bid
         if t.ask is not None:

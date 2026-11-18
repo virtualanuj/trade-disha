@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-Group = Literal["trend", "oi", "premium", "macro"]
+# "flow" is bullion's order flow (Milestone E13); the index reads order flow at the trigger
+Group = Literal["trend", "oi", "premium", "flow", "macro"]
 # "info": shown with the evidence, never weighted (silver in the macro group)
 Quality = Literal["ok", "warming", "partial", "info"]
 

@@ -193,7 +193,10 @@ by section. Each field carries a one-line description, which the editor shows as
 | Bullion | `first_signal_time`, `last_signal_time`, `square_off_time` | 09:15, 22:45, 23:00 |
 | Bullion | `target_pct`, `stop_pct` | 0.40, 0.20 (% of the future's price) |
 | Bullion | `lots`, `cost_fixed_per_lot`, `cost_pct_of_value` | 1, ₹60, 0.012 % |
-| Bullion | `macro_weight` | 0.10 (E12: the dollar's share of the bullion bias; trend has the rest) |
+| Bullion | `macro_weight` | 0.10 (E12, E13: other markets' share, the dollar and the other metal) |
+| Bullion | `oi_weight`, `flow_weight` | 0.15, 0.15 (E13; trend has what OI, flow and macro leave) |
+| Bullion | `oi_window_minutes`, `oi_full_pct`, `oi_price_flat_pct`, `oi_unwind_factor` | 15, 0.50 %, 0.02 %, 0.5 |
+| Bullion | `flow_window_minutes`, `flow_trades_full`, `flow_book_minutes`, `flow_book_full` | 15, 0.50, 30, 0.20 |
 | News | `poll_seconds` | 180 (30–3600; display only, §6.7) |
 
 **Versions (Milestone C1).** The database is the source of truth. Table
@@ -528,8 +531,11 @@ currency futures.
   `buy_volume` and `sell_volume`; `None` where there is no side information (an index has no
   volume; backfilled minutes come from the candle API without trades). On a recorded day
   the quote rule alone classified 85 % of NIFTY and 90 % of BANK NIFTY futures volume; the
-  tick rule covers the rest. It is display only: no indicator reads it. The order-flow
-  score (§8.5) signs trades its own way over seconds and is unchanged.
+  tick rule covers the rest. A volume jump after more than 30 s with no tick
+  (`SIDE_GAP_MS`, E13) is every trade the gap hid, not one trade, so it is counted in the
+  volume but not signed. For the indices it is display only; the bullion bias reads it
+  from E13 (`net_volume`, §9a). The order-flow score (§8.5) signs trades its own way over
+  seconds and is unchanged.
 
 ### 7.2 Chain state
 Per index, in memory:
@@ -665,13 +671,17 @@ strength    = round(|bias| · 100)
 label       = Bullish if bias ≥ neutral_band, Bearish if bias ≤ −neutral_band, else Neutral
 ```
 
-Groups since E12: trend, OI, premium and macro (§8.6). `weights.macro` is carved out
+Groups since E12: trend, OI, premium and macro (§8.6); E13 adds `flow`, which only the
+bullion bias weighs (§9a; the index reads order flow at the trigger, §8.5) and the index
+gives 0. `weights.macro` is carved out
 first and the other three keep their proportions in the rest
 (`effective_group_weights`): 0.36 / 0.315 / 0.225 / 0.10 by default. On expiry day the
 OI cut is spread over trend, premium and macro in proportion. **If no macro indicator is
 `ok`** (no live feed, the currency market shut after 17:00, a window still filling), the
 macro share goes back to the other groups in proportion, so the bias is exactly the
-three-group one. An `info` reading (silver) is shown with weight 0.
+three-group one. An `info` reading (silver) is shown with weight 0. The groups that give
+their share back when idle are an argument of `aggregate()`: macro for the indices
+(`INDEX_IDLE`), OI, flow and macro for bullion (`BULLION_IDLE`).
 
 A `BiasComputed(index, ts, bias, label, strength, breakdown)` event is published every
 minute close and persisted to `bias_minutes`. `breakdown` is the list of
@@ -889,14 +899,30 @@ the next evaluation; the other carries on in shadow, so the comparison never sto
 GOLD and SILVER MCX near-month futures, run by `engine/bullion_desk.py:BullionDesk`
 (bias -> signals -> paper trades) on the MCX clock and bullion liveness (§6.6).
 
-- **Evidence: trend and the dollar.** There is no option chain for bullion, so the bias is
-  EMA cross, VWAP position and supertrend over the near contract's closed 1-minute
-  candles, plus (E12) the macro group's `dollar_index` and `usd_inr` with the bullion signs
-  of §8.6. Weights from `bullion_weights()`: trend `1 − bullion.macro_weight`, macro
-  `bullion.macro_weight` (0.10); while no currency price is live (after 17:00 on an MCX
-  evening) the dollar's share goes back to trend. Indicator periods come from
-  `trend`; thresholds from the `bullion` section. Stored in `bias_minutes` under GOLD /
-  SILVER and sent in the `bias` frame.
+- **Evidence.** There is no option chain for bullion. The bias has four groups, all read
+  from the near future up to the minute being worked out (`indicators/futures.py`,
+  Milestone E13, except trend):
+  - *trend*: EMA cross, VWAP position and supertrend over the closed 1-minute candles;
+  - *oi*: `futures_oi`, the price change against the OI change over
+    `oi_window_minutes`. Build-up (OI up) counts fully in the price's direction, short
+    covering and long unwinding (OI down) by `oi_unwind_factor`; a flat price reads 0. It
+    warms across a feed gap: the reading compared against must be within 5 minutes of the
+    window's start;
+  - *flow*: `net_volume`, the buyer- less seller-initiated share of the signed volume over
+    `flow_window_minutes` candles, and `book_imbalance`, the book's lean (total and
+    five-level quantities) against its own average over `flow_book_minutes` readings,
+    because MCX books lean one way for hours;
+  - *macro*: (E12) `dollar_index` and `usd_inr` with the bullion signs of §8.6, and (E13)
+    `peer_metal`, the other metal's trend (the mean of its `ok` trend votes).
+
+  OI and book readings come from `BullionTracker.minute_book()`: the near contract as it
+  stood at the end of each minute (its last tick), kept 900 minutes. Weights from
+  `bullion_weights()`: OI `oi_weight` (0.15), flow `flow_weight` (0.15), macro
+  `macro_weight` (0.10), trend the rest (0.60). A group with no `ok` reading gives its
+  share to the live ones (`BULLION_IDLE`), so at start, before the new votes warm up,
+  the bias is trend alone. Indicator periods come from `trend`; thresholds from the
+  `bullion` section. Stored in `bias_minutes` under GOLD / SILVER and sent in the `bias`
+  frame.
 - **Evaluation offset.** A bullion minute is worked out `bullion.eval_offset_seconds`
   (default 20) after it closes, not at the close, so it never competes with the index
   engines; the index "minute close -> signal" budget (§14a) is untouched. A close queues the

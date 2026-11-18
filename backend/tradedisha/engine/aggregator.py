@@ -9,13 +9,23 @@ from tradedisha.indicators import Group, IndicatorResult
 from tradedisha.parameters.model import ParameterSet
 
 Label = Literal["Bullish", "Neutral", "Bearish"]
-GROUPS: tuple[Group, ...] = ("trend", "oi", "premium", "macro")
+GROUPS: tuple[Group, ...] = ("trend", "oi", "premium", "flow", "macro")
+# Groups whose share goes back to the others while none of their readings is live.
+INDEX_IDLE: tuple[Group, ...] = ("macro",)
+BULLION_IDLE: tuple[Group, ...] = ("oi", "flow", "macro")
 
 
 def bullion_weights(p: ParameterSet) -> dict[Group, float]:
-    """Bullion has no option chain: trend, and the dollar's share (spec §9a)."""
-    m = p.bullion.macro_weight
-    return {"trend": 1.0 - m, "oi": 0.0, "premium": 0.0, "macro": m}
+    """Bullion has no option chain (spec §9a): trend has what the future's OI build-up,
+    order flow and other markets leave."""
+    b = p.bullion
+    return {
+        "trend": 1.0 - b.oi_weight - b.flow_weight - b.macro_weight,
+        "oi": b.oi_weight,
+        "premium": 0.0,
+        "flow": b.flow_weight,
+        "macro": b.macro_weight,
+    }
 
 
 @dataclass(frozen=True)
@@ -46,6 +56,7 @@ def effective_group_weights(p: ParameterSet, is_expiry_day: bool) -> dict[Group,
         "trend": p.weights.trend * rest,
         "oi": p.weights.oi * rest,
         "premium": p.weights.premium * rest,
+        "flow": 0.0,  # the index reads order flow at the trigger, not in the bias
         "macro": p.weights.macro,
     }
     if not is_expiry_day:
@@ -64,15 +75,20 @@ def _spread(w: dict[Group, float], amount: float, to: tuple[Group, ...]) -> dict
     return w
 
 
-def _return_idle_macro(
-    w: dict[Group, float], by_group: dict[Group, list[IndicatorResult]]
+def _return_idle(
+    w: dict[Group, float],
+    by_group: dict[Group, list[IndicatorResult]],
+    groups: tuple[Group, ...],
 ) -> dict[Group, float]:
-    """No live macro price (market shut, no data): its share goes back to the others."""
-    if w["macro"] <= 0 or any(r.quality == "ok" for r in by_group["macro"]):
+    """A group in `groups` with no live reading (market shut, warming, no data) gives its
+    share back to the others, in proportion to theirs."""
+    idle = [g for g in groups if w[g] > 0 and not any(r.quality == "ok" for r in by_group[g])]
+    if not idle:
         return w
-    idle = w["macro"]
-    w["macro"] = 0.0
-    return _spread(w, idle, tuple(g for g in GROUPS if g != "macro" and w[g] > 0))
+    amount = sum(w[g] for g in idle)
+    for g in idle:
+        w[g] = 0.0
+    return _spread(w, amount, tuple(g for g in GROUPS if g not in idle and w[g] > 0))
 
 
 def aggregate(
@@ -82,13 +98,15 @@ def aggregate(
     is_expiry_day: bool,
     weights: dict[Group, float] | None = None,
     neutral_band: float | None = None,
+    idle_groups: tuple[Group, ...] = INDEX_IDLE,
 ) -> Bias:
-    """Weighted group means. `weights` and `neutral_band` override the index settings."""
+    """Weighted group means. `weights`, `neutral_band` and `idle_groups` override the index
+    settings."""
     weights = dict(weights) if weights is not None else effective_group_weights(p, is_expiry_day)
     by_group: dict[Group, list[IndicatorResult]] = {g: [] for g in GROUPS}
     for r in results:
         by_group[r.group].append(r)
-    weights = _return_idle_macro(weights, by_group)
+    weights = _return_idle(weights, by_group, idle_groups)
 
     group_scores: dict[Group, float] = {}
     contributions: list[Contribution] = []

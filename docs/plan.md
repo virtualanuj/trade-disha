@@ -712,6 +712,43 @@ some weeks.
 
 **Design:** spec §3.2, §6.8, §8.4, §8.6, §9a; signal.md §3.4, §4, §13.
 
+## Milestone E13 — Futures OI, order flow and the other metal in the bullion bias
+
+**Goal:** the gold and silver bias reads more of what Upstox already sends for the near
+future, not just its price.
+
+- `indicators/futures.py`: `futures_oi` (price change against OI change over 15 minutes;
+  build-up full, covering and unwinding half; warming across a feed gap), `net_volume`
+  (signed volume share over 15 candles) and `book_imbalance` (the book's lean against its
+  30-minute average). `indicators/macro.py:peer_metal`: the other metal's trend.
+- `BullionTracker.minute_book()`: the near contract as it stood at the end of each minute
+  (OI, total and five-level book quantities), kept 900 minutes.
+- Aggregator: a `flow` group (0 for the index); `bullion_weights()` from the new
+  `bullion.oi_weight` (0.15) and `bullion.flow_weight` (0.15), macro 0.10, trend the rest;
+  the groups that give an idle share back are an argument (`BULLION_IDLE`).
+- `CandleBuilder`: a volume jump after more than 30 s of silence is counted but not
+  signed.
+- Ten `bullion.*` parameters with help text, in the model and `config/params.toml`; old
+  stored versions load with the defaults. Evidence table: an Order flow group and labels.
+- Tests: the three indicators table-driven (classes, clamping, window, warming, the gap)
+  with a property test for bounds; the peer; the idle share; the weights validator; the
+  tracker's readings; a live-tick bias with every group live; the gap volume; old configs
+  and the seed file; the evidence table.
+
+**Demo:** on the live feed the BULLION Evidence panel shows Open interest, Order flow and
+the other metal's trend under Macro; for the first 15 minutes after start they warm and
+the bias is trend (and the dollar) alone. Replay a recorded day with
+`TRADEDISHA_REPLAY_BULLION=true` to see the same.
+
+**Status (2026-11-18):** built, with unit tests; `make check` green. Replayed offline on
+the recorded MCX sessions of 16–18/11/2026 against the previous build: 168 bullion
+signals before, 80 after; SILVER better (+0.04 % → +0.10 % per signal), GOLD worse
+(+0.04 % → −0.02 %), with no costs and overlapping signals. Too little data to judge: the
+weights and full-strength values are starting values to be tuned once some weeks are
+recorded. Not yet checked on the live feed: the owner verifies it by hand.
+
+**Design:** spec §7.1 (net volume), §8.4, §9a; signal.md §13.
+
 ## Milestone C1 — Editable, versioned config
 
 **Goal:** the trader tunes the parameters in the app, can always get back to an earlier

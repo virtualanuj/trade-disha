@@ -132,7 +132,8 @@ def test_net_volume_resets_each_minute_and_gaps_are_zero() -> None:
     b = CandleBuilder()
     b.apply(fq(T0, 100.0, 1_000, 99.5, 100.0))
     b.apply(fq(T0 + 1_000, 100.0, 1_040, 99.5, 100.0))  # 40 bought
-    closed = b.apply(fq(T0 + 3 * M, 99.5, 1_060, 99.5, 100.0))  # 20 sold, two minutes later
+    closed = b.apply(fq(T0 + 3 * M, 99.5, 1_040, 99.5, 100.0))  # quiet for two minutes
+    b.apply(fq(T0 + 3 * M + 1_000, 99.5, 1_060, 99.5, 100.0))  # 20 sold
     assert [(c.buy_volume, c.sell_volume) for c in closed] == [(40, 0), (0, 0), (0, 0)]
     cur = b.current("F")
     assert cur is not None

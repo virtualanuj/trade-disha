@@ -390,7 +390,11 @@ class Paper(BaseModel):
 
 
 class Bullion(BaseModel):
-    """MCX GOLD and SILVER near-month futures, long or short, on trend evidence only."""
+    """MCX GOLD and SILVER near-month futures, long or short. Spec §9a.
+
+    Evidence: trend, the future's open-interest build-up, order flow, and other markets
+    (the dollar, the other metal), each with a share of the bias.
+    """
 
     model_config = ConfigDict(extra="forbid")
     signals: Literal["on", "off"] = Field(
@@ -401,8 +405,8 @@ class Bullion(BaseModel):
         gt=0,
         le=1,
         description=(
-            "|bias| at which a bullion signal fires. Bullion bias is trend only (EMA cross, "
-            "VWAP position, supertrend), so it moves further than the index bias."
+            "|bias| at which a bullion signal fires. Bullion has no option chain, so its "
+            "bias rests mostly on trend and moves further than the index bias."
         ),
     )
     neutral_band: float = Field(
@@ -459,9 +463,85 @@ class Bullion(BaseModel):
         ge=0,
         le=0.5,
         description=(
-            "Share of the bullion bias carried by the dollar (dollar-index proxy and "
-            "USD/INR); trend has the rest. Goes back to trend while no currency price is live."
+            "Share of the bullion bias carried by other markets: the dollar (dollar-index "
+            "proxy and USD/INR) and the other metal's trend. Trend has what the OI, flow and "
+            "macro shares leave; a share with no live reading goes to the other groups."
         ),
+    )
+    oi_weight: float = Field(
+        0.15,
+        ge=0,
+        le=0.5,
+        description=(
+            "Share of the bullion bias carried by the future's open-interest build-up. Goes "
+            "to the other groups while it warms up."
+        ),
+    )
+    flow_weight: float = Field(
+        0.15,
+        ge=0,
+        le=0.5,
+        description=(
+            "Share of the bullion bias carried by order flow: net traded volume and the "
+            "order book's lean. Goes to the other groups while it warms up."
+        ),
+    )
+    oi_window_minutes: int = Field(
+        15,
+        ge=2,
+        le=120,
+        description="Minutes over which the future's price and open-interest changes are read.",
+    )
+    oi_full_pct: float = Field(
+        0.50,
+        gt=0,
+        le=10,
+        description="Open-interest change (%) over the window that counts as full strength.",
+    )
+    oi_price_flat_pct: float = Field(
+        0.02,
+        ge=0,
+        le=2,
+        description="A price move (%) over the window smaller than this is flat: no build-up.",
+    )
+    oi_unwind_factor: float = Field(
+        0.5,
+        ge=0,
+        le=1,
+        description=(
+            "Falling open interest (short covering, long unwinding) is weaker evidence than "
+            "new positions; its score is scaled by this."
+        ),
+    )
+    flow_window_minutes: int = Field(
+        15,
+        ge=1,
+        le=120,
+        description=(
+            "Minutes of signed traded volume (buys at the ask less sells at the bid) behind "
+            "the net-volume vote."
+        ),
+    )
+    flow_trades_full: float = Field(
+        0.50,
+        gt=0,
+        le=1,
+        description="Net volume as a share of all traded volume that counts as full strength.",
+    )
+    flow_book_minutes: int = Field(
+        30,
+        ge=5,
+        le=240,
+        description=(
+            "Minutes over which the order book's usual lean is averaged; the book vote reads "
+            "the lean now against that average."
+        ),
+    )
+    flow_book_full: float = Field(
+        0.20,
+        gt=0,
+        le=2,
+        description="Book lean above its average (on a -1..+1 scale) that counts as full strength.",
     )
     cost_fixed_per_lot: float = Field(
         60.0, ge=0, description="Rupees per round trip per lot: brokerage and fixed fees."
@@ -488,6 +568,8 @@ class Bullion(BaseModel):
             raise ValueError("bullion neutral_band must be below entry_threshold")
         if not self.first_signal_time < self.last_signal_time <= self.square_off_time:
             raise ValueError("bullion times must run first signal < last signal <= square-off")
+        if self.oi_weight + self.flow_weight + self.macro_weight >= 1:
+            raise ValueError("bullion oi, flow and macro weights must leave trend a share")
         return self
 
 

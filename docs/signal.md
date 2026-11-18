@@ -721,7 +721,7 @@ MCX GOLD / SILVER ticks ─> BullionTracker (its own 1-minute candles)
         │          queued; worked out 20 s after the minute closes
         │                          │
         │                          v
-        │      3 trend indicators ─> bias (−1..+1) ─> gates ─> BUY_FUT / SELL_FUT
+        │   trend, futures OI, order flow, other markets ─> bias (−1..+1) ─> gates ─> BUY_FUT / SELL_FUT
         │                                                         │
         └──────────── live price ─────────────────────> live levels, paper trade
 ```
@@ -731,8 +731,9 @@ MCX GOLD / SILVER ticks ─> BullionTracker (its own 1-minute candles)
 | | Index (NIFTY, BANK NIFTY) | Bullion (GOLD, SILVER) |
 |---|---|---|
 | What a signal trades | buy the ATM call or put | buy or sell the near-month future |
-| Evidence | 9 indicators: trend, OI, premium; plus macro (dollar, USD/INR, crude, gold) | 3 trend indicators (there is no option chain), plus the dollar and USD/INR |
+| Evidence | 9 indicators: trend, OI, premium; plus macro (dollar, USD/INR, crude, gold) | 3 trend votes; the future's OI build-up; order flow (net volume, the book's lean); the dollar, USD/INR and the other metal's trend (there is no option chain) |
 | Candles the trend reads | spot (EMAs, supertrend), future (VWAP) | the near-month future for all three |
+| Order flow | read at the trigger (section 5), not in the bias | two votes in the bias, the `flow` group (E13) |
 | When it is worked out | at the minute close | 20 s after the minute close |
 | Entry threshold | \|bias\| ≥ 0.50 | \|bias\| ≥ 0.60 |
 | Entry rules | `minute_close` and `trigger`, with a shadow engine | `minute_close` only, no shadow |
@@ -752,6 +753,9 @@ For each metal, from the MCX instrument file of the day:
 | Near-month candles | the near contract's ticks, 1-minute bars, kept for 900 minutes (a full MCX day) | all three indicators |
 | VWAP | running close × volume over those candles, from the day's first candle | `vwap_position` |
 | Latest tick | the near contract | entry price, live levels, paper-trade fills |
+| Signed volume | each candle's buy and sell volume (E8). None for backfilled minutes; a volume jump after more than 30 s of silence is counted but not signed | `net_volume` |
+| Per-minute OI and book | the near contract as it stood at the end of each minute (its last tick): OI, total buy and sell quantity, five-level bid and ask quantity; kept 900 minutes | `futures_oi`, `book_imbalance` (E13) |
+| The other metal's candles | its near-month future, up to the same minute | `peer_metal` (E13) |
 | Next-month price | the next contract | display only (calendar spread) |
 | Dollar-index proxy, USD/INR | NSE currency futures, as for the indices (section 3.4) | the macro group, from E12 |
 
@@ -760,11 +764,23 @@ are not cold. A bullion candle closes on the first tick of the next minute, or 2
 after the minute ends if no tick comes. These candles live in the tracker's own builder
 and are stored under the MCX key; they never reach the index candle builder.
 
-### 13.3 Step 1: three trend indicators vote
+### 13.3 Step 1: the indicators vote
 
-> **Note:** the indicators are the same functions, with the same settings, as the index
-> trend group (section 3.1). Only the candles differ: here every input is the gold or
-> silver near-month future.
+> **Note: terms used here**
+>
+> - **Open interest (OI)**: futures contracts still open. It rises when a new buyer meets
+>   a new seller and falls when both sides close.
+> - **Build-up**: OI rising with a move, so new positions are behind it. **Long build-up**:
+>   price up, OI up. **Short build-up**: price down, OI up. **Short covering**: price up,
+>   OI down (sellers buying back). **Long unwinding**: price down, OI down.
+> - **Book lean**: (buy − sell) / (buy + sell) of the quantity waiting in the order book,
+>   −1..+1.
+
+There are four groups. The trend indicators are the same functions, with the same
+settings, as the index trend group (section 3.1); only the candles differ: here every
+input is the gold or silver near-month future.
+
+**Trend** (`trend`):
 
 | Indicator | What it measures | Score |
 |---|---|---|
@@ -772,42 +788,69 @@ and are stored under the MCX key; they never reach the index candle builder.
 | `vwap_position` | The future's last close against its VWAP, in % | `clamp(distance% / 0.3)`. 0.3 % above VWAP is full strength. |
 | `supertrend` | Side of the supertrend line (period 10, multiplier 3) the price is on | +1 above, −1 below, ramped over 3 bars after a flip. Needs 11 bars. |
 
-Only candles up to and including the minute being worked out are used, even though the
-evaluation runs 20 seconds into the next minute.
+**Positioning** (`oi`, Milestone E13):
+
+| Indicator | What it measures | Score |
+|---|---|---|
+| `futures_oi` | The future's price change against its OI change over 15 minutes (`oi_window_minutes`) | Strength `clamp(\|OI change %\| / 0.50)` (`oi_full_pct`), in the price's direction. Build-up counts fully, covering and unwinding half (`oi_unwind_factor`). A price move under 0.02 % (`oi_price_flat_pct`) or unchanged OI scores 0. Warms until 16 minutes of readings, and across a feed gap (no reading within 5 minutes of 15 minutes back). |
+
+**Order flow** (`flow`, Milestone E13):
+
+| Indicator | What it measures | Score |
+|---|---|---|
+| `net_volume` | Buyer- less seller-initiated volume over the last 15 candles (`flow_window_minutes`), as a share of the signed volume | `clamp(share / 0.50)` (`flow_trades_full`). Warms until 15 live minutes (backfilled ones have no sides); nothing traded scores 0. |
+| `book_imbalance` | The book lean now (mean of the total-quantity and five-level leans) against its average over the last 30 readings (`flow_book_minutes`) | `clamp((lean − average) / 0.20)` (`flow_book_full`). MCX books lean one way for hours (silver's pending sell quantity often runs well above its buy quantity), so only a change in the lean counts. Warms until 30 readings. |
+
+**Other markets** (`macro`): `dollar_index` and `usd_inr` as in section 3.4, and from E13:
+
+| Indicator | What it measures | Score |
+|---|---|---|
+| `peer_metal` | The other metal's trend: SILVER's for GOLD, GOLD's for SILVER | the mean of its `ok` trend votes, up to the same minute. Its trend, not its bias, so neither metal reads itself. |
+
+Only candles and readings up to and including the minute being worked out are used, even
+though the evaluation runs 20 seconds into the next minute.
 
 ### 13.4 Step 2: the votes become one bias
 
-> **Note:** trend carries 0.90 and the dollar 0.10 (`bullion.macro_weight`), from
-> `bullion_weights()`. The dollar readings for bullion are `dollar_index` with a minus
-> sign (a strong dollar pushes gold down) and `usd_inr` with a **plus** sign: MCX prices
-> are world prices × USD/INR, so a weaker rupee lifts them. While no currency price is
-> live (after 17:00, when MCX still trades) the dollar's share goes back to trend and the
-> bias is trend alone, as before E12. The worked example below is that case.
+> **Note:** the group weights come from `bullion_weights()`: OI 0.15
+> (`bullion.oi_weight`), flow 0.15 (`bullion.flow_weight`), other markets 0.10
+> (`bullion.macro_weight`), and trend the rest, 0.60. The dollar readings for bullion are
+> `dollar_index` with a minus sign (a strong dollar pushes gold down) and `usd_inr` with a
+> **plus** sign: MCX prices are world prices × USD/INR, so a weaker rupee lifts them.
 
-`aggregate()` is the same function as for the indices, given those weights and the
-bullion neutral band:
+`aggregate()` is the same function as for the indices, given those weights, the bullion
+neutral band and the bullion idle groups:
 
-1. **Average** the indicators whose quality is `ok`. Warming ones are left out, not
-   counted as zero.
-2. **Bias** = that average, clamped to −1..+1.
-3. **Label**: ≥ +0.20 Bullish, ≤ −0.20 Bearish, otherwise Neutral (`bullion.neutral_band`).
+1. **Group score** = the average of the group's indicators whose quality is `ok`. Warming
+   ones are left out, not counted as zero.
+2. **Idle groups.** An OI, flow or macro group with no `ok` reading gives its share to the
+   live groups in proportion to theirs. At start (backfilled candles have no OI, book or
+   sides) the bias is trend alone until the new votes warm up; after 17:00, when the
+   currency market shuts, the other metal carries the macro share alone.
+3. **Bias** = the weighted sum of the group scores, clamped to −1..+1.
+4. **Label**: ≥ +0.20 Bullish, ≤ −0.20 Bearish, otherwise Neutral (`bullion.neutral_band`).
    Strength is `round(|bias| × 100)`.
 
-Because three trend votes are not diluted by OI and premium, a bullion bias swings
-further than an index bias. That is why its entry threshold is higher, 0.60 against 0.50.
+Trend still carries most of the bias and there is no option chain to temper it, so a
+bullion bias swings further than an index bias. That is why its entry threshold is
+higher, 0.60 against 0.50.
 
-**Worked example** (GOLD, seen live on 16/11/2026 at 18:37):
+**Worked example** (GOLD, replayed from the recording of 18/11/2026 at 21:46; the replay
+had no currency prices, so macro is the other metal alone):
 
-| Indicator | Reading | Score |
-|---|---|---|
-| `ema_cross` | EMA 9 above EMA 21 by 0.02 % | +0.15 |
-| `vwap_position` | future above VWAP by 0.14 % | +0.48 |
-| `supertrend` | price above supertrend for 4 bars | +1.00 |
-| | **Bias** (the average) | **+0.54** |
+| Group (weight) | Indicator | Reading | Score |
+|---|---|---|---|
+| trend (0.60) | `ema_cross` | EMA 9 below EMA 21 by 0.08 % | −0.56 |
+| | `vwap_position` | future below VWAP by 0.49 % | −1.00 |
+| | `supertrend` | price below supertrend for 18 bars | −1.00 |
+| oi (0.15) | `futures_oi` | short build-up: price −0.03 %, OI +0.23 % in 15 min | −0.47 |
+| flow (0.15) | `net_volume` | net selling 2 % of 143 traded in 15 min | −0.04 |
+| | `book_imbalance` | book lean +0.09 against +0.06 over 30 min | +0.13 |
+| macro (0.10) | `peer_metal` | SILVER trend −0.95 | −0.95 |
 
-Bullish, strength 54: below 0.60, so no signal, and the card says "bias below the entry
-threshold". Had the EMA gap been 0.10 % (+0.66) and the price 0.25 % above VWAP (+0.83),
-the bias would have been (0.66 + 0.83 + 1.00) / 3 = **+0.83**, and a long signal would fire.
+Group scores: trend (−0.56 − 1.00 − 1.00) / 3 = −0.85, OI −0.47, flow (−0.04 + 0.13) / 2 =
++0.04, macro −0.95. Bias = 0.60 × −0.85 + 0.15 × −0.47 + 0.15 × 0.04 + 0.10 × −0.95 =
+**−0.67**: Bearish, strength 67, above 0.60, so a short (`SELL_FUT`) fires.
 
 Each minute's bias is stored in `bias_minutes` under `GOLD` or `SILVER`, with its full
 breakdown, and shown in the Market view and Evidence panels of the BULLION tab.
@@ -948,7 +991,21 @@ All in the `bullion` section of the config editor:
 | `bullion.target_pct` / `stop_pct` | 0.40 / 0.20 | % of the future's price |
 | `bullion.lots` | 1 | lots per paper trade |
 | `bullion.cost_fixed_per_lot` / `cost_pct_of_value` | ₹60 / 0.012 % | paper-trade cost |
-| `bullion.macro_weight` | 0.10 | the dollar's share of the bullion bias (E12); trend has the rest |
+| `bullion.macro_weight` | 0.10 | other markets' share: the dollar (E12) and the other metal (E13) |
+| `bullion.oi_weight` / `flow_weight` | 0.15 / 0.15 | the futures OI and order-flow shares (E13); trend has what the three leave, and they must leave it some |
+| `bullion.oi_window_minutes` | 15 | minutes over which price and OI changes are read |
+| `bullion.oi_full_pct` | 0.50 | OI change (%) that is full strength |
+| `bullion.oi_price_flat_pct` | 0.02 | a smaller price move (%) reads no build-up |
+| `bullion.oi_unwind_factor` | 0.5 | how much covering and unwinding count against new positions |
+| `bullion.flow_window_minutes` | 15 | minutes of signed volume behind `net_volume` |
+| `bullion.flow_trades_full` | 0.50 | net volume share that is full strength |
+| `bullion.flow_book_minutes` | 30 | the readings the book's usual lean is averaged over |
+| `bullion.flow_book_full` | 0.20 | lean above that average that is full strength |
+
+The E13 weights and full-strength values are starting values. Replaying the 2.5 recorded
+MCX sessions (16–18/11/2026) cut bullion signals from 168 to 80: better on SILVER
+(+0.10 % per signal against +0.04 %), worse on GOLD (−0.02 % against +0.04 %). That is
+too little data to judge, so they are to be tuned once some weeks are recorded.
 
 The indicator periods come from the `[trend]` table, shared with the indices. MCX hours
 and holidays are process settings (`mcx_open`, `mcx_close`, `config/mcx-holidays.txt`), not
@@ -959,10 +1016,12 @@ parameters.
 | Part | File |
 |---|---|
 | Contracts, ticks, candles, day range | `backend/tradedisha/market/bullion.py` (`BullionTracker`) |
-| Trend (and dollar) bias and the offset queue | `backend/tradedisha/engine/bullion_bias.py`; the dollar readings from `indicators/macro.py` (`bullion_macro_indicators`) |
+| Bias and the offset queue | `backend/tradedisha/engine/bullion_bias.py`; the dollar and the other metal from `indicators/macro.py` (`bullion_macro_indicators`, `peer_metal`) |
+| Futures OI build-up, net volume, book lean | `backend/tradedisha/indicators/futures.py`; the per-minute readings from `BullionTracker.minute_book()` |
+| Group weights and idle groups | `backend/tradedisha/engine/aggregator.py` (`bullion_weights`, `BULLION_IDLE`) |
 | Gates, building the signal, its life cycle, live levels | `backend/tradedisha/engine/bullion_signals.py` |
 | Bias, signals and paper trades wired together | `backend/tradedisha/engine/bullion_desk.py` |
 | Side-aware P&L, bullion cost and square-off rules | `backend/tradedisha/engine/paper.py` (`bullion_rules`) |
 | Bullion liveness, recording, replay | `backend/tradedisha/market/session.py` |
-| Tests | `backend/tests/test_bullion_trading.py`, `test_live_levels.py`, `tests/market/test_bullion_replay.py` |
+| Tests | `backend/tests/test_bullion_trading.py`, `test_live_levels.py`, `tests/market/test_bullion_replay.py`, `tests/indicators/test_futures.py` |
 

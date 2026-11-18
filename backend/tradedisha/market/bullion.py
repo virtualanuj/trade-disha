@@ -1,8 +1,9 @@
-"""BULLION: gold and silver MCX futures, shown for reference on their own tab. Spec §6.6.
+"""BULLION: gold and silver MCX futures on their own tab. Spec §6.6, §9a.
 
-Display only: no indicator, signal or paper trade reads these, and their ticks are not
-recorded (MCX trades until 23:30 and the replay clock follows recorded ticks). They have
-their own candle builder, because the shared one drives the bias engine.
+The tracker keeps the latest tick per contract, the day's range, the near contracts'
+1-minute candles in their own builder (the shared one drives the index bias engine) and,
+for the bullion bias, one open-interest and order-book reading per minute (Milestone E13).
+Their ticks go to `bullion_ticks`, never to `ticks`.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import httpx
 from tradedisha.feed.bus import StampedTick
 from tradedisha.feed.provider import Tick
 from tradedisha.feed.upstox import FullQuote, fetch_quotes
+from tradedisha.indicators.futures import MinuteBook
 from tradedisha.instruments.models import Instrument
 from tradedisha.instruments.resolve import resolve_commodity_months
 from tradedisha.instruments.upstox_master import load_mcx_master
@@ -181,6 +183,8 @@ class BullionTracker:
         self.candles = CandleBuilder(max_history=CANDLE_HISTORY)
         self._latest: dict[str, Tick] = {}
         self._day: dict[str, tuple[float, float, float]] = {}
+        # near key -> minute -> the contract as it stood at the end of that minute
+        self._book: dict[str, dict[int, MinuteBook]] = {}
         self._metal_of_near = {c.near.instrument_key: m for m, c in contracts.items()}
         keys = set(self._metal_of_near)
         keys.update(c.next.instrument_key for c in contracts.values() if c.next)
@@ -223,7 +227,23 @@ class BullionTracker:
             t.day_high or max(h, t.ltp),
             t.day_low or (min(low, t.ltp) if low else t.ltp),
         )
+        self._record_book(self._latest[t.key])
         self.candles.apply(t)
+
+    def _record_book(self, t: Tick) -> None:
+        """The latest reading of the minute replaces earlier ones; a late tick is ignored."""
+        minutes = self._book.setdefault(t.key, {})
+        minute = t.ts - t.ts % MINUTE_MS
+        if minutes and minute < next(reversed(minutes)):
+            return
+        minutes[minute] = MinuteBook(minute, t.ltp, t.oi, t.tbq, t.tsq, t.bid_qty5, t.ask_qty5)
+        while len(minutes) > CANDLE_HISTORY:
+            del minutes[next(iter(minutes))]
+
+    def minute_book(self, metal: str, upto_minute_ts: int) -> list[MinuteBook]:
+        """The near contract's per-minute readings up to and including `upto_minute_ts`."""
+        minutes = self._book.get(self.near_key(metal), {})
+        return [b for m, b in minutes.items() if m <= upto_minute_ts]
 
     def seed(self, metal: str, candles: list[Candle]) -> None:
         self.candles.seed(self.contracts[metal].near.instrument_key, candles)

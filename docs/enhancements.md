@@ -402,6 +402,45 @@ Builder's calls:
 - Macro ticks are recorded with MCX ticks (`bullion_ticks`), so they never stretch an NSE
   replay, and replay with `replay_bullion`.
 
+### 17. More Upstox evidence in the bullion bias
+
+Asked for (2026-11-18): what Upstox data, beyond what is used, would help the gold and
+silver futures bias; then build the first part.
+
+Status: built in Milestone E13; to be tuned once some weeks of MCX ticks are recorded.
+Design in [spec.md](spec.md) §8.4 and §9a, and [signal.md](signal.md) §13.3, §13.4;
+planned in [plan.md](plan.md) Milestone E13.
+
+What Upstox has that the bias did not read (checked on the recorded `bullion_ticks`):
+- Already on the socket and recorded: the futures' OI, total buy and sell quantity,
+  five-level book quantity, the exchange's average price and the day candle.
+- On Upstox but needing new subscriptions or calls: MCX options on GOLD and SILVER (an
+  option chain: PCR, OI walls, implied volatility), daily candles with OI (multi-day
+  levels, a volatility-sized target and stop), the mini contracts, the MCX bullion index,
+  NSE gold and silver ETFs.
+- Not on Upstox: the international gold price, US yields, the US data calendar, global
+  ETF flows, commodity news (Upstox news is NSE stocks only).
+
+Decided with the owner on 2026-11-18:
+- First part: the futures' OI build-up, order flow and the other metal's trend.
+- On with modest weights straight away: trend 0.60, OI 0.15, flow 0.15, other markets
+  0.10, although 2.5 recorded sessions showed no clear edge for any of them.
+
+Builder's calls:
+- Order flow is two votes in a new `flow` group: net traded volume, and the book's lean
+  against its own 30-minute average (silver's book leans to the sell side for hours, so
+  the raw lean would hold it bearish).
+- The other metal's trend goes in the macro group; its trend votes, not its bias, so
+  neither metal reads itself.
+- A group with no live reading gives its share to the others, so at start the bias is
+  what it was until the new votes warm up.
+- Recording gaps exposed two faults, both fixed: a volume jump after a feed gap was
+  signed as one trade (now counted but unsigned, for the index net-volume bars too), and
+  the OI change compared across a gap (now warming).
+- Replay of 16–18/11/2026 (no costs; overlapping signals): 168 bullion signals before,
+  80 after; SILVER +0.04 % → +0.10 % per signal, GOLD +0.04 % → −0.02 %. Too little data
+  to judge either way.
+
 ## Deferred
 
 ### Chart zoom buttons

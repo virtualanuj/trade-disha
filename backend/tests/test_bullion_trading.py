@@ -16,7 +16,7 @@ from pydantic import ValidationError
 from tradedisha.app_state import AppState
 from tradedisha.clock import IST, MarketClock, epoch_ms_now, ist_to_ms, ms_to_ist
 from tradedisha.config import Settings
-from tradedisha.engine.aggregator import Bias, Label, aggregate, bullion_weights
+from tradedisha.engine.aggregator import BULLION_IDLE, Bias, Label, aggregate, bullion_weights
 from tradedisha.engine.bias_engine import BiasComputed, OverlayPoint
 from tradedisha.engine.bullion_bias import BullionBiasEngine
 from tradedisha.engine.bullion_desk import BullionDesk
@@ -95,17 +95,49 @@ def test_trend_only_weights_let_a_full_trend_reach_the_ends() -> None:
     p = ParameterSet()
     results = [_trend(1.0), _trend(1.0, "vwap_position"), _trend(1.0, "supertrend")]
     assert aggregate(results, p, is_expiry_day=False).bias == pytest.approx(0.4)  # index weights
-    b = aggregate(results, p, is_expiry_day=False, weights=bullion_weights(p), neutral_band=0.15)
-    assert b.bias == pytest.approx(1.0)  # no live dollar price: trend carries it all
+    b = aggregate(
+        results,
+        p,
+        is_expiry_day=False,
+        weights=bullion_weights(p),
+        neutral_band=0.15,
+        idle_groups=BULLION_IDLE,
+    )
+    assert b.bias == pytest.approx(1.0)  # no OI, flow or macro reading: trend carries it all
     assert b.label == "Bullish"
-    assert b.group_weights == {"trend": 1.0, "oi": 0.0, "premium": 0.0, "macro": 0.0}
+    assert b.group_weights == pytest.approx(
+        {"trend": 1.0, "oi": 0.0, "premium": 0.0, "flow": 0.0, "macro": 0.0}
+    )
 
 
-def test_bullion_weights_give_the_dollar_its_share() -> None:
+def test_bullion_weights_share_the_bias_out() -> None:
     p = ParameterSet()
     assert bullion_weights(p) == pytest.approx(
-        {"trend": 0.90, "oi": 0.0, "premium": 0.0, "macro": 0.10}
+        {"trend": 0.60, "oi": 0.15, "premium": 0.0, "flow": 0.15, "macro": 0.10}
     )
+
+
+def test_a_warming_group_gives_its_share_to_the_live_ones() -> None:
+    p = ParameterSet()
+    results = [
+        _trend(1.0),
+        IndicatorResult("futures_oi", "oi", -1.0, ""),
+        IndicatorResult("net_volume", "flow", 0.0, "", "warming"),
+        IndicatorResult("dollar_index", "macro", 0.0, "", "warming"),
+    ]
+    b = aggregate(
+        results, p, is_expiry_day=False, weights=bullion_weights(p), idle_groups=BULLION_IDLE
+    )
+    # flow's 0.15 and macro's 0.10 go to trend and OI in proportion (0.60 : 0.15)
+    assert b.group_weights == pytest.approx(
+        {"trend": 0.80, "oi": 0.20, "premium": 0.0, "flow": 0.0, "macro": 0.0}
+    )
+    assert b.bias == pytest.approx(0.80 - 0.20)
+
+
+def test_bullion_weights_must_leave_trend_a_share() -> None:
+    with pytest.raises(ValidationError, match="leave trend a share"):
+        Bullion(oi_weight=0.5, flow_weight=0.4, macro_weight=0.1)
 
 
 def test_the_neutral_band_override_sets_the_label() -> None:
@@ -212,25 +244,74 @@ def test_bullion_bias_adds_the_dollar_when_there_is_a_reading(tmp_path: Path) ->
         macro=lambda _m: [IndicatorResult("dollar_index", "macro", -1.0, "Dollar +0.20%")],
     )
     b = h.engine.evaluate("GOLD", h.seed("GOLD", GOLD_KEY)).bias
-    assert b.group_weights["macro"] == pytest.approx(0.10)
-    assert b.group_weights["trend"] == pytest.approx(0.90)
-    assert [c.result.name for c in b.contributions][-1] == "dollar_index"
+    # OI and flow warming: their 0.30 goes to trend and macro in proportion (0.60 : 0.10)
+    assert b.group_weights["macro"] == pytest.approx(0.10 / 0.70)
+    assert b.group_weights["trend"] == pytest.approx(0.60 / 0.70)
+    weighted = [c.result.name for c in b.contributions if c.weight > 0]
+    assert weighted[-1] == "dollar_index"
 
 
-def test_bullion_bias_is_trend_only_and_stored_per_metal(tmp_path: Path) -> None:
+def test_backfilled_bullion_bias_is_trend_only_and_stored_per_metal(tmp_path: Path) -> None:
     h = BiasHarness(tmp_path, offset=0)
-    last = h.seed("GOLD", GOLD_KEY)
+    last = h.seed("GOLD", GOLD_KEY)  # backfilled candles: no OI, book or trade sides
     b = h.engine.evaluate("GOLD", last)
     assert b.index == "GOLD"
-    assert [c.result.name for c in b.bias.contributions] == [
-        "ema_cross",
-        "vwap_position",
-        "supertrend",
+    assert [(c.result.name, c.result.quality) for c in b.bias.contributions] == [
+        ("ema_cross", "ok"),
+        ("vwap_position", "ok"),
+        ("supertrend", "ok"),
+        ("futures_oi", "warming"),
+        ("net_volume", "warming"),
+        ("book_imbalance", "warming"),
+        ("peer_metal", "warming"),  # no SILVER candles
     ]
     assert b.bias.bias > 0.6  # a steady climb: every trend vote is bullish
-    assert b.bias.group_weights == {"trend": 1.0, "oi": 0.0, "premium": 0.0, "macro": 0.0}
+    assert b.bias.group_weights == pytest.approx(
+        {"trend": 1.0, "oi": 0.0, "premium": 0.0, "flow": 0.0, "macro": 0.0}
+    )
     rows = h.conn.execute("SELECT idx, minute_ts FROM bias_minutes").fetchall()
     assert [(r["idx"], r["minute_ts"]) for r in rows] == [("GOLD", last)]
+
+
+def _live_minutes(h: BiasHarness, key: str, n: int, *, base: float, ease_at: int) -> None:
+    """n minutes of ticks: price and OI climbing, every trade at the ask, a book leaning to
+    the sell side until minute `ease_at`, when it turns to the buy side."""
+    for i in range(n):
+        t, px = at(19, 0) + i * M, base + i * 20
+        tbq, tsq = (6000, 4000) if i == ease_at else (4000, 6000)
+        quoted = Tick(
+            key,
+            t + 1000,
+            px,
+            volume=20 * i,
+            oi=10_000 + 20 * i,
+            bid=px - 1,
+            ask=px + 1,
+            tbq=tbq,
+            tsq=tsq,
+        )
+        h.tracker.on_tick(StampedTick(quoted, t))
+        h.tracker.on_tick(StampedTick(Tick(key, t + 30_000, px + 1, volume=20 * i + 10), t))
+
+
+def test_live_bullion_bias_reads_positioning_flow_and_the_other_metal(tmp_path: Path) -> None:
+    h = BiasHarness(tmp_path, offset=0)
+    _live_minutes(h, GOLD_KEY, 40, base=135_000.0, ease_at=38)
+    _live_minutes(h, SILVER_KEY, 40, base=170_000.0, ease_at=38)
+    b = h.engine.evaluate("GOLD", at(19, 38)).bias  # minute 39 is still open
+    by = {c.result.name: c for c in b.contributions}
+    assert list(by) == [
+        "ema_cross", "vwap_position", "supertrend", "futures_oi",
+        "net_volume", "book_imbalance", "peer_metal",
+    ]  # fmt: skip
+    assert {c.result.quality for c in b.contributions} == {"ok"}
+    assert b.group_weights == pytest.approx(bullion_weights(h.params))  # every group live
+    assert by["futures_oi"].result.note.startswith("long build-up")
+    assert by["futures_oi"].result.score == pytest.approx(1.0)
+    assert by["net_volume"].result.score == pytest.approx(1.0)  # every trade at the ask
+    assert by["book_imbalance"].result.score == pytest.approx(1.0)  # the lean turned
+    assert by["peer_metal"].result.note.startswith("SILVER trend +")
+    assert b.bias > 0.8
 
 
 def test_bullion_bias_warms_up_on_few_candles(tmp_path: Path) -> None:

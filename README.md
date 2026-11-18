@@ -55,6 +55,10 @@ Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by
   NIFTY, the bank sub-indices on BANK NIFTY. ATM moves into Details.
 - **E12:** the bias weighs macro evidence with a small share: the dollar (rebuilt from NSE
   currency futures), USD/INR, crude and gold for the indices; the dollar for bullion.
+- **E13:** the gold and silver bias also reads the near future's open-interest build-up,
+  order flow (net traded volume, the book's lean) and the other metal's trend: trend
+  0.60, OI 0.15, flow 0.15, other markets 0.10. Starting weights, to be tuned on more
+  recorded days.
 
 ## Documents
 

@@ -38,6 +38,23 @@ def _trades(key: str, t0: int) -> list[Tick]:
     ]
 
 
+def test_volume_across_a_feed_gap_is_counted_but_not_signed() -> None:
+    """After a silence the first tick's volume is every trade missed, not one trade: it
+    cannot be given a side (seen in the recorded MCX gaps of 18/11/2026)."""
+    b = CandleBuilder()
+    t0 = 1_794_800_000_000 - 1_794_800_000_000 % M
+    for t in (
+        Tick(key="K", ts=t0, ltp=100.0, volume=1_000, bid=99.5, ask=100.0),
+        Tick(key="K", ts=t0 + 1_000, ltp=100.0, volume=1_010, bid=99.5, ask=100.0),  # buy 10
+        Tick(key="K", ts=t0 + 45_000, ltp=99.0, volume=2_910, bid=98.5, ask=99.5),  # 44 s gap
+        Tick(key="K", ts=t0 + 46_000, ltp=98.5, volume=2_915, bid=98.5, ask=99.0),  # sell 5
+        Tick(key="K", ts=t0 + M, ltp=98.5, volume=2_915),
+    ):
+        b.apply(t)
+    [c] = b.closed("K")
+    assert (c.volume, c.buy_volume, c.sell_volume) == (1_915, 10, 5)
+
+
 def test_index_candles_carry_the_futures_net_volume(client: TestClient) -> None:
     td: AppState = client.app.state.td  # type: ignore[attr-defined]
     fut = td.session.resolved["NIFTY"].future.instrument_key

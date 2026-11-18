@@ -17,6 +17,7 @@ from tradedisha.events import EventBus
 from tradedisha.feed.bus import StampedTick
 from tradedisha.feed.provider import FeedHealth, Tick
 from tradedisha.feed.upstox import FullQuote, fetch_quotes, parse_full_quote
+from tradedisha.indicators.futures import MinuteBook
 from tradedisha.indicators.series import vwap_series
 from tradedisha.instruments.resolve import resolve_commodity_months
 from tradedisha.instruments.upstox_master import mcx_master_path, parse_commodities
@@ -517,3 +518,21 @@ def test_health_carries_the_bullion_status(client: TestClient) -> None:
     body = client.get("/api/health").json()["bullion"]
     assert body["status"] in {"live", "stale", "closed", "holiday"}  # depends on the wall clock
     assert set(body) == {"status", "since_ms"}
+
+
+def test_tracker_keeps_the_last_reading_of_each_minute_for_the_bias() -> None:
+    t = _tracker()
+    t0 = 1_794_800_000_000 - 1_794_800_000_000 % MINUTE_MS
+    gold, nxt = "MCX_FO|495213", "MCX_FO|559933"
+    t.on_tick(_st(gold, t0, 136000.0, oi=1000, tbq=50, tsq=70, bid_qty5=5, ask_qty5=6))
+    t.on_tick(_st(gold, t0 + 30_000, 136010.0, tbq=55))  # OI and the rest carried over
+    t.on_tick(_st(nxt, t0 + 40_000, 138000.0, oi=9))  # next month: not read
+    t.on_tick(_st(gold, t0 + MINUTE_MS, 136020.0, oi=1010))
+    t.on_tick(_st(gold, t0 + 50_000, 1.0, oi=1))  # late for a minute already moved past
+
+    assert t.minute_book("GOLD", t0 + MINUTE_MS) == [
+        MinuteBook(t0, 136010.0, 1000, 55, 70, 5, 6),
+        MinuteBook(t0 + MINUTE_MS, 136020.0, 1010, 55, 70, 5, 6),
+    ]
+    assert [b.minute_ts for b in t.minute_book("GOLD", t0)] == [t0]
+    assert t.minute_book("SILVER", t0 + MINUTE_MS) == []

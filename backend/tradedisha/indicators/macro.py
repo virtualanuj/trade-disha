@@ -124,6 +124,25 @@ def index_macro_indicators(view: Mapping[str, MacroSeries], p: Macro) -> list[In
     ]
 
 
+def peer_metal(metal: str, trend: Sequence[IndicatorResult]) -> IndicatorResult:
+    """The other metal's trend (the mean of its `ok` trend votes) as evidence for this one.
+
+    Gold and silver usually move together, so one confirms the other, and a split
+    softens the bias. Its own trend votes, not its bias, so neither metal reads itself.
+    """
+    ok = [r for r in trend if r.quality == "ok"]
+    if not ok:
+        return IndicatorResult("peer_metal", "macro", 0.0, f"{metal} trend warming up", "warming")
+    score = sum(r.score for r in ok) / len(ok)
+    return IndicatorResult(
+        "peer_metal",
+        "macro",
+        score,
+        f"{metal} trend {score:+.2f}",
+        value={"score": score, "votes": float(len(ok))},
+    )
+
+
 def bullion_macro_indicators(view: Mapping[str, MacroSeries], p: Macro) -> list[IndicatorResult]:
     """For GOLD and SILVER: a rising dollar is bearish, a weakening rupee bullish."""
     w = p.window_minutes

@@ -219,3 +219,27 @@ def test_a_stored_version_from_before_macro_still_loads_with_it_on() -> None:
 def test_the_seed_file_carries_the_macro_settings() -> None:
     p = load_file(REPO_ROOT / "config" / "params.toml")
     assert (p.weights.macro, p.bullion.macro_weight, p.macro.window_minutes) == (0.10, 0.10, 30)
+
+
+# -- bullion positioning and flow (Milestone E13) ------------------------------------------
+
+E13_FIELDS = (
+    "oi_weight", "flow_weight", "oi_window_minutes", "oi_full_pct", "oi_price_flat_pct",
+    "oi_unwind_factor", "flow_window_minutes", "flow_trades_full", "flow_book_minutes",
+    "flow_book_full",
+)  # fmt: skip
+
+
+def test_a_stored_version_from_before_e13_loads_with_the_new_shares() -> None:
+    stored = ParameterSet().model_dump(mode="json")
+    for name in E13_FIELDS:
+        del stored["bullion"][name]
+    b = ParameterSet.model_validate(stored).bullion
+    assert (b.oi_weight, b.flow_weight, b.macro_weight) == (0.15, 0.15, 0.10)
+
+
+def test_the_seed_file_carries_the_e13_settings_with_help() -> None:
+    seed = load_file(REPO_ROOT / "config" / "params.toml").bullion
+    assert seed == ParameterSet().bullion
+    specs = {s.path: s for s in describe(ParameterSet())}
+    assert all(specs[f"bullion.{name}"].help for name in E13_FIELDS)

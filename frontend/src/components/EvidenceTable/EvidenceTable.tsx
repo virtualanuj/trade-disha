@@ -5,7 +5,8 @@ const GROUP_LABEL: Record<IndicatorOut['group'], string> = {
   trend: 'Price trend',
   oi: 'Open interest',
   premium: 'Premium behaviour',
-  macro: 'Macro: dollar, crude, gold',
+  flow: 'Order flow',
+  macro: 'Macro: dollar, crude, metals',
 }
 
 const NAME_LABEL: Record<string, string> = {
@@ -23,6 +24,10 @@ const NAME_LABEL: Record<string, string> = {
   crude: 'Crude oil',
   gold: 'Gold',
   silver: 'Silver',
+  futures_oi: 'Futures OI build-up',
+  net_volume: 'Net traded volume',
+  book_imbalance: 'Order-book lean',
+  peer_metal: 'Other metal’s trend',
 }
 
 function ScoreBar({ score }: { score: number }) {
@@ -52,8 +57,9 @@ export function EvidenceTable({ bias }: { bias: BiasOut | undefined }) {
     return <p className="text-xs text-fg-muted">Evidence appears after the first minute closes.</p>
   }
   // A group with no indicators and no weight plays no part: bullion has no option chain
-  // (spec §9a), and without the live feed there is no macro data (spec §8.6).
-  const groups = (['trend', 'oi', 'premium', 'macro'] as const).filter(
+  // (spec §9a), the index has no flow group, and without the live feed there is no macro
+  // data (spec §8.6).
+  const groups = (['trend', 'oi', 'premium', 'flow', 'macro'] as const).filter(
     (g) => (bias.group_weights[g] ?? 0) > 0 || bias.indicators.some((i) => i.group === g),
   )
   return (

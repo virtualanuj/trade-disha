@@ -1,7 +1,9 @@
-"""Bullion bias: trend evidence on the MCX GOLD/SILVER near-month 1-minute candles. Spec §9a.
+"""Bullion bias on the MCX GOLD/SILVER near-month future. Spec §9a.
 
-There is no option chain for bullion, so the bias is the trend group alone (EMA cross,
-VWAP position, supertrend), weighted as the whole bias. Each minute is worked out
+There is no option chain for bullion. The evidence is the trend group (EMA cross, VWAP
+position, supertrend on the 1-minute candles), the future's open-interest build-up, order
+flow (net traded volume, the book's lean) and other markets (the dollar, the other metal's
+trend), each group with its `bullion.*_weight` share (Milestone E13). Each minute is worked out
 `bullion.eval_offset_seconds` after it closes rather than at the close itself, so bullion
 never competes with the index engines for the same instant: a close only queues the
 minute, and `run_due` (called from the session's housekeeping, on the market clock) runs
@@ -15,9 +17,11 @@ import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from tradedisha.engine.aggregator import aggregate, bullion_weights
+from tradedisha.engine.aggregator import BULLION_IDLE, aggregate, bullion_weights
 from tradedisha.engine.bias_engine import BiasComputed, BiasStore, OverlayPoint, compute_overlays
 from tradedisha.indicators import IndicatorResult
+from tradedisha.indicators.futures import book_imbalance, futures_oi_buildup, net_volume
+from tradedisha.indicators.macro import peer_metal
 from tradedisha.indicators.series import vwap_series
 from tradedisha.indicators.trend import ema_cross, supertrend_vote, vwap_position
 from tradedisha.market.bullion import BullionTracker
@@ -37,6 +41,7 @@ class _Due:
 
 
 def run_bullion_indicators(candles: list[Candle], p: ParameterSet) -> list[IndicatorResult]:
+    """The trend group on one metal's candles."""
     vwap = vwap_series(candles)[-1] if candles else None
     close = candles[-1].close if candles else None
     return [
@@ -95,17 +100,26 @@ class BullionBiasEngine:
 
     def evaluate(self, metal: str, minute_ts: int) -> BiasComputed:
         p = self._params()
-        key = self._tracker.near_key(metal)
-        candles = [c for c in self._tracker.candles.closed(key) if c.minute_ts <= minute_ts]
+        candles = self._candles(metal, minute_ts)
+        book = self._tracker.minute_book(metal, minute_ts)
         results = run_bullion_indicators(candles, p)
+        results += [
+            futures_oi_buildup(book, p.bullion),
+            net_volume(candles, p.bullion),
+            book_imbalance(book, p.bullion),
+        ]
         if self._macro is not None:
             results += self._macro(minute_ts)
+        for peer in (m for m in self._tracker.contracts if m != metal):
+            peer_trend = run_bullion_indicators(self._candles(peer, minute_ts), p)
+            results.append(peer_metal(peer, peer_trend))
         bias = aggregate(
             results,
             p,
             is_expiry_day=False,
             weights=bullion_weights(p),
             neutral_band=p.bullion.neutral_band,
+            idle_groups=BULLION_IDLE,
         )
         vwap = vwap_series(candles)[-1] if candles else None
         overlay = compute_overlays(candles, vwap, p)
@@ -119,6 +133,11 @@ class BullionBiasEngine:
         if self._on_bias:
             self._on_bias(out)
         return out
+
+    def _candles(self, metal: str, upto_minute_ts: int) -> list[Candle]:
+        """Closed near-month candles up to and including the minute being worked out."""
+        key = self._tracker.near_key(metal)
+        return [c for c in self._tracker.candles.closed(key) if c.minute_ts <= upto_minute_ts]
 
     def history(self, metal: str, start_ms: int, end_ms: int) -> list[sqlite3.Row]:
         return self._store.read_day(metal, start_ms, end_ms)

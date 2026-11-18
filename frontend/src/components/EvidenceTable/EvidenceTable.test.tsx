@@ -112,12 +112,61 @@ describe('EvidenceTable', () => {
       ],
     }
     render(<EvidenceTable bias={withMacro} />)
-    expect(screen.getByText('Macro: dollar, crude, gold')).toBeInTheDocument()
+    expect(screen.getByText('Macro: dollar, crude, metals')).toBeInTheDocument()
     expect(screen.getByText('Crude oil')).toBeInTheDocument()
     expect(screen.getByText('Crude +0.40% in 30 min')).toBeInTheDocument()
     const silver = screen.getByText('Silver').closest('tr')
     expect(silver).toHaveClass('text-fg-muted/70')
     expect(silver).not.toHaveTextContent('(info)') // its note already says it is not scored
+  })
+
+  it('shows bullion positioning, order flow and the other metal', () => {
+    const row = (
+      name: string,
+      group: 'oi' | 'flow' | 'macro',
+      note: string,
+    ): BiasOut['indicators'][number] => ({
+      name,
+      group,
+      score: 0.5,
+      note,
+      quality: 'ok',
+      value: {},
+      weight: 0.075,
+      contribution: 0.0375,
+    })
+    const gold: BiasOut = {
+      ...bias,
+      index: 'GOLD',
+      group_scores: { trend: 0.75, oi: 0.5, premium: 0, flow: 0.5, macro: 0.5 },
+      group_weights: { trend: 0.6, oi: 0.15, premium: 0, flow: 0.15, macro: 0.1 },
+      indicators: [
+        ...bias.indicators.slice(0, 1),
+        row('futures_oi', 'oi', 'long build-up: price +0.20%, OI +0.40% in 15 min'),
+        row('net_volume', 'flow', 'net buying 25% of 1,200 traded in 15 min'),
+        row('book_imbalance', 'flow', 'book lean +0.05 against -0.15 over 30 min'),
+        row('peer_metal', 'macro', 'SILVER trend +0.50'),
+      ],
+    }
+    render(<EvidenceTable bias={gold} />)
+    const t = screen.getByTestId('evidence')
+    for (const text of [
+      'Open interest',
+      'Futures OI build-up',
+      'Order flow',
+      'Net traded volume',
+      'Order-book lean',
+      'Other metal’s trend',
+      'SILVER trend +0.50',
+    ]) {
+      expect(t).toHaveTextContent(text)
+    }
+    expect(t).not.toHaveTextContent('Premium behaviour')
+  })
+
+  it('leaves the index without an order-flow group', () => {
+    render(<EvidenceTable bias={bias} />)
+    expect(screen.queryByText('Order flow')).not.toBeInTheDocument()
   })
 
   it('leaves the macro group out when it has no weight and no readings', () => {
