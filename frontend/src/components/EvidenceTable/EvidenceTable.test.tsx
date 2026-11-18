@@ -81,4 +81,47 @@ describe('EvidenceTable', () => {
     render(<EvidenceTable bias={undefined} />)
     expect(screen.getByText(/after the first minute/)).toBeInTheDocument()
   })
+
+  it('shows the macro group with its readings, silver muted as not scored', () => {
+    const withMacro: BiasOut = {
+      ...bias,
+      group_scores: { ...bias.group_scores, macro: -0.5 },
+      group_weights: { trend: 0.36, oi: 0.315, premium: 0.225, macro: 0.1 },
+      indicators: [
+        ...bias.indicators,
+        {
+          name: 'crude',
+          group: 'macro',
+          score: -0.5,
+          note: 'Crude +0.40% in 30 min',
+          quality: 'ok',
+          value: { change_pct: 0.4 },
+          weight: 0.05,
+          contribution: -0.025,
+        },
+        {
+          name: 'silver',
+          group: 'macro',
+          score: 0,
+          note: 'Silver +1.00% in 30 min (shown, not scored)',
+          quality: 'info',
+          value: { change_pct: 1 },
+          weight: 0,
+          contribution: 0,
+        },
+      ],
+    }
+    render(<EvidenceTable bias={withMacro} />)
+    expect(screen.getByText('Macro: dollar, crude, gold')).toBeInTheDocument()
+    expect(screen.getByText('Crude oil')).toBeInTheDocument()
+    expect(screen.getByText('Crude +0.40% in 30 min')).toBeInTheDocument()
+    const silver = screen.getByText('Silver').closest('tr')
+    expect(silver).toHaveClass('text-fg-muted/70')
+    expect(silver).not.toHaveTextContent('(info)') // its note already says it is not scored
+  })
+
+  it('leaves the macro group out when it has no weight and no readings', () => {
+    render(<EvidenceTable bias={bias} />)
+    expect(screen.queryByText(/Macro/)).not.toBeInTheDocument()
+  })
 })

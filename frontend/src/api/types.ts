@@ -254,10 +254,12 @@ export interface CandlesResponse {
 
 export interface IndicatorOut {
   name: string
-  group: 'trend' | 'oi' | 'premium'
+  /** 'macro' since E12: the dollar, USD/INR, crude and gold (spec §8.6) */
+  group: 'trend' | 'oi' | 'premium' | 'macro'
   score: number
   note: string
-  quality: 'ok' | 'warming' | 'partial'
+  /** 'info': shown with the evidence, never weighted (silver) */
+  quality: 'ok' | 'warming' | 'partial' | 'info'
   value: Record<string, number>
   weight: number
   contribution: number

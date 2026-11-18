@@ -100,6 +100,8 @@ These apply to the whole product, not to one feature.
      between puts and calls, and how that is shifting.
   3. **Premium behaviour** — whether call and put premiums, and their implied volatility,
      agree with the move in the index.
+  4. **Macro** (added after 1.0, enhancement 16) — the dollar, the rupee, crude oil and
+     gold, with a small weight. It also counts in the bullion view.
 - Each kind of evidence contributes a vote and a weight. The trader can see every vote.
 - The model must be able to take on further kinds of evidence later, in particular news
   flow and FII/DII buying and selling. These are not part of the first version.

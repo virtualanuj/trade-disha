@@ -87,6 +87,11 @@ MarketDataProvider (feed/synthetic | replay | upstox)
 ```
 
 Bullion is loaded with the `upstox` provider, or in replay with `replay_bullion`.
+`market/macro.py:MacroTracker` (Milestone E12) is loaded the same way: NSE currency
+futures (the dollar-index proxy, USD/INR) and MCX crude, read by the macro group of both
+biases (`indicators/macro.py`). Every `MCX_FO|` / `NCD_FO|` key is a side market
+(`FeedSession.is_side_market`): never the index candles or liveness, recorded in
+`bullion_ticks`.
 
 Headlines (spec §6.7) sit outside this pipeline: `market/news.py:NewsService` hangs on
 `AppState.news`, polls Upstox's news API while the login is valid, and publishes

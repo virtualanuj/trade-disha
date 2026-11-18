@@ -376,6 +376,32 @@ Builder's calls:
 - ATM moves on both tabs, with the strike count, into a first Details group, Options.
 - Sector ticks are recorded like VIX, so replays show them.
 
+### 16. Dollar, crude and bullion in the signal
+
+Asked for (2026-11-18): include the dollar index, crude prices and the gold and silver
+trends in the signal calculation.
+
+Status: built in Milestone E12; the owner checks it on the live feed. Design in
+[spec.md](spec.md) §6.8 and §8.6, and [signal.md](signal.md) §3.4; planned in
+[plan.md](plan.md) Milestone E12.
+
+Decided with the owner on 2026-11-18:
+- Live with a small weight from the start (10 % of the index bias).
+- The dollar from the Upstox feed: Upstox has no dollar index, so it is rebuilt from the
+  NSE currency futures, alongside USD/INR itself.
+- Gold counts as risk-off (bearish for the indices); silver is shown but not scored.
+- Bullion too: the gold and silver bias also weighs the dollar (10 %).
+
+Builder's calls:
+- The macro weight is carved out of the others in proportion, so no saved config needed
+  changing; when no macro price is live (synthetic, the currency market after 17:00) the
+  share goes back and the bias is what it was.
+- Each reading is the move over 30 minutes; full strength at 0.15 % (dollar), 0.10 %
+  (USD/INR), 0.80 % (crude), 0.40 % (gold). Starting values, not yet tuned.
+- For bullion USD/INR counts as bullish: MCX prices are world prices times USD/INR.
+- Macro ticks are recorded with MCX ticks (`bullion_ticks`), so they never stretch an NSE
+  replay, and replay with `replay_bullion`.
+
 ## Deferred
 
 ### Chart zoom buttons

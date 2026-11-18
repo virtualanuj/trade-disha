@@ -53,6 +53,8 @@ Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by
   shows alone on the BULLION tab. Display only.
 - **E11:** the Index panel lists sector indices with level and change: ten sectors on
   NIFTY, the bank sub-indices on BANK NIFTY. ATM moves into Details.
+- **E12:** the bias weighs macro evidence with a small share: the dollar (rebuilt from NSE
+  currency futures), USD/INR, crude and gold for the indices; the dollar for bullion.
 
 ## Documents
 

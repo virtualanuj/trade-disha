@@ -158,6 +158,9 @@ by section. Each field carries a one-line description, which the editor shows as
 |---|---|---|
 | Weights | `trend`, `oi`, `premium` | 0.40, 0.35, 0.25 |
 | Weights | `expiry_oi_weight_factor` | 0.5 |
+| Weights | `macro` | 0.10 (E12: share of the bias for the macro group; the three above keep their proportions in the rest, so 0.36 / 0.315 / 0.225 / 0.10; §8.6) |
+| Macro | `window_minutes`, `max_age_seconds` | 30, 180 |
+| Macro | `dollar_full_pct`, `usdinr_full_pct`, `crude_full_pct`, `gold_full_pct` | 0.15, 0.10, 0.80, 0.40 (% move over the window that counts as full strength) |
 | Bias | `entry_threshold` | 0.50 |
 | Bias | `neutral_band` | 0.20 |
 | Bias | `setup_threshold` | 0.35 (trigger rule; see §9.6) |
@@ -190,6 +193,7 @@ by section. Each field carries a one-line description, which the editor shows as
 | Bullion | `first_signal_time`, `last_signal_time`, `square_off_time` | 09:15, 22:45, 23:00 |
 | Bullion | `target_pct`, `stop_pct` | 0.40, 0.20 (% of the future's price) |
 | Bullion | `lots`, `cost_fixed_per_lot`, `cost_pct_of_value` | 1, ₹60, 0.012 % |
+| Bullion | `macro_weight` | 0.10 (E12: the dollar's share of the bullion bias; trend has the rest) |
 | News | `poll_seconds` | 180 (30–3600; display only, §6.7) |
 
 **Versions (Milestone C1).** The database is the source of truth. Table
@@ -480,6 +484,29 @@ bias, signals or paper trades, and nothing about it is stored.
   summary, link, published_ts, symbols; and `stock_indices`, each listed symbol's indices)
   in `hello`, and a `news` frame on change. No REST endpoint.
 
+### 6.8 Macro data (Milestone E12)
+
+The data behind the macro group of the bias (§8.6). Upstox has no dollar index (no DXY in
+the NSE or MCX instrument files, checked 2026-11-18), so the dollar comes from NSE's
+currency futures.
+
+- **Contracts:** the near-month futures of USD/INR, EUR/INR, GBP/INR and JPY/INR (`NCD_FO`
+  rows of the NSE file, `parse_currency_futures`) and MCX CRUDEOIL (`parse_commodities`),
+  each by `resolve_commodity_months` (rolls on expiry day). Gold and silver are the
+  bullion tracker's near contracts (§6.6), not subscribed twice.
+- **`market/macro.py:MacroTracker`:** its own `CandleBuilder` and the latest tick time per
+  contract. `build_view()` gives each indicator its 1-minute closes up to the minute being
+  evaluated (the forming minute included) and whether its last tick is within
+  `macro.max_age_seconds`. The dollar series is `dollar_index_proxy()` of the four
+  currencies' closes, side by side per minute (`align_closes`, last close carried forward).
+- **Side market:** `FeedSession.is_side_market()` treats every `MCX_FO|` and `NCD_FO|` key
+  (and the trackers' keys) alike: never the index candle builder, never index liveness,
+  recorded in `bullion_ticks` (currency trades to 17:00, crude to 23:30; `ticks` would
+  stretch NSE replays).
+- **Loading:** with the `upstox` provider, and in replay with `replay_bullion` (contracts
+  from that day's cached files). Today's candles are backfilled at start so the window is
+  full at once. Every step fails soft: the index feed always starts.
+
 ---
 
 ## 7. Market state
@@ -638,6 +665,14 @@ strength    = round(|bias| · 100)
 label       = Bullish if bias ≥ neutral_band, Bearish if bias ≤ −neutral_band, else Neutral
 ```
 
+Groups since E12: trend, OI, premium and macro (§8.6). `weights.macro` is carved out
+first and the other three keep their proportions in the rest
+(`effective_group_weights`): 0.36 / 0.315 / 0.225 / 0.10 by default. On expiry day the
+OI cut is spread over trend, premium and macro in proportion. **If no macro indicator is
+`ok`** (no live feed, the currency market shut after 17:00, a window still filling), the
+macro share goes back to the other groups in proportion, so the bias is exactly the
+three-group one. An `info` reading (silver) is shown with weight 0.
+
 A `BiasComputed(index, ts, bias, label, strength, breakdown)` event is published every
 minute close and persisted to `bias_minutes`. `breakdown` is the list of
 `IndicatorResult` plus the effective group weights.
@@ -666,6 +701,40 @@ from the trades readings alone, without either book reading.
 
 *(my call: the window, the weights and the 0.25 trigger are starting values with no
 evidence behind them yet; the shadow scorecard is how they get tuned.)*
+
+### 8.6 Macro group (Milestone E12)
+
+Asked for on 2026-11-18: the dollar, crude and bullion trends in the signal, live with a
+small weight (`weights.macro` 0.10), and in the bullion bias too. Pure functions in
+`indicators/macro.py` over the data of §6.8.
+
+Each reading is the instrument's move over `macro.window_minutes` (30) of 1-minute
+closes: `score = sign · clamp(change% / full%)`. With no price, too few closes or a price
+older than `macro.max_age_seconds` (180) it is `warming` and carries no weight.
+
+| Indicator | Instrument | Index sign | Bullion sign | Full % |
+|---|---|---|---|---|
+| `dollar_index` | dollar-index proxy | − (strong dollar: foreign outflows) | − (gold falls with a strong dollar) | `dollar_full_pct` 0.15 |
+| `usd_inr` | USD/INR future | − (weak rupee) | + (MCX price = world price × USD/INR) | `usdinr_full_pct` 0.10 |
+| `crude` | MCX CRUDEOIL | − (import bill, inflation) | — | `crude_full_pct` 0.80 |
+| `gold` | MCX GOLD | − (money seeking safety) | — | `gold_full_pct` 0.40 |
+| `silver` | MCX SILVER | shown, never scored (`info`) | — | — |
+
+**Dollar-index proxy** (`dollar_index_proxy`): with `EURUSD = EURINR / USDINR`,
+`GBPUSD = GBPINR / USDINR` and `USDJPY = USDINR / (JPYINR / 100)` (JPY/INR is quoted per
+100 yen), proxy = `EURUSD^−0.693 · USDJPY^0.164 · GBPUSD^−0.143`: the real DXY's euro,
+yen and pound weights (0.576, 0.136, 0.119, 83 % of it) renormalised; the Canadian
+dollar, krona and franc are not traded on NSE. Only its % change is used, so its level
+and the futures' forward premium do not matter. A move of the rupee alone leaves it
+unchanged; that is what `usd_inr` reads.
+
+Every reading is in the bias breakdown, so each bias minute and each signal keeps its
+macro evidence; `signals.config_version` separates signals before and after.
+
+*(my call: the window, the full-strength moves and the signs are starting values from how
+these markets usually relate to Indian equities, not from TradeDisha's own data. Macro
+ticks are recorded from E12 on, so `tools/score.py` can tune them once there are weeks of
+them.)*
 
 ---
 
@@ -820,9 +889,12 @@ the next evaluation; the other carries on in shadow, so the comparison never sto
 GOLD and SILVER MCX near-month futures, run by `engine/bullion_desk.py:BullionDesk`
 (bias -> signals -> paper trades) on the MCX clock and bullion liveness (§6.6).
 
-- **Evidence: trend only.** There is no option chain for bullion, so the bias is EMA cross,
-  VWAP position and supertrend over the near contract's closed 1-minute candles, with the
-  trend group carrying the whole weight (`BULLION_WEIGHTS`). Indicator periods come from
+- **Evidence: trend and the dollar.** There is no option chain for bullion, so the bias is
+  EMA cross, VWAP position and supertrend over the near contract's closed 1-minute
+  candles, plus (E12) the macro group's `dollar_index` and `usd_inr` with the bullion signs
+  of §8.6. Weights from `bullion_weights()`: trend `1 − bullion.macro_weight`, macro
+  `bullion.macro_weight` (0.10); while no currency price is live (after 17:00 on an MCX
+  evening) the dollar's share goes back to trend. Indicator periods come from
   `trend`; thresholds from the `bullion` section. Stored in `bias_minutes` under GOLD /
   SILVER and sent in the `bias` frame.
 - **Evaluation offset.** A bullion minute is worked out `bullion.eval_offset_seconds`

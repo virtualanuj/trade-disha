@@ -36,6 +36,12 @@ from tradedisha.feed.provider import FeedHealth, MarketDataProvider, Tick
 from tradedisha.feed.replay import ReplayProvider
 from tradedisha.feed.synthetic import SyntheticProvider, SyntheticUniverse
 from tradedisha.feed.upstox import UpstoxProvider, fetch_ltp
+from tradedisha.indicators import IndicatorResult
+from tradedisha.indicators.macro import (
+    MacroSeries,
+    bullion_macro_indicators,
+    index_macro_indicators,
+)
 from tradedisha.instruments.models import Instrument, ResolvedIndex
 from tradedisha.instruments.resolve import INDEX_SPOT_NAMES, ResolutionError, resolve_index
 from tradedisha.instruments.synthetic_master import SPEC, build_synthetic_master
@@ -47,6 +53,7 @@ from tradedisha.instruments.upstox_master import (
     read_master,
 )
 from tradedisha.market import bullion as bullion_mod
+from tradedisha.market import macro as macro_mod
 from tradedisha.market.backfill import (
     apply_baseline,
     fetch_52w_range,
@@ -57,6 +64,7 @@ from tradedisha.market.bullion import BullionTracker
 from tradedisha.market.candles import MINUTE_MS, Candle, CandleBuilder, CandleStore
 from tradedisha.market.chain_manager import ChainManager, SubscriptionChange
 from tradedisha.market.flow import FlowReading, FlowTracker
+from tradedisha.market.macro import MacroTracker, build_view
 from tradedisha.market.stats import (
     VIX_KEY,
     IndexStats,
@@ -69,6 +77,9 @@ from tradedisha.parameters.model import ParameterSet
 from tradedisha.store.ticks import FeedEventLog, TickStore
 
 log = logging.getLogger(__name__)
+
+# MCX and NSE currency: side markets with their own trackers (spec §6.6, §6.8)
+SIDE_MARKET_SEGMENTS = ("MCX_FO|", "NCD_FO|")
 
 
 @dataclass
@@ -115,6 +126,7 @@ class FeedSession:
     """Start -> resolve instruments -> connect provider -> subscribe -> pump ticks -> stop."""
 
     bullion_desk: BullionDesk | None = None  # bullion bias, signals, paper (§9a)
+    macro: MacroTracker | None = None  # dollar legs and crude, live feed only (§6.8)
 
     def __init__(
         self,
@@ -222,6 +234,7 @@ class FeedSession:
             params=self.params,
             conn=self._conn,
             on_bias=self._on_bias,
+            macro=self.index_macro,
         )
         enforce = self.enforce_hours
         self.signals = self._signal_engine(shadow=False)
@@ -265,11 +278,19 @@ class FeedSession:
             tracker = await self._load_recorded_bullion(self.replay_day or self._replay_day())
         if tracker is not None:
             self.attach_bullion(tracker)
+        macro: MacroTracker | None = None
+        if self.settings.feed_provider == "upstox":
+            macro = await self._load_macro(today)
+        elif self.settings.feed_provider == "replay" and self.settings.replay_bullion:
+            macro = await self._load_recorded_macro(self.replay_day or self._replay_day())
+        if macro is not None:
+            self.attach_macro(macro)
         self.provider = self._build_provider()
         await self.provider.connect()
         keys = [k for r in self.resolved.values() for k in r.all_keys]
         keys += market_wide_keys(self.settings)  # India VIX and the sector indices
         keys.extend(sorted(self.bullion_keys))
+        keys.extend(sorted(self.macro_keys))
         await self.provider.subscribe(keys)
         self.feed_log.write(
             epoch_ms_now(), "session_start", f"provider={self.provider.name} keys={len(keys)}"
@@ -359,7 +380,11 @@ class FeedSession:
                 speed=s.replay_speed,
                 clock=self._driven_clock,
                 drop_ranges=parse_drop_ranges(s.replay_drop, day),
-                extra=self.bullion_tick_store if self.bullion is not None else None,
+                extra=(
+                    self.bullion_tick_store
+                    if self.bullion is not None or self.macro is not None
+                    else None
+                ),
             )
         auth = self.auth
         if auth is None:
@@ -376,7 +401,7 @@ class FeedSession:
 
     def _on_tick(self, st: StampedTick) -> None:
         t = st.tick
-        if t.key in self.bullion_keys:  # BullionTracker has its own subscription and candles
+        if self.is_side_market(t.key):  # bullion and macro have their own candles (§6.6, §6.8)
             self.prices.update(t)
             if self.settings.feed_provider != "replay":
                 self.bullion_tick_store.add(t)  # its own table: never stretches an NSE replay
@@ -621,6 +646,69 @@ class FeedSession:
     def bullion_keys(self) -> frozenset[str]:
         return self.bullion.keys if self.bullion is not None else frozenset()
 
+    @property
+    def macro_keys(self) -> frozenset[str]:
+        return self.macro.keys if self.macro is not None else frozenset()
+
+    def is_side_market(self, key: str) -> bool:
+        """MCX and currency keys: never the index candles, index liveness or `ticks`.
+
+        Judged by segment as well as by the trackers' keys, so a replayed MCX or currency
+        tick whose tracker did not load still stays out of the index pipeline.
+        """
+        return (
+            key.startswith(SIDE_MARKET_SEGMENTS)
+            or key in self.bullion_keys
+            or key in self.macro_keys
+        )
+
+    # -- macro evidence (spec §6.8, §8.6) ---------------------------------------
+
+    def macro_view(self, minute_ts: int) -> dict[str, MacroSeries]:
+        return build_view(
+            self.macro,
+            self.bullion,
+            upto_minute_ts=minute_ts,
+            now_ms=self.clock.now_ms(),
+            max_age_ms=self.params().macro.max_age_seconds * 1000,
+        )
+
+    def index_macro(self, minute_ts: int) -> list[IndicatorResult]:
+        """The index bias's macro group; nothing when neither tracker is loaded."""
+        if self.macro is None and self.bullion is None:
+            return []
+        return index_macro_indicators(self.macro_view(minute_ts), self.params().macro)
+
+    def bullion_macro(self, minute_ts: int) -> list[IndicatorResult]:
+        """The bullion bias's macro group: the dollar; nothing without the currency feed."""
+        if self.macro is None:
+            return []
+        return bullion_macro_indicators(self.macro_view(minute_ts), self.params().macro)
+
+    async def _load_macro(self, today: date) -> MacroTracker | None:
+        """Currency and crude contracts and today's candles; every step fails soft."""
+        token = self.auth.token if self.auth is not None else None
+        contracts = await macro_mod.load_macro_contracts(
+            self.settings.data_dir, today, transport=self.http_transport
+        )
+        if not contracts or token is None:
+            return None
+        tracker = MacroTracker(contracts)
+        try:
+            async with httpx.AsyncClient(timeout=20, transport=self.http_transport) as client:
+                await macro_mod.backfill(client, token, tracker, self.clock.now_ms())
+        except Exception as exc:
+            log.warning("macro backfill failed: %s", type(exc).__name__)
+        return tracker
+
+    async def _load_recorded_macro(self, day: date) -> MacroTracker | None:
+        contracts = await macro_mod.recorded_macro_contracts(self.settings.data_dir, day)
+        return MacroTracker(contracts) if contracts else None
+
+    def attach_macro(self, tracker: MacroTracker) -> None:
+        self.macro = tracker
+        self.tick_bus.subscribe(tracker.on_tick)
+
     async def _load_bullion(self, today: date) -> BullionTracker | None:
         """Gold and silver contracts, their start-of-day data and today's candles (§6.6).
 
@@ -670,6 +758,7 @@ class FeedSession:
             on_signal=self._on_bullion_signal,
             on_trade=self._on_trade,
             config_version=self.config_version,
+            macro=self.bullion_macro,
         )
         self.bullion_desk = desk
         self.tick_bus.subscribe(desk.on_tick)

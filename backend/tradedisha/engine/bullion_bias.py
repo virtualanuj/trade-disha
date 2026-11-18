@@ -15,7 +15,7 @@ import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from tradedisha.engine.aggregator import BULLION_WEIGHTS, aggregate
+from tradedisha.engine.aggregator import aggregate, bullion_weights
 from tradedisha.engine.bias_engine import BiasComputed, BiasStore, OverlayPoint, compute_overlays
 from tradedisha.indicators import IndicatorResult
 from tradedisha.indicators.series import vwap_series
@@ -54,8 +54,10 @@ class BullionBiasEngine:
         params: Callable[[], ParameterSet],
         conn: sqlite3.Connection,
         on_bias: Callable[[BiasComputed], None] | None = None,
+        macro: Callable[[int], list[IndicatorResult]] | None = None,
     ) -> None:
         self._tracker = tracker
+        self._macro = macro  # the dollar for a minute (spec §8.6); none without currency data
         self._params = params
         self._store = BiasStore(conn)
         self._on_bias = on_bias
@@ -96,11 +98,13 @@ class BullionBiasEngine:
         key = self._tracker.near_key(metal)
         candles = [c for c in self._tracker.candles.closed(key) if c.minute_ts <= minute_ts]
         results = run_bullion_indicators(candles, p)
+        if self._macro is not None:
+            results += self._macro(minute_ts)
         bias = aggregate(
             results,
             p,
             is_expiry_day=False,
-            weights=BULLION_WEIGHTS,
+            weights=bullion_weights(p),
             neutral_band=p.bullion.neutral_band,
         )
         vwap = vwap_series(candles)[-1] if candles else None

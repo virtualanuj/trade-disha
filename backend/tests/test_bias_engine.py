@@ -2,8 +2,11 @@
 
 from datetime import date
 
-from tradedisha.engine.bias_engine import BiasComputed, BiasEngine
+import pytest
+
+from tradedisha.engine.bias_engine import BiasComputed, BiasEngine, breakdown_json
 from tradedisha.feed.provider import Tick
+from tradedisha.indicators import IndicatorResult
 from tradedisha.instruments.resolve import resolve_index
 from tradedisha.instruments.synthetic_master import build_synthetic_master
 from tradedisha.market.candles import CandleBuilder
@@ -56,3 +59,35 @@ def test_engine_runs_on_spot_close_and_uses_latest_params() -> None:
     )
     candles.apply(Tick(key=spot, ts=31 * M, ltp=25_200.0))
     assert seen[-1].bias.label == "Neutral"
+
+
+def test_macro_evidence_joins_the_bias_with_its_share() -> None:
+    master = build_synthetic_master(TODAY)
+    r = resolve_index(master, "NIFTY", TODAY, 25_000.0, strike_window=3)
+    candles = CandleBuilder()
+    asked: list[int] = []
+
+    def macro(minute_ts: int) -> list[IndicatorResult]:
+        asked.append(minute_ts)
+        return [IndicatorResult("crude", "macro", -1.0, "Crude +0.80% in 30 min")]
+
+    seen: list[BiasComputed] = []
+    BiasEngine(
+        candles=candles,
+        chains={"NIFTY": ChainState.from_resolved(r)},
+        resolved={"NIFTY": r},
+        params=ParameterSet,
+        conn=connect(":memory:"),
+        on_bias=seen.append,
+        macro=macro,
+    )
+    spot = r.spot.instrument_key
+    candles.apply(Tick(key=spot, ts=0, ltp=25_000.0))
+    candles.apply(Tick(key=spot, ts=M, ltp=25_005.0))
+
+    b = seen[-1].bias
+    assert asked == [0]  # asked for the minute being evaluated
+    crude = next(c for c in b.contributions if c.result.name == "crude")
+    assert crude.weight == pytest.approx(0.10)
+    assert b.group_scores["macro"] == -1.0
+    assert '"crude"' in breakdown_json(b)  # stored with the bias and with any signal

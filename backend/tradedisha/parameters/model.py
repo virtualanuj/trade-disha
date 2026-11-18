@@ -43,8 +43,18 @@ class Weights(BaseModel):
         ge=0,
         le=1,
         description=(
-            "On expiry day the OI share is multiplied by this; the rest goes to the other "
-            "two groups."
+            "On expiry day the OI share is multiplied by this; the rest goes to the other groups."
+        ),
+    )
+    macro: float = Field(
+        0.10,
+        ge=0,
+        le=0.5,
+        description=(
+            "Share of the bias carried by the macro group (dollar, USD/INR, crude, gold). "
+            "Trend, OI and premium keep their proportions within the rest. When no macro "
+            "price is live (for example the currency market after 17:00) its share goes back "
+            "to the other groups."
         ),
     )
 
@@ -313,6 +323,45 @@ class Signal(BaseModel):
         return _time(v)
 
 
+class Macro(BaseModel):
+    """Macro evidence (spec §8.6): each instrument's move over a window of 1-minute closes."""
+
+    model_config = ConfigDict(extra="forbid")
+    window_minutes: int = Field(
+        30, ge=1, le=240, description="Minutes over which each macro instrument's move is measured."
+    )
+    max_age_seconds: int = Field(
+        180,
+        ge=30,
+        le=1800,
+        description=(
+            "A macro price older than this is not live (its market is shut or silent) and "
+            "carries no weight."
+        ),
+    )
+    dollar_full_pct: float = Field(
+        0.15,
+        gt=0,
+        le=10,
+        description="Dollar-index proxy move (%) over the window that counts as full strength.",
+    )
+    usdinr_full_pct: float = Field(
+        0.10,
+        gt=0,
+        le=10,
+        description="USD/INR move (%) over the window that counts as full strength.",
+    )
+    crude_full_pct: float = Field(
+        0.80,
+        gt=0,
+        le=20,
+        description="Crude oil move (%) over the window that counts as full strength.",
+    )
+    gold_full_pct: float = Field(
+        0.40, gt=0, le=10, description="Gold move (%) over the window that counts as full strength."
+    )
+
+
 class Chain(BaseModel):
     model_config = ConfigDict(extra="forbid")
     strike_window: int = Field(
@@ -405,6 +454,15 @@ class Bullion(BaseModel):
         description="Stop, as % of the future's price against the signal.",
     )
     lots: int = Field(1, ge=1, le=100, description="Lots per bullion paper trade.")
+    macro_weight: float = Field(
+        0.10,
+        ge=0,
+        le=0.5,
+        description=(
+            "Share of the bullion bias carried by the dollar (dollar-index proxy and "
+            "USD/INR); trend has the rest. Goes back to trend while no currency price is live."
+        ),
+    )
     cost_fixed_per_lot: float = Field(
         60.0, ge=0, description="Rupees per round trip per lot: brokerage and fixed fees."
     )
@@ -463,3 +521,4 @@ class ParameterSet(BaseModel):
     paper: Paper = Field(default_factory=Paper)
     bullion: Bullion = Field(default_factory=Bullion)
     news: News = Field(default_factory=News)
+    macro: Macro = Field(default_factory=Macro)

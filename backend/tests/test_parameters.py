@@ -7,6 +7,7 @@ import pytest
 
 from tradedisha.config import REPO_ROOT
 from tradedisha.parameters import ParameterService, ParameterSet, ParameterValidationError
+from tradedisha.parameters.model import Macro
 from tradedisha.parameters.schema import describe
 from tradedisha.parameters.service import load_file, parse_params
 from tradedisha.store.db import connect
@@ -189,3 +190,32 @@ def test_flow_mix_weights_must_sum_to_one() -> None:
     with pytest.raises(ParameterValidationError) as e:
         parse_params("[flow]\nw_fut_book = 0.9\n")
     assert e.value.errors[0]["field"] == "flow"
+
+
+# -- macro (Milestone E12) -----------------------------------------------------------
+
+
+def test_macro_defaults_limits_and_help_text() -> None:
+    p = ParameterSet()
+    assert (p.weights.macro, p.bullion.macro_weight) == (0.10, 0.10)
+    assert p.macro == Macro()
+    assert (p.macro.window_minutes, p.macro.max_age_seconds) == (30, 180)
+    specs = {s.path: s for s in describe(p)}
+    for path in ("weights.macro", "bullion.macro_weight", "macro.window_minutes",
+                 "macro.dollar_full_pct", "macro.crude_full_pct"):  # fmt: skip
+        assert specs[path].help
+    assert (specs["weights.macro"].ge, specs["weights.macro"].le) == (0, 0.5)
+
+
+def test_a_stored_version_from_before_macro_still_loads_with_it_on() -> None:
+    stored = ParameterSet().model_dump(mode="json")
+    del stored["macro"]
+    del stored["weights"]["macro"]
+    del stored["bullion"]["macro_weight"]
+    p = ParameterSet.model_validate(stored)
+    assert (p.weights.macro, p.bullion.macro_weight) == (0.10, 0.10)
+
+
+def test_the_seed_file_carries_the_macro_settings() -> None:
+    p = load_file(REPO_ROOT / "config" / "params.toml")
+    assert (p.weights.macro, p.bullion.macro_weight, p.macro.window_minutes) == (0.10, 0.10, 30)

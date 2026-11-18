@@ -17,6 +17,7 @@ from tradedisha.engine.bullion_signals import BullionSignalEngine
 from tradedisha.engine.paper import PaperTrade, PaperTradeManager, Price, bullion_rules
 from tradedisha.engine.signals import Signal
 from tradedisha.feed.bus import StampedTick
+from tradedisha.indicators import IndicatorResult
 from tradedisha.market.bullion import BullionTracker
 from tradedisha.market.candles import MINUTE_MS
 from tradedisha.parameters.model import ParameterSet
@@ -38,11 +39,12 @@ class BullionDesk:
         on_signal: Callable[[Signal], None] | None = None,
         on_trade: Callable[[PaperTrade], None] | None = None,
         config_version: Callable[[], int | None] | None = None,
+        macro: Callable[[int], list[IndicatorResult]] | None = None,
     ) -> None:
         self._clock = clock
         self._on_bias_out = on_bias
         self.bias = BullionBiasEngine(
-            tracker=tracker, params=params, conn=conn, on_bias=self._on_bias
+            tracker=tracker, params=params, conn=conn, on_bias=self._on_bias, macro=macro
         )
         self.signals = BullionSignalEngine(
             tracker=tracker,

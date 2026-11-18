@@ -9,9 +9,13 @@ from tradedisha.indicators import Group, IndicatorResult
 from tradedisha.parameters.model import ParameterSet
 
 Label = Literal["Bullish", "Neutral", "Bearish"]
-GROUPS: tuple[Group, ...] = ("trend", "oi", "premium")
-# Bullion has no option chain: its bias is the trend group alone.
-BULLION_WEIGHTS: dict[Group, float] = {"trend": 1.0, "oi": 0.0, "premium": 0.0}
+GROUPS: tuple[Group, ...] = ("trend", "oi", "premium", "macro")
+
+
+def bullion_weights(p: ParameterSet) -> dict[Group, float]:
+    """Bullion has no option chain: trend, and the dollar's share (spec §9a)."""
+    m = p.bullion.macro_weight
+    return {"trend": 1.0 - m, "oi": 0.0, "premium": 0.0, "macro": m}
 
 
 @dataclass(frozen=True)
@@ -33,20 +37,42 @@ class Bias:
 
 
 def effective_group_weights(p: ParameterSet, is_expiry_day: bool) -> dict[Group, float]:
+    """The index groups' weights: macro takes its share, the others keep their proportions.
+
+    On expiry day part of OI's weight is cut and spread over the other groups.
+    """
+    rest = 1.0 - p.weights.macro
     w: dict[Group, float] = {
-        "trend": p.weights.trend,
-        "oi": p.weights.oi,
-        "premium": p.weights.premium,
+        "trend": p.weights.trend * rest,
+        "oi": p.weights.oi * rest,
+        "premium": p.weights.premium * rest,
+        "macro": p.weights.macro,
     }
     if not is_expiry_day:
         return w
     cut = w["oi"] * (1 - p.weights.expiry_oi_weight_factor)
     w["oi"] -= cut
-    others = w["trend"] + w["premium"]
-    if others > 0:
-        w["trend"] += cut * w["trend"] / others
-        w["premium"] += cut * w["premium"] / others
+    return _spread(w, cut, ("trend", "premium", "macro"))
+
+
+def _spread(w: dict[Group, float], amount: float, to: tuple[Group, ...]) -> dict[Group, float]:
+    """Add `amount` to the groups `to`, in proportion to their weights."""
+    total = sum(w[g] for g in to)
+    if total > 0:
+        for g in to:
+            w[g] += amount * w[g] / total
     return w
+
+
+def _return_idle_macro(
+    w: dict[Group, float], by_group: dict[Group, list[IndicatorResult]]
+) -> dict[Group, float]:
+    """No live macro price (market shut, no data): its share goes back to the others."""
+    if w["macro"] <= 0 or any(r.quality == "ok" for r in by_group["macro"]):
+        return w
+    idle = w["macro"]
+    w["macro"] = 0.0
+    return _spread(w, idle, tuple(g for g in GROUPS if g != "macro" and w[g] > 0))
 
 
 def aggregate(
@@ -62,6 +88,7 @@ def aggregate(
     by_group: dict[Group, list[IndicatorResult]] = {g: [] for g in GROUPS}
     for r in results:
         by_group[r.group].append(r)
+    weights = _return_idle_macro(weights, by_group)
 
     group_scores: dict[Group, float] = {}
     contributions: list[Contribution] = []

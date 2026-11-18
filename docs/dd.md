@@ -192,6 +192,8 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Re-centre** | Moving the strike window when ATM has shifted by `recenter_strikes` (default 2): subscribe new strikes, unsubscribe old ones, fetch baselines for the new ones. |
 | **Replay** | Feeding recorded ticks back through the system at real or accelerated speed. Used for tests, after-hours demos, load testing, and fault injection. |
 | **Sector index** | An NSE index of one sector's stocks (Nifty Auto, Nifty IT, Nifty PSU Bank, …). Shown with its level and change on the Index panel beside the index it helps explain (Milestone E11); configured per index in `sector_indices`. Display only. |
+| **Dollar-index proxy** | The US dollar against the euro, yen and pound, rebuilt from NSE's USD/INR, EUR/INR, GBP/INR and JPY/INR futures because Upstox does not carry the dollar index (DXY). Uses the DXY's weights for those three currencies (83 % of it), renormalised; only its % change is used. Milestone E12. |
+| **Macro evidence** | The fourth group of the bias (Milestone E12): the moves of the dollar-index proxy, USD/INR, MCX crude and gold over 30 minutes, with 10 % of the index bias and, for bullion, the dollar's 10 %. Silver is shown but not scored. Read by `MacroTracker` (`market/macro.py`). |
 | **Session** | (Auth sense) one day's login record. See also "trading day / session" in §1. |
 | **Subscription** | Telling the websocket which instrument keys to stream. Subject to a provider-set cap on count. |
 | **Synthetic candle** | A carry-forward candle created for a minute with no ticks (O=H=L=C=previous close, volume 0) so indicator windows stay aligned. |

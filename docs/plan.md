@@ -676,6 +676,42 @@ browser: the owner verifies it by hand.
 
 **Design:** spec §3.1, §7.4, §13.1, §13.2 (IndexTiles).
 
+## Milestone E12 — Macro evidence: dollar, crude, gold
+
+**Goal:** the index and bullion biases take account of the dollar, the rupee, crude oil
+and gold, live with a small weight.
+
+- Upstox has no dollar index, so `dollar_index_proxy()` rebuilds it from NSE's USD/INR,
+  EUR/INR, GBP/INR and JPY/INR futures (the euro, yen and pound: 83 % of the real DXY).
+- `market/macro.py:MacroTracker`: the four currency futures and MCX CRUDEOIL (near month),
+  with their own candle builder; gold and silver from the bullion tracker. Side-market
+  keys (`MCX_FO|`, `NCD_FO|`) never reach the index candles or index liveness, and are
+  recorded in `bullion_ticks`. Loaded live and in replay with `replay_bullion`; backfilled
+  at start; fails soft.
+- `indicators/macro.py`: each instrument's move over `macro.window_minutes` (30), scored
+  `sign · clamp(move / full%)`. Index: dollar, USD/INR, crude and gold all bearish when
+  rising; silver shown as `info`. Bullion: dollar bearish, USD/INR bullish.
+- Aggregator: a fourth group, `macro`, with `weights.macro` (0.10) carved out and the
+  others keeping their proportions, so every saved config stays valid; `bullion_weights()`
+  with `bullion.macro_weight` (0.10). With no live macro price the share goes back and the
+  bias is the pre-E12 one.
+- Evidence table: a Macro group; `info` rows muted.
+- Tests: the proxy maths and signs; moves, clamping and warming; align and forward fill;
+  weights, the idle share and expiry day (with a property test); old configs loading; the
+  currency parser and contract months; the tracker and the view; side-market routing;
+  macro in the index and bullion bias breakdowns; the evidence table.
+
+**Demo:** on the live feed Market view shows the Macro rows for NIFTY, BANK NIFTY and on
+BULLION (dollar and USD/INR); after 17:00 the currency rows go to warming and the bias
+carries on without them. On synthetic there is no macro data and the bias is as before.
+
+**Status (2026-11-18):** built, with unit tests; `make check` green. Not yet checked on
+the live feed: the owner verifies it by hand. The weights and full-strength moves are
+starting values to be tuned with `tools/score.py` once macro ticks have been recorded for
+some weeks.
+
+**Design:** spec §3.2, §6.8, §8.4, §8.6, §9a; signal.md §3.4, §4, §13.
+
 ## Milestone C1 — Editable, versioned config
 
 **Goal:** the trader tunes the parameters in the app, can always get back to an earlier

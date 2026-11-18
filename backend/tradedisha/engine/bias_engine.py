@@ -124,8 +124,10 @@ class BiasEngine:
         params: Callable[[], ParameterSet],
         conn: sqlite3.Connection,
         on_bias: Callable[[BiasComputed], None] | None = None,
+        macro: Callable[[int], list[IndicatorResult]] | None = None,
     ) -> None:
         self._candles = candles
+        self._macro = macro  # the macro group for a minute (spec §8.6); none without data
         self._chains = chains
         self._resolved = resolved
         self._params = params
@@ -154,6 +156,8 @@ class BiasEngine:
         fut_vwap = self._candles.vwap(r.future.instrument_key)
         chain = self._chains[index]
         results = run_indicators(spot, fut, fut_vwap, chain, p)
+        if self._macro is not None:
+            results += self._macro(minute_ts)
         bias = aggregate(results, p, is_expiry_day=r.is_expiry_day)
         overlay = compute_overlays(spot, fut_vwap, p)
         out = BiasComputed(index, minute_ts, bias, overlay)

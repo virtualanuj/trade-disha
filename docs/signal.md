@@ -140,7 +140,8 @@ live.
 > **Clamp** means "limit to a range": a value above +1 becomes +1 and below −1 becomes −1.
 > "Full strength" is the reading at which an indicator's score reaches ±1.
 
-The indicators are in three groups of three. They are pure functions in
+The indicators are in three groups of three, and since Milestone E12 a fourth, smaller
+macro group (section 3.4) reads the dollar, crude and gold. They are pure functions in
 `backend/tradedisha/indicators/`.
 
 ### 3.1 Trend group: what is the price doing
@@ -220,6 +221,39 @@ All three compare the ATM call and put now with N minutes ago, using the chain h
 | `iv_change` | Change in ATM IV over 15 minutes, with the direction of the spot move | Only **rising** IV counts: `sign(spot move) × clamp(IV change / 2, 0, 1)`. IV up 2 points while spot rises is +1; while spot falls, −1. Falling IV scores 0. |
 | `premium_confirmation` | Whether premiums back the 5-minute spot move | Spot up and calls up (by at least as much as puts fell): `+clamp(call ROC / 10)`. Spot down and puts up: `−clamp(put ROC / 10)`. If they disagree: −0.5 on an up-move, +0.5 on a down-move, so a divergence pulls **against** the move. Spot flat: 0. |
 
+### 3.4 Macro group: the dollar, crude and gold (Milestone E12)
+
+> **Note: terms used here**
+>
+> - **Dollar index (DXY)**: the US dollar against six major currencies. Upstox does not
+>   carry it, so TradeDisha rebuilds it (below).
+> - **Risk-off**: money leaving shares for safety, such as gold.
+> - **`info`**: a reading shown with the evidence but never given weight.
+
+Each reading is one instrument's move over the last 30 minutes of its 1-minute closes
+(`macro.window_minutes`), scored `sign × clamp(move% / full%)`. Rising dollar, a weaker
+rupee, rising crude and rising gold are all **bearish** for NIFTY and BANK NIFTY.
+
+| Indicator | Instrument | Score (index) |
+|---|---|---|
+| `dollar_index` | dollar-index proxy from NSE's USD/INR, EUR/INR, GBP/INR, JPY/INR futures | `−clamp(move / 0.15)`: a strong dollar draws foreign money out |
+| `usd_inr` | USD/INR near-month future | `−clamp(move / 0.10)`: a weaker rupee |
+| `crude` | MCX CRUDEOIL near-month future | `−clamp(move / 0.80)`: a bigger import bill and inflation |
+| `gold` | MCX GOLD near-month future | `−clamp(move / 0.40)`: money seeking safety |
+| `silver` | MCX SILVER near-month future | shown as `info`, never scored: half industrial, its sign is unclear |
+
+**The dollar-index proxy.** From the four rupee rates: euro-dollar = EUR/INR ÷ USD/INR,
+pound-dollar = GBP/INR ÷ USD/INR, dollar-yen = USD/INR ÷ (JPY/INR ÷ 100). The proxy is
+`euro-dollar^−0.693 × dollar-yen^0.164 × pound-dollar^−0.143`, the real DXY's weights for
+those three currencies (83 % of it) scaled to sum to 1. Only its % move is used.
+
+A reading is `warming` (no weight) when there is no price yet, fewer than 31 closes, or
+its last tick is more than 3 minutes old (`macro.max_age_seconds`), for example the
+currency market after 17:00. Without the live feed (synthetic, or replay without
+`replay_bullion`) there is no macro data at all.
+
+**Worked example:** crude up 0.40 % in 30 minutes scores −0.40 / 0.80 = **−0.50**.
+
 ---
 
 ## 4. Step 2: the votes become one bias
@@ -239,22 +273,27 @@ average of those two. If none are ready the group scores 0.
 
 **2. Weight the groups.**
 
-| Group | Normal weight | Expiry-day weight |
-|---|---|---|
-| Trend | 0.40 | 0.508 |
-| OI | 0.35 | 0.175 |
-| Premium | 0.25 | 0.317 |
+| Group | Normal weight | Expiry-day weight | No live macro price |
+|---|---|---|---|
+| Trend | 0.36 | 0.443 | 0.40 |
+| OI | 0.315 | 0.158 | 0.35 |
+| Premium | 0.225 | 0.277 | 0.25 |
+| Macro | 0.10 | 0.123 | 0 |
 
-On expiry day OI is distorted by positions being closed, so its weight is halved
-(`expiry_oi_weight_factor = 0.5`) and the share it gives up is handed to the other two in
-proportion to their own weights.
+Macro takes its share first (`weights.macro`, 0.10) and trend, OI and premium keep their
+proportions 0.40 / 0.35 / 0.25 in the rest. On expiry day OI is distorted by positions
+being closed, so its weight is halved (`expiry_oi_weight_factor = 0.5`) and the share it
+gives up is handed to the other groups in proportion to their own weights. When **no
+macro reading is `ok`**, the macro share is handed back the same way, so the bias is
+exactly what it was before E12 (last column).
 
 **3. Sum and clamp.** `bias = Σ (group weight × group score)`, clamped to −1..+1.
 
 **4. Label.** With a neutral band of 0.20: bias ≥ +0.20 is **Bullish**, ≤ −0.20 is
 **Bearish**, otherwise **Neutral**. Strength is `round(|bias| × 100)`.
 
-**Worked example** (a normal day, all indicators ready):
+**Worked example** (a normal day, all indicators ready, no live macro price, so the
+weights are the last column above):
 
 | Group | Indicator scores | Group score | × weight | Contribution |
 |---|---|---|---|---|
@@ -601,6 +640,10 @@ values and highlights the ones that differ from the current config.
 |---|---|---|
 | `weights.trend` / `oi` / `premium` | 0.40 / 0.35 / 0.25 | group shares of the bias; must sum to 1 |
 | `weights.expiry_oi_weight_factor` | 0.5 | OI weight multiplier on expiry day |
+| `weights.macro` | 0.10 | the macro group's share; the three above keep their proportions in the rest; handed back while no macro price is live |
+| `macro.window_minutes` | 30 | minutes over which each macro move is measured |
+| `macro.max_age_seconds` | 180 | a macro price older than this is not live |
+| `macro.dollar_full_pct` / `usdinr_full_pct` / `crude_full_pct` / `gold_full_pct` | 0.15 / 0.10 / 0.80 / 0.40 | % move that counts as full strength |
 | `bias.entry_threshold` | 0.50 | \|bias\| to fire under `minute_close` |
 | `bias.setup_threshold` | 0.35 | \|bias\| to set up under `trigger`; must be above the neutral band and no higher than the entry threshold |
 | `bias.neutral_band` | 0.20 | below this the bias is Neutral, and an active signal is reversed |
@@ -630,7 +673,8 @@ quoted in section 3. The `bullion` section is in 13.10.
 
 | Part | File |
 |---|---|
-| Indicators (pure maths) | `backend/tradedisha/indicators/trend.py`, `oi.py`, `premium.py`, `series.py`, `greeks.py` |
+| Indicators (pure maths) | `backend/tradedisha/indicators/trend.py`, `oi.py`, `premium.py`, `macro.py`, `series.py`, `greeks.py` |
+| Macro data: currency and crude contracts, candles, the evidence view | `backend/tradedisha/market/macro.py` (`MacroTracker`, `build_view`) |
 | Combining votes into the bias | `backend/tradedisha/engine/aggregator.py` |
 | Running indicators each minute, storing the bias | `backend/tradedisha/engine/bias_engine.py` |
 | Order-flow score | `backend/tradedisha/market/flow.py` |
@@ -687,7 +731,7 @@ MCX GOLD / SILVER ticks ─> BullionTracker (its own 1-minute candles)
 | | Index (NIFTY, BANK NIFTY) | Bullion (GOLD, SILVER) |
 |---|---|---|
 | What a signal trades | buy the ATM call or put | buy or sell the near-month future |
-| Evidence | 9 indicators: trend, OI, premium | 3 indicators: trend only (there is no option chain) |
+| Evidence | 9 indicators: trend, OI, premium; plus macro (dollar, USD/INR, crude, gold) | 3 trend indicators (there is no option chain), plus the dollar and USD/INR |
 | Candles the trend reads | spot (EMAs, supertrend), future (VWAP) | the near-month future for all three |
 | When it is worked out | at the minute close | 20 s after the minute close |
 | Entry threshold | \|bias\| ≥ 0.50 | \|bias\| ≥ 0.60 |
@@ -709,6 +753,7 @@ For each metal, from the MCX instrument file of the day:
 | VWAP | running close × volume over those candles, from the day's first candle | `vwap_position` |
 | Latest tick | the near contract | entry price, live levels, paper-trade fills |
 | Next-month price | the next contract | display only (calendar spread) |
+| Dollar-index proxy, USD/INR | NSE currency futures, as for the indices (section 3.4) | the macro group, from E12 |
 
 At start the live feed backfills today's 1-minute candles from 09:00, so the indicators
 are not cold. A bullion candle closes on the first tick of the next minute, or 2 seconds
@@ -732,8 +777,12 @@ evaluation runs 20 seconds into the next minute.
 
 ### 13.4 Step 2: the votes become one bias
 
-> **Note:** with one group there is nothing to weigh against: the trend group is the whole
-> bias (`BULLION_WEIGHTS` = trend 1, OI 0, premium 0).
+> **Note:** trend carries 0.90 and the dollar 0.10 (`bullion.macro_weight`), from
+> `bullion_weights()`. The dollar readings for bullion are `dollar_index` with a minus
+> sign (a strong dollar pushes gold down) and `usd_inr` with a **plus** sign: MCX prices
+> are world prices × USD/INR, so a weaker rupee lifts them. While no currency price is
+> live (after 17:00, when MCX still trades) the dollar's share goes back to trend and the
+> bias is trend alone, as before E12. The worked example below is that case.
 
 `aggregate()` is the same function as for the indices, given those weights and the
 bullion neutral band:
@@ -899,6 +948,7 @@ All in the `bullion` section of the config editor:
 | `bullion.target_pct` / `stop_pct` | 0.40 / 0.20 | % of the future's price |
 | `bullion.lots` | 1 | lots per paper trade |
 | `bullion.cost_fixed_per_lot` / `cost_pct_of_value` | ₹60 / 0.012 % | paper-trade cost |
+| `bullion.macro_weight` | 0.10 | the dollar's share of the bullion bias (E12); trend has the rest |
 
 The indicator periods come from the `[trend]` table, shared with the indices. MCX hours
 and holidays are process settings (`mcx_open`, `mcx_close`, `config/mcx-holidays.txt`), not
@@ -909,7 +959,7 @@ parameters.
 | Part | File |
 |---|---|
 | Contracts, ticks, candles, day range | `backend/tradedisha/market/bullion.py` (`BullionTracker`) |
-| Trend-only bias and the offset queue | `backend/tradedisha/engine/bullion_bias.py` |
+| Trend (and dollar) bias and the offset queue | `backend/tradedisha/engine/bullion_bias.py`; the dollar readings from `indicators/macro.py` (`bullion_macro_indicators`) |
 | Gates, building the signal, its life cycle, live levels | `backend/tradedisha/engine/bullion_signals.py` |
 | Bias, signals and paper trades wired together | `backend/tradedisha/engine/bullion_desk.py` |
 | Side-aware P&L, bullion cost and square-off rules | `backend/tradedisha/engine/paper.py` (`bullion_rules`) |

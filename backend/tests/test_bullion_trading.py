@@ -16,7 +16,7 @@ from pydantic import ValidationError
 from tradedisha.app_state import AppState
 from tradedisha.clock import IST, MarketClock, epoch_ms_now, ist_to_ms, ms_to_ist
 from tradedisha.config import Settings
-from tradedisha.engine.aggregator import BULLION_WEIGHTS, Bias, Label, aggregate
+from tradedisha.engine.aggregator import Bias, Label, aggregate, bullion_weights
 from tradedisha.engine.bias_engine import BiasComputed, OverlayPoint
 from tradedisha.engine.bullion_bias import BullionBiasEngine
 from tradedisha.engine.bullion_desk import BullionDesk
@@ -95,10 +95,17 @@ def test_trend_only_weights_let_a_full_trend_reach_the_ends() -> None:
     p = ParameterSet()
     results = [_trend(1.0), _trend(1.0, "vwap_position"), _trend(1.0, "supertrend")]
     assert aggregate(results, p, is_expiry_day=False).bias == pytest.approx(0.4)  # index weights
-    b = aggregate(results, p, is_expiry_day=False, weights=BULLION_WEIGHTS, neutral_band=0.15)
-    assert b.bias == pytest.approx(1.0)
+    b = aggregate(results, p, is_expiry_day=False, weights=bullion_weights(p), neutral_band=0.15)
+    assert b.bias == pytest.approx(1.0)  # no live dollar price: trend carries it all
     assert b.label == "Bullish"
-    assert b.group_weights == BULLION_WEIGHTS
+    assert b.group_weights == {"trend": 1.0, "oi": 0.0, "premium": 0.0, "macro": 0.0}
+
+
+def test_bullion_weights_give_the_dollar_its_share() -> None:
+    p = ParameterSet()
+    assert bullion_weights(p) == pytest.approx(
+        {"trend": 0.90, "oi": 0.0, "premium": 0.0, "macro": 0.10}
+    )
 
 
 def test_the_neutral_band_override_sets_the_label() -> None:
@@ -106,7 +113,7 @@ def test_the_neutral_band_override_sets_the_label() -> None:
         [_trend(0.3)],
         ParameterSet(),
         is_expiry_day=False,
-        weights=BULLION_WEIGHTS,
+        weights=bullion_weights(ParameterSet()),
         neutral_band=0.35,
     )
     assert b.label == "Neutral"
@@ -118,7 +125,7 @@ def test_trend_only_bias_stays_in_bounds(scores: list[float]) -> None:
         [_trend(s) for s in scores],
         ParameterSet(),
         is_expiry_day=False,
-        weights=BULLION_WEIGHTS,
+        weights=bullion_weights(ParameterSet()),
         neutral_band=0.2,
     )
     assert -1.0 <= b.bias <= 1.0
@@ -196,6 +203,20 @@ class BiasHarness:
         return candles[-1].minute_ts
 
 
+def test_bullion_bias_adds_the_dollar_when_there_is_a_reading(tmp_path: Path) -> None:
+    h = BiasHarness(tmp_path, offset=0)
+    h.engine = BullionBiasEngine(
+        tracker=h.tracker,
+        params=lambda: h.params,
+        conn=h.conn,
+        macro=lambda _m: [IndicatorResult("dollar_index", "macro", -1.0, "Dollar +0.20%")],
+    )
+    b = h.engine.evaluate("GOLD", h.seed("GOLD", GOLD_KEY)).bias
+    assert b.group_weights["macro"] == pytest.approx(0.10)
+    assert b.group_weights["trend"] == pytest.approx(0.90)
+    assert [c.result.name for c in b.contributions][-1] == "dollar_index"
+
+
 def test_bullion_bias_is_trend_only_and_stored_per_metal(tmp_path: Path) -> None:
     h = BiasHarness(tmp_path, offset=0)
     last = h.seed("GOLD", GOLD_KEY)
@@ -207,7 +228,7 @@ def test_bullion_bias_is_trend_only_and_stored_per_metal(tmp_path: Path) -> None
         "supertrend",
     ]
     assert b.bias.bias > 0.6  # a steady climb: every trend vote is bullish
-    assert b.bias.group_weights == BULLION_WEIGHTS
+    assert b.bias.group_weights == {"trend": 1.0, "oi": 0.0, "premium": 0.0, "macro": 0.0}
     rows = h.conn.execute("SELECT idx, minute_ts FROM bias_minutes").fetchall()
     assert [(r["idx"], r["minute_ts"]) for r in rows] == [("GOLD", last)]
 

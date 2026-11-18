@@ -204,7 +204,7 @@ def test_aggregate_weights_groups_and_labels() -> None:
         IndicatorResult("d", "premium", 0.5, ""),
     ]
     b = aggregate(results, P, is_expiry_day=False)
-    assert b.group_scores == {"trend": 1.0, "oi": -1.0, "premium": 0.5}
+    assert b.group_scores == {"trend": 1.0, "oi": -1.0, "premium": 0.5, "macro": 0.0}
     assert abs(b.bias - (0.40 * 1 + 0.35 * -1 + 0.25 * 0.5)) < 1e-9
     assert b.label == "Neutral"
     assert b.strength == 18
@@ -215,9 +215,72 @@ def test_aggregate_weights_groups_and_labels() -> None:
 
 def test_expiry_day_halves_oi_weight_and_redistributes() -> None:
     w = effective_group_weights(P, True)
-    assert abs(w["oi"] - 0.175) < 1e-9
-    assert abs(sum(w.values()) - 1.0) < 1e-9
-    assert w["trend"] > 0.40
+    assert w["oi"] == pytest.approx(0.315 / 2)  # OI's share after macro's 10 %, halved
+    assert sum(w.values()) == pytest.approx(1.0)
+    assert w["trend"] > 0.36
+    assert w["macro"] > 0.10  # macro takes part of the cut too
+
+
+# -- macro group (spec §8.6) ----------------------------------------------------
+
+
+def _macro(score: float, name: str = "crude", quality: str = "ok") -> IndicatorResult:
+    return IndicatorResult(name, "macro", score, "", quality)  # type: ignore[arg-type]
+
+
+def test_macro_takes_its_share_and_the_others_keep_their_proportions() -> None:
+    w = effective_group_weights(P, False)
+    assert w == pytest.approx({"trend": 0.36, "oi": 0.315, "premium": 0.225, "macro": 0.10})
+    results = [IndicatorResult("a", "trend", 1.0, ""), _macro(-1.0), _macro(0.0, "gold")]
+    b = aggregate(results, P, is_expiry_day=False)
+    assert b.group_scores["macro"] == pytest.approx(-0.5)
+    assert b.bias == pytest.approx(0.36 * 1.0 + 0.10 * -0.5)
+    assert [c.weight for c in b.contributions if c.result.group == "macro"] == pytest.approx(
+        [0.05, 0.05]
+    )
+
+
+@pytest.mark.parametrize(
+    "macro",
+    [[], [_macro(-1.0, quality="warming")], [_macro(0.0, "silver", quality="info")]],
+)
+def test_without_a_live_macro_price_the_bias_is_the_three_group_one(
+    macro: list[IndicatorResult],
+) -> None:
+    results = [
+        IndicatorResult("a", "trend", 1.0, ""),
+        IndicatorResult("c", "oi", -1.0, ""),
+        IndicatorResult("d", "premium", 0.5, ""),
+        *macro,
+    ]
+    b = aggregate(results, P, is_expiry_day=False)
+    assert b.group_weights == pytest.approx(
+        {"trend": 0.40, "oi": 0.35, "premium": 0.25, "macro": 0.0}
+    )
+    assert b.bias == pytest.approx(0.40 - 0.35 + 0.125)
+    assert all(c.weight == 0 for c in b.contributions if c.result.group == "macro")
+
+
+def test_an_info_reading_is_shown_with_no_weight_beside_scored_ones() -> None:
+    results = [_macro(1.0), _macro(0.0, "silver", quality="info")]
+    b = aggregate(results, P, is_expiry_day=False)
+    weights = {c.result.name: c.weight for c in b.contributions}
+    assert weights == pytest.approx({"crude": 0.10, "silver": 0.0})
+
+
+@settings(max_examples=50)
+@given(
+    st.lists(st.floats(-1, 1), min_size=4, max_size=4),
+    st.floats(0, 0.5),
+    st.booleans(),
+)
+def test_bias_with_macro_stays_bounded(scores: list[float], macro: float, expiry: bool) -> None:
+    p = ParameterSet.model_validate({"weights": {"macro": macro}})
+    groups = ("trend", "oi", "premium", "macro")
+    results = [IndicatorResult(g, g, s, "") for g, s in zip(groups, scores, strict=True)]  # type: ignore[arg-type]
+    b = aggregate(results, p, is_expiry_day=expiry)
+    assert -1.0 <= b.bias <= 1.0
+    assert sum(b.group_weights.values()) == pytest.approx(1.0)
 
 
 @settings(max_examples=50)

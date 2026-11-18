@@ -5,6 +5,7 @@ const GROUP_LABEL: Record<IndicatorOut['group'], string> = {
   trend: 'Price trend',
   oi: 'Open interest',
   premium: 'Premium behaviour',
+  macro: 'Macro: dollar, crude, gold',
 }
 
 const NAME_LABEL: Record<string, string> = {
@@ -17,6 +18,11 @@ const NAME_LABEL: Record<string, string> = {
   premium_momentum: 'CE vs PE momentum',
   iv_change: 'IV change',
   premium_confirmation: 'Premium confirmation',
+  dollar_index: 'Dollar index (proxy)',
+  usd_inr: 'USD/INR',
+  crude: 'Crude oil',
+  gold: 'Gold',
+  silver: 'Silver',
 }
 
 function ScoreBar({ score }: { score: number }) {
@@ -45,9 +51,9 @@ export function EvidenceTable({ bias }: { bias: BiasOut | undefined }) {
   if (!bias) {
     return <p className="text-xs text-fg-muted">Evidence appears after the first minute closes.</p>
   }
-  // A group with no indicators and no weight plays no part: bullion has no option chain,
-  // so its bias is the trend group alone (spec §9a).
-  const groups = (['trend', 'oi', 'premium'] as const).filter(
+  // A group with no indicators and no weight plays no part: bullion has no option chain
+  // (spec §9a), and without the live feed there is no macro data (spec §8.6).
+  const groups = (['trend', 'oi', 'premium', 'macro'] as const).filter(
     (g) => (bias.group_weights[g] ?? 0) > 0 || bias.indicators.some((i) => i.group === g),
   )
   return (
@@ -83,7 +89,9 @@ export function EvidenceTable({ bias }: { bias: BiasOut | undefined }) {
                     <td className="pr-2">{NAME_LABEL[r.name] ?? r.name}</td>
                     <td className="pr-2" title={valueTitle(r.value)}>
                       {r.note}
-                      {dim ? <span className="ml-1 italic">({r.quality})</span> : null}
+                      {dim && r.quality !== 'info' ? (
+                        <span className="ml-1 italic">({r.quality})</span>
+                      ) : null}
                     </td>
                     <td className="pr-2">
                       <div className="flex items-center gap-2">

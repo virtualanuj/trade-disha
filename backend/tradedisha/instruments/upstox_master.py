@@ -115,6 +115,37 @@ def parse_commodities(
     ]
 
 
+def parse_currency_futures(
+    records: Iterable[Mapping[str, Any]], names: Iterable[str]
+) -> list[Instrument]:
+    """NSE currency futures (`NCD_FO`) of each wanted pair, e.g. USDINR (spec §6.8)."""
+    wanted = set(names)
+    return [
+        Instrument(
+            instrument_key=str(r["instrument_key"]),
+            trading_symbol=str(r["trading_symbol"]),
+            exchange="NSE",
+            segment="NCD_FO",
+            name=str(r["underlying_symbol"]),
+            instrument_type="FUT",
+            expiry=ms_to_ist(int(r["expiry"])).date(),
+            strike=None,
+            lot_size=int(r["lot_size"]),
+            tick_size=float(r.get("tick_size", 0.25)) / PAISE,
+        )
+        for r in records
+        if r.get("segment") == "NCD_FO"
+        and r.get("instrument_type") == "FUT"
+        and r.get("underlying_symbol") in wanted
+        and r.get("expiry")
+    ]
+
+
+def read_currency_futures(path: Path, names: Iterable[str]) -> list[Instrument]:
+    with gzip.open(path, "rt", encoding="utf-8") as fh:
+        return parse_currency_futures(json.load(fh), names)
+
+
 def read_commodities(path: Path, names: Iterable[str]) -> list[Instrument]:
     with gzip.open(path, "rt", encoding="utf-8") as fh:
         return parse_commodities(json.load(fh), names)
@@ -157,3 +188,16 @@ async def load_mcx_master(
     path = mcx_master_path(data_dir, day)
     await _download_once(MCX_MASTER_URL, path, transport)
     return await asyncio.to_thread(read_commodities, path, list(names))
+
+
+async def load_currency_master(
+    data_dir: Path,
+    day: date,
+    names: Iterable[str],
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> list[Instrument]:
+    """Today's NSE currency futures for `names`, from the NSE file (downloaded once a day)."""
+    path = master_path(data_dir, day)
+    await _download_once(MASTER_URL, path, transport)
+    return await asyncio.to_thread(read_currency_futures, path, list(names))

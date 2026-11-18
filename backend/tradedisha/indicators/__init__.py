@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-Group = Literal["trend", "oi", "premium"]
-Quality = Literal["ok", "warming", "partial"]
+Group = Literal["trend", "oi", "premium", "macro"]
+# "info": shown with the evidence, never weighted (silver in the macro group)
+Quality = Literal["ok", "warming", "partial", "info"]
 
 
 @dataclass(frozen=True)
