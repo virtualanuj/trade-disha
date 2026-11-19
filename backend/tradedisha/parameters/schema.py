@@ -60,11 +60,17 @@ def _spec(path: str, info: FieldInfo, help_text: str) -> FieldSpec:
     )
 
 
+# Not typed in the editor: flipped one at a time by a switch, each a version (E16).
+SWITCHED = frozenset({"factors"})
+
+
 def _walk(model: BaseModel, prefix: str, inherited: str) -> list[FieldSpec]:
     out: list[FieldSpec] = []
     for name, info in type(model).model_fields.items():
         value = getattr(model, name)
         path = f"{prefix}.{name}" if prefix else name
+        if path in SWITCHED:
+            continue
         help_text = info.description or inherited
         if isinstance(value, BaseModel):
             out += _walk(value, path, help_text)

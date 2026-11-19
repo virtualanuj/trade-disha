@@ -494,6 +494,21 @@ Builder's calls:
   that database's switches, `tools/score.py` none.
 - `info` rows (silver, a faded GIFT vote) get a switch too; it changes nothing.
 
+Changed the same day (Milestone E16), decided with the owner:
+- The switches move into the versioned config. They are flipped only in the Config dialog,
+  and each flip creates a version automatically with a fixed tag naming the change
+  (`Factor NIFTY.pcr: off`).
+- The Evidence panel shows each factor's switch state clearly, read only.
+- Every factor starts on: switches set under E15 are not carried over.
+
+Builder's calls (E16):
+- A Factors tab in the Config dialog rather than a section of the Edit form: each flip is a
+  new version, and the form starts again on a new version, which would drop half-typed
+  edits.
+- The typed editor does not list the switches, and a typed save keeps them as they are.
+- A test keeps the switch names equal to the factors the engines produce, so a new factor
+  cannot ship without a switch.
+
 ## Deferred
 
 ### Chart zoom buttons

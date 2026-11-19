@@ -1,5 +1,5 @@
 """WebSocket push: `hello` snapshot on connect, then `tick`, `chain`, `candle`, `bias`,
-`bullion`, `bullion_candle`, `health`, `parameters` and `factors` frames.
+`bullion`, `bullion_candle`, `health` and `parameters` frames.
 
 Every frame carries t_src (exchange ts of the newest data in it), t_in (backend ingest of
 that data) and t_out (send time) so the browser can compute per-hop latency.
@@ -18,7 +18,6 @@ from tradedisha.api.analysis import (
     bias_out,
     candle_out,
     candles_response,
-    factors_out,
     overlay_out,
     parameters_out,
 )
@@ -44,7 +43,6 @@ from tradedisha.engine.paper import PaperTrade
 from tradedisha.engine.signals import Signal
 from tradedisha.events import (
     AuthChanged,
-    FactorsChanged,
     FeedHealthChanged,
     NewsChanged,
     ParametersChanged,
@@ -88,7 +86,6 @@ class WsHub:
         state.events.subscribe(WindowChanged, self._on_window)
         state.events.subscribe(ParametersChanged, self._on_params)
         state.events.subscribe(NewsChanged, self._on_news)
-        state.events.subscribe(FactorsChanged, self._on_factors)
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -174,10 +171,6 @@ class WsHub:
         }
         self._immediate.append(self._frame("parameters", payload, t_src=None, t_in=None))
 
-    def _on_factors(self, _: FactorsChanged) -> None:
-        payload = factors_out(self._state).model_dump()
-        self._immediate.append(self._frame("factors", payload, t_src=None, t_in=None))
-
     def _on_news(self, _: NewsChanged) -> None:
         news = self._state.news
         payload = news_out(self._state).model_dump()
@@ -233,7 +226,6 @@ class WsHub:
             "candles": [candles_response(s, i, 400).model_dump() for i in s.session.resolved],
             "bias": [bias_out(b).model_dump() for b in latest],
             "parameters": parameters_out(s).model_dump(mode="json"),
-            "factors": factors_out(s).model_dump(),
             "signals_active": [x.model_dump() for x in active_signals(s)],
             "signals_today": [x.model_dump() for x in today_signals(s)],
             "gates": [g.model_dump() for g in gates(s)],

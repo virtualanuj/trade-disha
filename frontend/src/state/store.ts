@@ -3,7 +3,6 @@ import { create } from 'zustand'
 import type {
   BullionCandlesOut,
   BullionOut,
-  FactorsOut,
   FlowOut,
   BiasOut,
   CandleOut,
@@ -56,8 +55,6 @@ interface MarketStore {
   bias: Record<string, BiasOut>
   parameters: ParametersOut | null
   parametersEffectiveFrom: number | null
-  /** factors switched off per index or metal (E15); a scope that is absent has all on */
-  factorsOff: Record<string, string[]>
   /** active signal per index */
   signals: Record<string, SignalOut>
   /** today's signals, newest first */
@@ -110,7 +107,6 @@ interface MarketStore {
   /** the per-second live levels of waiting signals; never revives one that has ended */
   applySignalLive: (signals: SignalOut[]) => void
   applyParameters: (p: ParametersOut, effectiveFrom: number | null) => void
-  applyFactors: (f: FactorsOut) => void
   selectIndex: (index: string) => void
 }
 
@@ -127,7 +123,6 @@ export const useMarketStore = create<MarketStore>((set) => ({
   bias: {},
   parameters: null,
   parametersEffectiveFrom: null,
-  factorsOff: {},
   signals: {},
   signalHistory: [],
   gates: {},
@@ -305,9 +300,6 @@ export const useMarketStore = create<MarketStore>((set) => ({
   },
   applyParameters: (parameters, parametersEffectiveFrom) => {
     set({ parameters, parametersEffectiveFrom })
-  },
-  applyFactors: (f) => {
-    set({ factorsOff: f.off })
   },
   selectIndex: (selectedIndex) => {
     set({ selectedIndex })

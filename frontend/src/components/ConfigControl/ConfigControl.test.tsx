@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import { ConfigRejected } from '../../api/client'
 import type { ConfigVersionOut, ParameterField, ParametersOut } from '../../api/types'
@@ -11,6 +11,12 @@ const v1: ParametersOut = {
   params: {
     bias: { entry_threshold: 0.5, neutral_band: 0.2 },
     signal: { entry_mode: 'minute_close', last_signal_time: '15:00:00' },
+    factors: {
+      nifty: { ema_cross: 'on', pcr: 'off', gift_nifty: 'on' },
+      banknifty: { ema_cross: 'on', pcr: 'on' },
+      gold: { ema_cross: 'on', peer_metal: 'on' },
+      silver: { ema_cross: 'on', peer_metal: 'on' },
+    },
   },
 }
 
@@ -67,6 +73,7 @@ function setup(over: Partial<ConfigApi> = {}, parameters: ParametersOut = v1) {
     save: vi.fn().mockResolvedValue({ ...v1, version: 2, tag: 'higher bar' }),
     versions: vi.fn().mockResolvedValue(history),
     revert: vi.fn().mockResolvedValue({ ...v1, version: 3, tag: 'Revert to v1' }),
+    setFactor: vi.fn().mockResolvedValue({ ...v1, version: 2, tag: 'Factor NIFTY.ema_cross: off' }),
     ...over,
   }
   const onSaved = vi.fn()
@@ -121,6 +128,7 @@ describe('ConfigControl', () => {
     expect(api.save).toHaveBeenCalledWith('higher bar', {
       bias: { entry_threshold: 0.6, neutral_band: 0.2 },
       signal: { entry_mode: 'minute_close', last_signal_time: '15:00' },
+      factors: v1.params.factors, // the switches in force go along untouched
     })
     const [saved, from] = onSaved.mock.calls[0] as [ParametersOut, number]
     expect(saved.version).toBe(2)
@@ -198,5 +206,72 @@ describe('ConfigControl', () => {
       expect(onSaved).toHaveBeenCalledTimes(1)
     })
     expect(api.revert).toHaveBeenCalledWith(1, 'back to the start')
+  })
+
+  describe('factors (E16)', () => {
+    async function openFactors() {
+      fireEvent.click(screen.getByRole('button', { name: /^Config/ }))
+      fireEvent.click(await screen.findByRole('tab', { name: 'Factors · 1 off' }))
+      return screen.getByTestId('factors-tab')
+    }
+
+    it('has no factor fields in the typed form', async () => {
+      setup()
+      await openEditor()
+      expect(screen.queryByRole('switch')).toBeNull()
+    })
+
+    it('lists each index and metal with its switches as in force', async () => {
+      setup()
+      const tab = await openFactors()
+      expect(within(tab).getByText('BANK NIFTY')).toBeInTheDocument()
+      expect(within(tab).getByRole('switch', { name: 'NIFTY: Put-call ratio' })).toHaveAttribute(
+        'aria-checked',
+        'false',
+      )
+      expect(within(tab).getByRole('switch', { name: 'NIFTY: GIFT Nifty gap' })).toHaveAttribute(
+        'aria-checked',
+        'true',
+      )
+      expect(within(tab).getByRole('switch', { name: 'GOLD: Other metal’s trend' })).toBeEnabled()
+      expect(within(tab).getByText('1 off')).toBeInTheDocument()
+    })
+
+    it('saves a flip at once as a version, waiting for the server', async () => {
+      let done: (p: ParametersOut) => void = () => undefined
+      const pending = new Promise<ParametersOut>((resolve) => {
+        done = resolve
+      })
+      const { api, onSaved } = setup({ setFactor: vi.fn().mockReturnValue(pending) })
+      const tab = await openFactors()
+      const ema = within(tab).getByRole('switch', { name: 'NIFTY: EMA crossover' })
+      fireEvent.click(ema)
+      expect(api.setFactor).toHaveBeenCalledWith('NIFTY', 'ema_cross', false)
+      expect(ema).toBeDisabled()
+      expect(within(tab).getByText('saving…')).toBeInTheDocument()
+      done({ ...v1, version: 2, tag: 'Factor NIFTY.ema_cross: off' })
+      await waitFor(() => {
+        expect(onSaved).toHaveBeenCalledTimes(1)
+      })
+      expect(api.save).not.toHaveBeenCalled() // no typed tag: the server names the version
+    })
+
+    it('turns a factor back on', async () => {
+      const { api } = setup()
+      const tab = await openFactors()
+      fireEvent.click(within(tab).getByRole('switch', { name: 'NIFTY: Put-call ratio' }))
+      expect(api.setFactor).toHaveBeenCalledWith('NIFTY', 'pcr', true)
+    })
+
+    it('shows why a flip was refused and saves nothing', async () => {
+      const refused = new ConfigRejected([
+        { field: 'factors', message: 'NIFTY has no factor nope' },
+      ])
+      const { onSaved } = setup({ setFactor: vi.fn().mockRejectedValue(refused) })
+      const tab = await openFactors()
+      fireEvent.click(within(tab).getByRole('switch', { name: 'NIFTY: EMA crossover' }))
+      expect(await within(tab).findByRole('alert')).toHaveTextContent('NIFTY has no factor nope')
+      expect(onSaved).not.toHaveBeenCalled()
+    })
   })
 })

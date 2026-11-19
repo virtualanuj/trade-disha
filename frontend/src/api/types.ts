@@ -117,7 +117,6 @@ export interface HelloFrame extends FrameBase {
     candles: CandlesResponse[]
     bias: BiasOut[]
     parameters: ParametersOut
-    factors: FactorsOut
     signals_active: SignalOut[]
     signals_today: SignalOut[]
     gates: GateOut[]
@@ -180,7 +179,6 @@ export type Frame =
   | BullionFrame
   | BullionCandleFrame
   | NewsFrame
-  | FactorsFrame
 
 export type BuildUp =
   'long_buildup' | 'short_buildup' | 'short_covering' | 'long_unwinding' | 'none'
@@ -267,19 +265,8 @@ export interface IndicatorOut {
   value: Record<string, number>
   weight: number
   contribution: number
-  /** false: switched off in the Evidence panel, so weight 0 (E15); true in older rows */
+  /** false: switched off in Config (`factors`), so weight 0 (E15/E16); true in older rows */
   enabled: boolean
-}
-
-/** Factors switched off per index or metal (E15); every factor is on unless listed.
- * Mirrors `FactorsOut`. */
-export interface FactorsOut {
-  off: Record<string, string[]>
-}
-
-export interface FactorsFrame extends FrameBase {
-  type: 'factors'
-  payload: FactorsOut
 }
 
 export interface BiasOut {

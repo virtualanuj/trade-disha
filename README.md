@@ -62,8 +62,11 @@ Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by
 - **E14:** NIFTY's bias reads GIFT Nifty's overnight move as an opening-gap vote that
   fades over the first 30 minutes. Upstox has GIFT Nifty only every 120 s and not for
   BANK NIFTY, so it is not used during the session.
-- **E15:** each Evidence row has an on/off switch to leave that factor out of the index's
-  or metal's bias from the next minute close; all on by default, kept across restarts.
+- **E15:** each factor of an index's or metal's bias can be switched off, leaving it out
+  from the next minute close; all on by default.
+- **E16:** the factor switches are part of the versioned config: flipped in Config →
+  Factors, each flip its own version (`Factor NIFTY.pcr: off`), shown read only in the
+  Evidence panel, and usable in `tools/score.py` trial files.
 
 ## Documents
 

@@ -816,7 +816,45 @@ the next minute close", then shows "(off)" with weight 0 while ATM OI build-up c
 Open interest's whole share; BANK NIFTY is unchanged; "Turn all back on" restores it.
 
 **Status (2026-11-19):** built, with unit tests; `make check` green; the demo above checked
-in a browser on the synthetic feed.
+in a browser on the synthetic feed. Superseded the same day by E16: the switches moved into
+the config, and the Evidence panel shows them read only.
+
+**Design:** spec §8.4; signal.md §4, §11.
+
+## Milestone E16 — Factor switches in the versioned config
+
+**Goal:** the factor switches are parameters, so each signal's config version says which
+factors were on; they are flipped in the Config dialog and shown read only in Evidence.
+
+- `parameters/model.py`: `factors` with `nifty` (`NiftyFactors`, 15), `banknifty`
+  (`IndexFactors`, 14), `gold` and `silver` (`BullionFactors`, 9), each `"on"`/`"off"`,
+  default on; `off_for(scope)`. Old versions load all on. Seeded in `config/params.toml`.
+- `ParameterService.set_factor` and `PUT /api/parameters/factors/{scope}/{name}`: one flip,
+  one version tagged `Factor NIFTY.pcr: off` (none when already so; 422 for an unknown
+  factor); the usual `parameters` frame. `describe()` skips `factors`; a typed save keeps
+  the switches in force.
+- Engines read `p.factors.off_for(...)`. E15's store, routes, event and frame removed;
+  migration 014 deletes `app_state.factors_off`, so every factor starts on.
+- Config dialog: a **Factors** tab (its label counts the factors off), one list per index
+  and metal, a working switch per factor that saves at once. A tab rather than a section of
+  the Edit form, because each flip is a new version and the form restarts on a new version.
+- Evidence panel: a read-only switch per row from the config in force, "(off)" rows
+  dimmed, "off/on from the next minute close" until the bias catches up, and "N factors
+  switched off. Change in Config, Factors."
+- Tests: the model (defaults, old versions, scope mapping, bad values), a name-drift test
+  against both pipelines, `set_factor` (fixed tag, no-op, unknown factor, typed save keeps
+  switches), the API and its frame, the next bias, migration 014; the Factors tab, the
+  read-only Evidence switches.
+
+**Demo:** in Config → Factors switch NIFTY's Put-call ratio off: version `Factor
+NIFTY.pcr: off` appears; at the next minute close NIFTY's Evidence row shows a read-only
+off switch, "(off)" and weight 0; BANK NIFTY is unchanged. Offline, a trial file with
+`[factors.nifty] pcr = "off"` given to `tools/score.py` replays with it off.
+
+**Status (2026-11-19):** built, with unit tests; `make check` green. Offline replay of
+18/11/2026 with such a trial file: all 1,356 NIFTY minutes had `pcr` off (weight 0),
+BANK NIFTY's on. Checked by the owner in the app the same day; the Evidence panel's
+read-only state is a flat label (a green ON, a grey OFF), unlike the Config tab's switch.
 
 **Design:** spec §8.4; signal.md §4, §11.
 

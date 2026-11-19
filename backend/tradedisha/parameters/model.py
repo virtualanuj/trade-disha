@@ -613,6 +613,87 @@ class News(BaseModel):
     )
 
 
+# -- factor switches (Milestone E16) ---------------------------------------------------
+
+OnOff = Literal["on", "off"]
+
+
+def _switch(label: str) -> OnOff:
+    return Field("on", description=f"{label}: off leaves it out of the bias.")
+
+
+class IndexFactors(BaseModel):
+    """Each factor of an index's bias, on or off. Changed only by a switch in Config."""
+
+    model_config = ConfigDict(extra="forbid")
+    ema_cross: OnOff = _switch("EMA crossover (trend)")
+    vwap_position: OnOff = _switch("Futures vs VWAP (trend)")
+    supertrend: OnOff = _switch("Supertrend (trend)")
+    pcr: OnOff = _switch("Put-call ratio (open interest)")
+    oi_change_atm: OnOff = _switch("ATM OI build-up (open interest)")
+    max_pain_drift: OnOff = _switch("Max-pain drift (open interest)")
+    premium_momentum: OnOff = _switch("CE vs PE momentum (premium)")
+    iv_change: OnOff = _switch("IV change (premium)")
+    premium_confirmation: OnOff = _switch("Premium confirmation (premium)")
+    dollar_index: OnOff = _switch("Dollar index proxy (macro)")
+    usd_inr: OnOff = _switch("USD/INR (macro)")
+    crude: OnOff = _switch("Crude oil (macro)")
+    gold: OnOff = _switch("Gold (macro)")
+    silver: OnOff = _switch("Silver (macro, shown only)")
+
+
+class NiftyFactors(IndexFactors):
+    gift_nifty: OnOff = _switch("GIFT Nifty gap (macro)")
+
+
+class BullionFactors(BaseModel):
+    """Each factor of a metal's bias, on or off. Changed only by a switch in Config."""
+
+    model_config = ConfigDict(extra="forbid")
+    ema_cross: OnOff = _switch("EMA crossover (trend)")
+    vwap_position: OnOff = _switch("Futures vs VWAP (trend)")
+    supertrend: OnOff = _switch("Supertrend (trend)")
+    futures_oi: OnOff = _switch("Futures OI build-up (open interest)")
+    net_volume: OnOff = _switch("Net traded volume (order flow)")
+    book_imbalance: OnOff = _switch("Order-book lean (order flow)")
+    dollar_index: OnOff = _switch("Dollar index proxy (macro)")
+    usd_inr: OnOff = _switch("USD/INR (macro)")
+    peer_metal: OnOff = _switch("Other metal's trend (macro)")
+
+
+# scope as the engines name it -> the field of `Factors` holding its switches
+FACTOR_SCOPES: dict[str, str] = {
+    "NIFTY": "nifty",
+    "BANKNIFTY": "banknifty",
+    "GOLD": "gold",
+    "SILVER": "silver",
+}
+
+
+class Factors(BaseModel):
+    """Factor switches per index and metal (spec §8.4). Each flip in Config is a version."""
+
+    model_config = ConfigDict(extra="forbid")
+    nifty: NiftyFactors = Field(default_factory=NiftyFactors)
+    banknifty: IndexFactors = Field(default_factory=IndexFactors)
+    gold: BullionFactors = Field(default_factory=BullionFactors)
+    silver: BullionFactors = Field(default_factory=BullionFactors)
+
+    def scope_model(self, scope: str) -> BaseModel | None:
+        field = FACTOR_SCOPES.get(scope)
+        if field is None:
+            return None
+        m: BaseModel = getattr(self, field)
+        return m
+
+    def off_for(self, scope: str) -> frozenset[str]:
+        """The factors switched off for an index or metal; none for an unknown scope."""
+        m = self.scope_model(scope)
+        if m is None:
+            return frozenset()
+        return frozenset(k for k, v in m.model_dump().items() if v == "off")
+
+
 class ParameterSet(BaseModel):
     """The whole tunable configuration. Unknown keys are rejected so typos surface."""
 
@@ -629,3 +710,4 @@ class ParameterSet(BaseModel):
     bullion: Bullion = Field(default_factory=Bullion)
     news: News = Field(default_factory=News)
     macro: Macro = Field(default_factory=Macro)
+    factors: Factors = Field(default_factory=Factors)

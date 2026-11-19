@@ -299,15 +299,16 @@ gives up is handed to the other groups in proportion to their own weights. When 
 macro reading is `ok`**, the macro share is handed back the same way, so the bias is
 exactly what it was before E12 (last column).
 
-**Switching a factor off.** Each row of the Evidence panel has a switch; every factor is
-on by default. A factor switched off is still worked out and shown (dimmed, marked
-"(off)") but carries no weight: it is left out of its group's average, so the group's other
-ready factors share the group's weight. If every factor of a group is off, the group's
-share is handed to the other groups in proportion, as with no live macro price. Switches
-are per index or metal (crude off on NIFTY leaves BANK NIFTY alone), take effect at the
-next minute close (until then the row says "off from the next minute close"), survive a
-restart, and "Turn all back on" resets the index. They are not config versions, but each
-stored bias minute and signal marks every factor `enabled` true or false.
+**Switching a factor off.** Every factor is on by default. In **Config → Factors** each
+index and metal lists its factors with a switch; a flip is saved at once as a new config
+version tagged, for example, `Factor NIFTY.pcr: off`, and applies from the next minute
+close. A factor switched off is still worked out and shown in the Evidence panel (its
+switch there shows the state, read only; the row is dimmed and marked "(off)") but carries
+no weight: it is left out of its group's average, so the group's other ready factors share
+the group's weight. If every factor of a group is off, the group's share is handed to the
+other groups in proportion, as with no live macro price. Switches are per index or metal
+(crude off on NIFTY leaves BANK NIFTY alone). Until the next minute close the Evidence row
+says "off from the next minute close".
 
 **3. Sum and clamp.** `bias = Σ (group weight × group score)`, clamped to −1..+1.
 
@@ -654,8 +655,9 @@ the next minute close; an invalid save is rejected and the previous values stay 
 Any earlier version can be reverted to. Versions are stored in the `config_versions`
 table; `config/params.toml` only supplies version 1 for a new database.
 
-The factor switches in the Evidence panel (section 4) are not parameters: switching one
-makes no new version. Each signal's breakdown records which factors were on.
+The factor switches (section 4) are parameters too, but are not typed in the editor: each
+flip in the Factors tab is its own version with a fixed tag such as `Factor NIFTY.pcr:
+off`.
 
 Each signal records the version in force when it fired (`config_version`). It appears as
 a small `v7` on the signal card and in "Signals today"; hovering it shows that version's
@@ -669,6 +671,7 @@ values and highlights the ones that differ from the current config.
 | `macro.window_minutes` | 30 | minutes over which each macro move is measured |
 | `macro.max_age_seconds` | 180 | a macro price older than this is not live |
 | `macro.dollar_full_pct` / `usdinr_full_pct` / `crude_full_pct` / `gold_full_pct` | 0.15 / 0.10 / 0.80 / 0.40 | % move that counts as full strength |
+| `factors.<nifty, banknifty, gold, silver>.<factor>` | `on` | `off` leaves that factor out of that index's or metal's bias; flipped in Config → Factors, one version per flip |
 | `macro.gift_full_pct` / `gift_fade_minutes` / `gift_direction` | 0.50 / 30 / `follow` | NIFTY's GIFT Nifty gap: overnight % at full strength, minutes it fades over, follow or fade the gap |
 | `bias.entry_threshold` | 0.50 | \|bias\| to fire under `minute_close` |
 | `bias.setup_threshold` | 0.35 | \|bias\| to set up under `trigger`; must be above the neutral band and no higher than the entry threshold |

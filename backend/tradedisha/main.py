@@ -31,7 +31,6 @@ from tradedisha.app_state import AppState
 from tradedisha.auth import AuthService
 from tradedisha.clock import IST, DrivenClock, MarketClock, load_holidays
 from tradedisha.config import Settings, load_settings
-from tradedisha.engine.factors import FactorSwitches
 from tradedisha.events import EventBus
 from tradedisha.market.news import NewsService, load_news_stocks
 from tradedisha.market.session import FeedSession
@@ -75,8 +74,6 @@ def build_state(settings: Settings) -> AppState:
         auth=auth,
     )
     session.config_version = lambda: params.current.version
-    factors = FactorSwitches(conn, events)
-    session.factor_switches = factors
     return AppState(
         settings=settings,
         conn=conn,
@@ -87,7 +84,6 @@ def build_state(settings: Settings) -> AppState:
         session=session,
         params=params,
         news=build_news(settings, auth, events, params),
-        factors=factors,
     )
 
 

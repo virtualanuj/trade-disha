@@ -17,7 +17,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from tradedisha.clock import epoch_ms_now
-from tradedisha.parameters.model import ParameterSet
+from tradedisha.parameters.model import FACTOR_SCOPES, ParameterSet
 from tradedisha.store.config_versions import ConfigVersion, ConfigVersionStore, Source
 
 log = logging.getLogger(__name__)
@@ -132,8 +132,34 @@ class ParameterService:
         return self._insert(params, tag, source, reverted_from)
 
     def save_values(self, values: object, tag: str) -> LoadedParameters:
-        """Validate values as they come from the editor, then save them."""
+        """Validate values as they come from the editor, then save them.
+
+        The typed editor has no factor switches (they are flipped one at a time, see
+        `set_factor`), so values without `factors` keep the switches in force.
+        """
+        if isinstance(values, dict) and "factors" not in values and self._loaded is not None:
+            values = {**values, "factors": self._loaded.params.factors.model_dump(mode="json")}
         return self.save(validate_values(values), tag)
+
+    def set_factor(self, scope: str, name: str, *, enabled: bool) -> LoadedParameters:
+        """Switch one factor of an index's or metal's bias on or off, as a new version
+        tagged `Factor NIFTY.pcr: off`. Nothing is saved when it is already so."""
+        current = self.current.params
+        field = FACTOR_SCOPES.get(scope)
+        switches = current.factors.scope_model(scope)
+        if field is None or switches is None or name not in type(switches).model_fields:
+            raise ParameterValidationError(
+                [{"field": "factors", "message": f"{scope} has no factor {name}"}]
+            )
+        value = "on" if enabled else "off"
+        if getattr(switches, name) == value:
+            return self.current
+        factors = current.factors.model_copy(
+            update={field: switches.model_copy(update={name: value})}
+        )
+        return self.save(
+            current.model_copy(update={"factors": factors}), f"Factor {scope}.{name}: {value}"
+        )
 
     def revert(self, version: int, tag: str | None = None) -> LoadedParameters:
         """Put an old version's values back in force, as a new version."""

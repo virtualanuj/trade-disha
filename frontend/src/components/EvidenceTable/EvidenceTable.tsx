@@ -1,7 +1,7 @@
-import { useState } from 'react'
-
 import type { BiasOut, IndicatorOut } from '../../api/types'
+import { FACTOR_LABEL, offNames, type Switches } from '../../lib/factors'
 import { fmtSigned } from '../../lib/format'
+import { FactorSwitch } from '../FactorSwitch/FactorSwitch'
 
 const GROUP_LABEL: Record<IndicatorOut['group'], string> = {
   trend: 'Price trend',
@@ -9,28 +9,6 @@ const GROUP_LABEL: Record<IndicatorOut['group'], string> = {
   premium: 'Premium behaviour',
   flow: 'Order flow',
   macro: 'Macro: dollar, crude, metals',
-}
-
-const NAME_LABEL: Record<string, string> = {
-  ema_cross: 'EMA crossover',
-  vwap_position: 'Futures vs VWAP',
-  supertrend: 'Supertrend',
-  pcr: 'Put-call ratio',
-  oi_change_atm: 'ATM OI build-up',
-  max_pain_drift: 'Max-pain drift',
-  premium_momentum: 'CE vs PE momentum',
-  iv_change: 'IV change',
-  premium_confirmation: 'Premium confirmation',
-  dollar_index: 'Dollar index (proxy)',
-  usd_inr: 'USD/INR',
-  crude: 'Crude oil',
-  gold: 'Gold',
-  silver: 'Silver',
-  gift_nifty: 'GIFT Nifty gap',
-  futures_oi: 'Futures OI build-up',
-  net_volume: 'Net traded volume',
-  book_imbalance: 'Order-book lean',
-  peer_metal: 'Other metal’s trend',
 }
 
 function ScoreBar({ score }: { score: number }) {
@@ -49,38 +27,6 @@ function ScoreBar({ score }: { score: number }) {
   )
 }
 
-/** A factor's on/off switch: on means it counts in the bias (E15). */
-function FactorSwitch({
-  label,
-  on,
-  busy,
-  onChange,
-}: {
-  label: string
-  on: boolean
-  busy: boolean
-  onChange: (on: boolean) => void
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-label={`Use ${label} in the bias`}
-      title={on ? `Leave ${label} out of the bias` : `Count ${label} in the bias`}
-      disabled={busy}
-      onClick={() => {
-        onChange(!on)
-      }}
-      className={`relative inline-flex h-3.5 w-6 shrink-0 rounded-full transition-colors disabled:opacity-50 ${on ? 'bg-accent/80' : 'bg-border'}`}
-    >
-      <span
-        className={`absolute top-0.5 h-2.5 w-2.5 rounded-full bg-bg transition-[left] ${on ? 'left-3' : 'left-0.5'}`}
-      />
-    </button>
-  )
-}
-
 function valueTitle(v: Record<string, number>): string {
   return Object.entries(v)
     .map(([k, x]) => `${k}: ${Number.isInteger(x) ? String(x) : x.toFixed(3)}`)
@@ -89,33 +35,18 @@ function valueTitle(v: Record<string, number>): string {
 
 interface Props {
   bias: BiasOut | undefined
-  /** factors switched off for this index or metal; with `onToggle`, each row gets a switch */
-  off?: string[]
-  /** resolves once the server has the change; rejects with a reason to show */
-  onToggle?: (name: string, enabled: boolean) => Promise<unknown>
-  onAllOn?: () => Promise<unknown>
+  /** the switches in force for this index or metal (E16); each row shows its own, read only */
+  switches?: Switches | undefined
 }
 
-export function EvidenceTable({ bias, off = [], onToggle, onAllOn }: Props) {
-  const [busy, setBusy] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const run = (key: string, action: () => Promise<unknown>) => {
-    setBusy(key)
-    setError(null)
-    action()
-      .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : String(e))
-      })
-      .finally(() => {
-        setBusy(null)
-      })
-  }
+export function EvidenceTable({ bias, switches }: Props) {
   if (!bias) {
     return <p className="text-xs text-fg-muted">Evidence appears after the first minute closes.</p>
   }
   // A group with no indicators and no weight plays no part: bullion has no option chain
   // (spec §9a), the index has no flow group, and without the live feed there is no macro
   // data (spec §8.6).
+  const offCount = offNames(switches).length
   const groups = (['trend', 'oi', 'premium', 'flow', 'macro'] as const).filter(
     (g) => (bias.group_weights[g] ?? 0) > 0 || bias.indicators.some((i) => i.group === g),
   )
@@ -146,23 +77,20 @@ export function EvidenceTable({ bias, off = [], onToggle, onAllOn }: Props) {
                 <td className="text-right font-mono">{fmtSigned(gs * gw, 3)}</td>
               </tr>,
               ...rows.map((r) => {
-                const label = NAME_LABEL[r.name] ?? r.name
-                const on = !off.includes(r.name) // what the trader asked for
-                const pending = on !== r.enabled // the bias shown predates the switch
+                const label = FACTOR_LABEL[r.name] ?? r.name
+                const on = switches?.[r.name] !== 'off' // in force; unknown counts as on
+                const pending = switches !== undefined && on !== r.enabled // bias predates it
                 const dim = r.quality !== 'ok' || !r.enabled
                 const marker = !r.enabled ? 'off' : r.quality !== 'info' ? r.quality : null
                 return (
                   <tr key={r.name} className={`h-7 ${dim ? 'text-fg-muted/70' : ''}`}>
                     <td className="pr-2">
                       <div className="flex items-center gap-2">
-                        {onToggle ? (
+                        {switches ? (
                           <FactorSwitch
-                            label={label}
                             on={on}
-                            busy={busy !== null}
-                            onChange={(enabled) => {
-                              run(r.name, () => onToggle(r.name, enabled))
-                            }}
+                            label={`${label}: ${on ? 'on' : 'off'}`}
+                            title={`${on ? 'On' : 'Off'}: change it in Config, Factors`}
                           />
                         ) : null}
                         {label}
@@ -197,21 +125,9 @@ export function EvidenceTable({ bias, off = [], onToggle, onAllOn }: Props) {
           </tr>
         </tbody>
       </table>
-      {onToggle && onAllOn && off.length > 0 ? (
-        <button
-          type="button"
-          disabled={busy !== null}
-          onClick={() => {
-            run('*', onAllOn)
-          }}
-          className="mt-2 text-accent hover:underline disabled:opacity-50"
-        >
-          Turn all back on
-        </button>
-      ) : null}
-      {error ? (
-        <p role="alert" className="mt-1 text-bear">
-          {error}
+      {offCount > 0 ? (
+        <p className="mt-2 text-fg-muted">
+          {offCount} factor{offCount === 1 ? '' : 's'} switched off. Change in Config, Factors.
         </p>
       ) : null}
     </div>

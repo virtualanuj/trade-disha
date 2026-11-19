@@ -60,10 +60,8 @@ class BullionBiasEngine:
         conn: sqlite3.Connection,
         on_bias: Callable[[BiasComputed], None] | None = None,
         macro: Callable[[int], list[IndicatorResult]] | None = None,
-        off: Callable[[str], frozenset[str]] | None = None,
     ) -> None:
         self._tracker = tracker
-        self._off = off  # factors switched off per metal (Milestone E15)
         self._macro = macro  # the dollar for a minute (spec §8.6); none without currency data
         self._params = params
         self._store = BiasStore(conn)
@@ -122,7 +120,7 @@ class BullionBiasEngine:
             weights=bullion_weights(p),
             neutral_band=p.bullion.neutral_band,
             idle_groups=BULLION_IDLE,
-            off=self._off(metal) if self._off is not None else frozenset(),
+            off=p.factors.off_for(metal),  # switched off in Config (E16)
         )
         vwap = vwap_series(candles)[-1] if candles else None
         overlay = compute_overlays(candles, vwap, p)

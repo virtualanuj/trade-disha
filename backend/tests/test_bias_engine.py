@@ -94,12 +94,12 @@ def test_macro_evidence_joins_the_bias_with_its_share() -> None:
     assert '"crude"' in breakdown_json(b)  # stored with the bias and with any signal
 
 
-def test_a_factor_switched_off_for_the_index_weighs_nothing_and_is_marked() -> None:
+def test_a_factor_switched_off_in_config_weighs_nothing_and_is_marked() -> None:
     master = build_synthetic_master(TODAY)
     r = resolve_index(master, "NIFTY", TODAY, 25_000.0, strike_window=3)
     candles = CandleBuilder()
     conn = connect(":memory:")
-    off: dict[str, frozenset[str]] = {"NIFTY": frozenset({"crude"})}
+    params = ParameterSet.model_validate({"factors": {"nifty": {"crude": "off"}}})
 
     def macro(_index: str, _minute_ts: int) -> list[IndicatorResult]:
         return [
@@ -112,11 +112,10 @@ def test_a_factor_switched_off_for_the_index_weighs_nothing_and_is_marked() -> N
         candles=candles,
         chains={"NIFTY": ChainState.from_resolved(r)},
         resolved={"NIFTY": r},
-        params=ParameterSet,
+        params=lambda: params,
         conn=conn,
         on_bias=seen.append,
         macro=macro,
-        off=lambda index: off.get(index, frozenset()),
     )
     spot = r.spot.instrument_key
     candles.apply(Tick(key=spot, ts=0, ltp=25_000.0))

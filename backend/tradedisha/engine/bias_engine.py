@@ -130,10 +130,8 @@ class BiasEngine:
         conn: sqlite3.Connection,
         on_bias: Callable[[BiasComputed], None] | None = None,
         macro: Callable[[str, int], list[IndicatorResult]] | None = None,
-        off: Callable[[str], frozenset[str]] | None = None,
     ) -> None:
         self._candles = candles
-        self._off = off  # factors switched off per index (Milestone E15)
         self._macro = macro  # an index's macro group for a minute (spec §8.6); none without data
         self._chains = chains
         self._resolved = resolved
@@ -165,7 +163,7 @@ class BiasEngine:
         results = run_indicators(spot, fut, fut_vwap, chain, p)
         if self._macro is not None:
             results += self._macro(index, minute_ts)
-        off = self._off(index) if self._off is not None else frozenset()
+        off = p.factors.off_for(index)  # switched off in Config (E16)
         bias = aggregate(results, p, is_expiry_day=r.is_expiry_day, off=off)
         overlay = compute_overlays(spot, fut_vwap, p)
         out = BiasComputed(index, minute_ts, bias, overlay)

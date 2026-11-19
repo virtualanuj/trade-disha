@@ -6,18 +6,23 @@ import {
   listConfigVersions,
   revertConfigVersion,
   saveParameters,
+  setFactor,
   type ConfigError,
 } from '../../api/client'
 import type { ConfigVersionOut, ParameterField, ParametersOut, ParamValues } from '../../api/types'
 import { changedPaths, flatten, limitsText, toValues, type Draft } from '../../lib/config'
+import { FACTOR_LABEL, FACTOR_SCOPES, factorSwitches, offNames } from '../../lib/factors'
 import { fmtDate, fmtIstTime } from '../../lib/format'
 import { useNow } from '../../lib/useNow'
+import { FactorSwitch } from '../FactorSwitch/FactorSwitch'
 
 export interface ConfigApi {
   schema: () => Promise<ParameterField[]>
   save: (tag: string, params: ParamValues) => Promise<ParametersOut>
   versions: () => Promise<ConfigVersionOut[]>
   revert: (version: number, tag?: string) => Promise<ParametersOut>
+  /** one factor switch flipped: a new version with a fixed tag (E16) */
+  setFactor: (scope: string, name: string, enabled: boolean) => Promise<ParametersOut>
 }
 
 const API: ConfigApi = {
@@ -25,6 +30,7 @@ const API: ConfigApi = {
   save: saveParameters,
   versions: listConfigVersions,
   revert: revertConfigVersion,
+  setFactor,
 }
 
 interface Props {
@@ -53,7 +59,7 @@ function describe(e: unknown): ConfigError[] {
 
 export function ConfigControl({ parameters, effectiveFrom, onSaved, api = API }: Props) {
   const [open, setOpen] = useState(false)
-  const [tab, setTab] = useState<'edit' | 'history'>('edit')
+  const [tab, setTab] = useState<'edit' | 'factors' | 'history'>('edit')
   const [fields, setFields] = useState<ParameterField[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [appliedAt, setAppliedAt] = useState<number | null>(null)
@@ -81,6 +87,10 @@ export function ConfigControl({ parameters, effectiveFrom, onSaved, api = API }:
     onSaved(p, at)
   }
   const pending = appliedAt ?? effectiveFrom
+  const factorsOff = FACTOR_SCOPES.reduce(
+    (n, s) => n + offNames(factorSwitches(parameters?.params, s.scope)).length,
+    0,
+  )
 
   return (
     <div className="relative flex items-center gap-2 text-xs">
@@ -116,7 +126,7 @@ export function ConfigControl({ parameters, effectiveFrom, onSaved, api = API }:
           data-testid="config-panel"
         >
           <div className="flex shrink-0 items-center gap-1 border-b border-border/60 px-3 py-2">
-            {(['edit', 'history'] as const).map((t) => (
+            {(['edit', 'factors', 'history'] as const).map((t) => (
               <button
                 key={t}
                 type="button"
@@ -129,7 +139,11 @@ export function ConfigControl({ parameters, effectiveFrom, onSaved, api = API }:
                   setTab(t)
                 }}
               >
-                {t === 'edit' ? 'Edit' : 'History'}
+                {t === 'edit'
+                  ? 'Edit'
+                  : t === 'history'
+                    ? 'History'
+                    : `Factors${factorsOff > 0 ? ` · ${String(factorsOff)} off` : ''}`}
               </button>
             ))}
             <span className="ml-auto text-fg-muted">
@@ -151,6 +165,8 @@ export function ConfigControl({ parameters, effectiveFrom, onSaved, api = API }:
                 {loadError ? `Could not load the fields: ${loadError}` : 'Loading…'}
               </div>
             )
+          ) : tab === 'factors' ? (
+            <FactorsTab parameters={parameters} setFactor={api.setFactor} onSaved={saved} />
           ) : (
             <History key={parameters.version} api={api} onSaved={saved} />
           )}
@@ -327,6 +343,86 @@ function Editor({ parameters, fields, save, onSaved }: EditorProps) {
         </div>
       </div>
     </form>
+  )
+}
+
+/** Factor switches per index and metal (E16). Each flip is saved at once as its own version,
+ * tagged `Factor NIFTY.pcr: off`, and applies from the next minute close. */
+function FactorsTab({
+  parameters,
+  setFactor: flip,
+  onSaved,
+}: {
+  parameters: ParametersOut
+  setFactor: ConfigApi['setFactor']
+  onSaved: (p: ParametersOut) => void
+}) {
+  const [busy, setBusy] = useState<string | null>(null)
+  const [errors, setErrors] = useState<ConfigError[]>([])
+
+  const change = async (scope: string, name: string, enabled: boolean) => {
+    setBusy(`${scope}.${name}`)
+    setErrors([])
+    try {
+      const p = await flip(scope, name, enabled)
+      if (p.version !== parameters.version) onSaved(p)
+    } catch (e: unknown) {
+      setErrors(describe(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className="min-h-0 flex-1 overflow-auto px-3 py-2" data-testid="factors-tab">
+      <p className="mb-2 text-[11px] leading-snug text-fg-muted">
+        A factor switched off is shown in the Evidence panel but carries no weight in that
+        index&apos;s or metal&apos;s bias. Each switch is saved at once as a new version and applies
+        from the next minute close.
+      </p>
+      {errors.map((e) => (
+        <div key={e.message} className="mb-2 text-bear" role="alert">
+          {e.message}
+        </div>
+      ))}
+      {FACTOR_SCOPES.map(({ scope, label }) => {
+        const switches = factorSwitches(parameters.params, scope)
+        if (!switches) return null
+        const off = offNames(switches).length
+        return (
+          <fieldset key={scope} className="mb-3">
+            <legend className="text-[10px] uppercase tracking-wide text-fg-muted">
+              {label}
+              {off > 0 ? <span className="ml-2 normal-case text-warn">{off} off</span> : null}
+            </legend>
+            {Object.entries(switches).map(([name, value]) => {
+              const on = value !== 'off'
+              const factor = FACTOR_LABEL[name] ?? name
+              return (
+                <div
+                  key={name}
+                  className={`flex items-center gap-2 border-t border-border/40 py-1 ${on ? '' : 'text-fg-muted'}`}
+                >
+                  <FactorSwitch
+                    on={on}
+                    label={`${label}: ${factor}`}
+                    busy={busy !== null}
+                    title={on ? `Leave ${factor} out of ${label}` : `Count ${factor} in ${label}`}
+                    onChange={(enabled) => {
+                      void change(scope, name, enabled)
+                    }}
+                  />
+                  <span>{factor}</span>
+                  {busy === `${scope}.${name}` ? (
+                    <span className="ml-auto text-fg-muted">saving…</span>
+                  ) : null}
+                </div>
+              )
+            })}
+          </fieldset>
+        )
+      })}
+    </div>
   )
 }
 

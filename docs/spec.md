@@ -693,20 +693,25 @@ three-group one. An `info` reading (silver) is shown with weight 0. The groups t
 their share back when idle are an argument of `aggregate()`: macro for the indices
 (`INDEX_IDLE`), OI, flow and macro for bullion (`BULLION_IDLE`).
 
-**Factor switches (Milestone E15).** Asked for on 2026-11-19: each Evidence row has an
-on/off switch, every factor on by default. A switch is per index or metal
-(`engine/factors.py:FactorSwitches`, stored as JSON in `app_state` under `factors_off`)
-and is not a parameter: a click makes no config version (the owner's choice). `aggregate()`
-takes the names switched off (`off`): such a factor is still worked out and shown, but has
-weight and contribution 0 and is left out of its group's score, so the group's other live
-members share its weight. A group whose every member is off gives its share back to the
-others in proportion, whatever `idle_groups` says. Each contribution carries `enabled`,
-stored in the breakdown of every bias minute and signal, so what was off stays on record.
-A switch applies at the next evaluation (minute close; for bullion its offset
-evaluation), never mid-minute. `GET /api/factors`, `PUT /api/factors/{scope}/{name}`
-`{enabled}` and `DELETE /api/factors/{scope}` (all back on); the WebSocket has `factors`
-in `hello` and a `factors` frame on each change. `tools/score.py` replays with every
-factor on.
+**Factor switches (Milestones E15, E16).** Asked for on 2026-11-19: each factor of each
+index's and metal's bias can be switched off; every factor is on by default. Since E16 the
+switches are parameters: `factors.nifty`, `factors.banknifty`, `factors.gold` and
+`factors.silver`, one `"on"`/`"off"` value per factor (`IndexFactors`, `NiftyFactors` with
+`gift_nifty`, `BullionFactors`; a test keeps the names equal to what the engines emit).
+They are flipped only in the Config dialog's **Factors** tab, and each flip is saved at once
+as its own version tagged `Factor NIFTY.pcr: off` (`ParameterService.set_factor`,
+`PUT /api/parameters/factors/{scope}/{name}` `{enabled}`; no version when already so). The
+typed editor does not list them (`describe()` skips `factors`) and a typed save keeps the
+switches in force. The Evidence panel shows each factor's switch read only. Each engine
+reads `p.factors.off_for(index)` at its evaluation and passes it to `aggregate()` as `off`:
+such a factor is still worked out and shown, but has weight and contribution 0 and is left
+out of its group's score, so the group's other live members share its weight. A group whose
+every member is off gives its share back to the others in proportion, whatever
+`idle_groups` says. Each contribution carries `enabled`, stored in every breakdown. Like
+any parameter, a flip applies from the next evaluation, never mid-minute; signals record it
+through `config_version`, Revert brings switches back, and `tools/score.py --params`
+replays with a trial file's switches. (E15 kept switches outside the config in
+`app_state`; migration 014 drops that, starting every factor on.)
 
 A `BiasComputed(index, ts, bias, label, strength, breakdown)` event is published every
 minute close and persisted to `bias_minutes`. `breakdown` is the list of
