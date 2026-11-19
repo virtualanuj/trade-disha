@@ -40,11 +40,25 @@ class ParametersChanged:
 
 
 @dataclass(frozen=True)
+class FactorsChanged:
+    """A factor was switched on or off for one index or metal (Milestone E15)."""
+
+    scope: str
+
+
+@dataclass(frozen=True)
 class NewsChanged:
     """The headlines list or its status changed (spec §6.7)."""
 
 
-Event = FeedHealthChanged | AuthChanged | WindowChanged | ParametersChanged | NewsChanged
+Event = (
+    FeedHealthChanged
+    | AuthChanged
+    | WindowChanged
+    | ParametersChanged
+    | NewsChanged
+    | FactorsChanged
+)
 E = TypeVar("E", bound=Event)
 Handler = Callable[[Any], Awaitable[None] | None]
 

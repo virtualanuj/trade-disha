@@ -7,7 +7,7 @@ from dataclasses import asdict
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Path
 from pydantic import BaseModel
 
 from tradedisha.api.deps import State
@@ -68,6 +68,7 @@ class IndicatorOut(BaseModel):
     value: dict[str, float]
     weight: float
     contribution: float
+    enabled: bool = True  # False: switched off in the Evidence panel (E15); absent before
 
 
 class BiasOut(BaseModel):
@@ -175,7 +176,12 @@ def bias_out(b: BiasComputed) -> BiasOut:
         group_scores=dict(b.bias.group_scores),
         group_weights=dict(b.bias.group_weights),
         indicators=[
-            IndicatorOut(**asdict(c.result), weight=c.weight, contribution=c.contribution)
+            IndicatorOut(
+                **asdict(c.result),
+                weight=c.weight,
+                contribution=c.contribution,
+                enabled=c.enabled,
+            )
             for c in b.bias.contributions
         ],
     )
@@ -308,3 +314,50 @@ async def revert_parameters(version: int, body: RevertIn, state: State) -> Param
     except ParameterValidationError as e:
         raise HTTPException(status_code=422, detail=e.errors) from e
     return await _announce(state)
+
+
+# -- factor switches (Milestone E15) ------------------------------------------------
+
+
+class FactorsOut(BaseModel):
+    off: dict[str, list[str]]  # index or metal -> factors switched off; on when absent
+
+
+class FactorIn(BaseModel):
+    enabled: bool
+
+
+def factors_out(state: AppState) -> FactorsOut:
+    return FactorsOut(off=state.factors.all_off())
+
+
+def _factor_scope(state: AppState, scope: str) -> str:
+    """An index being followed, or a metal whose bullion data is loaded."""
+    tracker = state.session.bullion
+    if scope in state.session.resolved or (tracker is not None and scope in tracker.contracts):
+        return scope
+    raise HTTPException(status_code=404, detail=f"{scope} is not an index or metal in use")
+
+
+@router.get("/factors", response_model=FactorsOut)
+def factors(state: State) -> FactorsOut:
+    return factors_out(state)
+
+
+@router.put("/factors/{scope}/{name}", response_model=FactorsOut)
+async def set_factor(
+    scope: str,
+    body: FactorIn,
+    state: State,
+    name: str = Path(pattern=r"^[a-z_]{1,40}$"),
+) -> FactorsOut:
+    """Switch one factor on or off in one index's or metal's bias, from its next minute."""
+    await state.factors.set(_factor_scope(state, scope), name, enabled=body.enabled)
+    return factors_out(state)
+
+
+@router.delete("/factors/{scope}", response_model=FactorsOut)
+async def all_factors_on(scope: str, state: State) -> FactorsOut:
+    """Switch every factor of one index or metal back on."""
+    await state.factors.all_on(_factor_scope(state, scope))
+    return factors_out(state)

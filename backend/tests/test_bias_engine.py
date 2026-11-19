@@ -1,5 +1,6 @@
 """BiasEngine evaluates on spot-candle close and persists; params are read per evaluation."""
 
+import json
 from datetime import date
 
 import pytest
@@ -91,3 +92,42 @@ def test_macro_evidence_joins_the_bias_with_its_share() -> None:
     assert crude.weight == pytest.approx(0.10)
     assert b.group_scores["macro"] == -1.0
     assert '"crude"' in breakdown_json(b)  # stored with the bias and with any signal
+
+
+def test_a_factor_switched_off_for_the_index_weighs_nothing_and_is_marked() -> None:
+    master = build_synthetic_master(TODAY)
+    r = resolve_index(master, "NIFTY", TODAY, 25_000.0, strike_window=3)
+    candles = CandleBuilder()
+    conn = connect(":memory:")
+    off: dict[str, frozenset[str]] = {"NIFTY": frozenset({"crude"})}
+
+    def macro(_index: str, _minute_ts: int) -> list[IndicatorResult]:
+        return [
+            IndicatorResult("crude", "macro", -1.0, "Crude +0.80% in 30 min"),
+            IndicatorResult("gold", "macro", 0.5, "Gold -0.20% in 30 min"),
+        ]
+
+    seen: list[BiasComputed] = []
+    BiasEngine(
+        candles=candles,
+        chains={"NIFTY": ChainState.from_resolved(r)},
+        resolved={"NIFTY": r},
+        params=ParameterSet,
+        conn=conn,
+        on_bias=seen.append,
+        macro=macro,
+        off=lambda index: off.get(index, frozenset()),
+    )
+    spot = r.spot.instrument_key
+    candles.apply(Tick(key=spot, ts=0, ltp=25_000.0))
+    candles.apply(Tick(key=spot, ts=M, ltp=25_005.0))
+
+    b = seen[-1].bias
+    by = {c.result.name: c for c in b.contributions}
+    assert (by["crude"].enabled, by["crude"].weight) == (False, 0.0)
+    assert by["gold"].weight == pytest.approx(0.10)  # gold carries the whole macro share
+    assert b.group_scores["macro"] == 0.5
+    stored = json.loads(conn.execute("SELECT breakdown_json FROM bias_minutes").fetchone()[0])
+    flags = {i["name"]: i["enabled"] for i in stored["indicators"]}
+    assert flags["crude"] is False
+    assert flags["gold"] is True

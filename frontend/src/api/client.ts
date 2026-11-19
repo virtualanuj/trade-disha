@@ -1,6 +1,7 @@
 import type {
   ConfigVersionDetail,
   ConfigVersionOut,
+  FactorsOut,
   HealthResponse,
   JournalOut,
   MetricsResponse,
@@ -115,9 +116,9 @@ export function revertConfigVersion(version: number, tag?: string): Promise<Para
 /** The server refused; `message` is its reason, fit to show the trader. */
 export class Refused extends Error {}
 
-async function postJson<T>(path: string, body?: unknown): Promise<T> {
+async function postJson<T>(path: string, body?: unknown, method = 'POST'): Promise<T> {
   const res = await fetch(path, {
-    method: 'POST',
+    method,
     ...(body === undefined
       ? {}
       : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
@@ -173,4 +174,18 @@ export function fetchUsage(untilDate?: string, signal?: AbortSignal): Promise<Us
 
 export function pruneTicks(untilDate: string): Promise<PruneOut> {
   return postJson<PruneOut>('/api/data/prune-ticks', { until_date: untilDate })
+}
+
+/** Switch one factor of one index's or metal's bias on or off, from its next minute (E15). */
+export function setFactor(scope: string, name: string, enabled: boolean): Promise<FactorsOut> {
+  return postJson<FactorsOut>(
+    `/api/factors/${encodeURIComponent(scope)}/${encodeURIComponent(name)}`,
+    { enabled },
+    'PUT',
+  )
+}
+
+/** Switch every factor of one index or metal back on. */
+export function allFactorsOn(scope: string): Promise<FactorsOut> {
+  return postJson<FactorsOut>(`/api/factors/${encodeURIComponent(scope)}`, undefined, 'DELETE')
 }

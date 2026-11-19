@@ -32,7 +32,8 @@ def bullion_weights(p: ParameterSet) -> dict[Group, float]:
 class Contribution:
     result: IndicatorResult
     weight: float  # effective weight of this indicator in the bias
-    contribution: float  # score x weight (0 when quality != ok)
+    contribution: float  # score x weight (0 when quality != ok or switched off)
+    enabled: bool = True  # False: switched off in the Evidence panel (Milestone E15)
 
 
 @dataclass(frozen=True)
@@ -79,10 +80,19 @@ def _return_idle(
     w: dict[Group, float],
     by_group: dict[Group, list[IndicatorResult]],
     groups: tuple[Group, ...],
+    off: frozenset[str],
 ) -> dict[Group, float]:
-    """A group in `groups` with no live reading (market shut, warming, no data) gives its
-    share back to the others, in proportion to theirs."""
-    idle = [g for g in groups if w[g] > 0 and not any(r.quality == "ok" for r in by_group[g])]
+    """A group in `groups` with no live reading (market shut, warming, no data), or any
+    group whose every factor is switched off, gives its share back to the others, in
+    proportion to theirs."""
+
+    def live(g: Group) -> bool:
+        return any(r.quality == "ok" and r.name not in off for r in by_group[g])
+
+    def all_off(g: Group) -> bool:
+        return bool(by_group[g]) and all(r.name in off for r in by_group[g])
+
+    idle = [g for g in GROUPS if w[g] > 0 and ((g in groups and not live(g)) or all_off(g))]
     if not idle:
         return w
     amount = sum(w[g] for g in idle)
@@ -99,25 +109,27 @@ def aggregate(
     weights: dict[Group, float] | None = None,
     neutral_band: float | None = None,
     idle_groups: tuple[Group, ...] = INDEX_IDLE,
+    off: frozenset[str] = frozenset(),
 ) -> Bias:
     """Weighted group means. `weights`, `neutral_band` and `idle_groups` override the index
-    settings."""
+    settings. Factors named in `off` are shown but carry no weight (Milestone E15)."""
     weights = dict(weights) if weights is not None else effective_group_weights(p, is_expiry_day)
     by_group: dict[Group, list[IndicatorResult]] = {g: [] for g in GROUPS}
     for r in results:
         by_group[r.group].append(r)
-    weights = _return_idle(weights, by_group, idle_groups)
+    weights = _return_idle(weights, by_group, idle_groups, off)
 
     group_scores: dict[Group, float] = {}
     contributions: list[Contribution] = []
     for g in GROUPS:
         members = by_group[g]
-        ok = [r for r in members if r.quality == "ok"]
+        ok = [r for r in members if r.quality == "ok" and r.name not in off]
         group_scores[g] = sum(r.score for r in ok) / len(ok) if ok else 0.0
         per = weights[g] / len(ok) if ok else 0.0
         for r in members:
-            w = per if r.quality == "ok" else 0.0
-            contributions.append(Contribution(r, w, r.score * w))
+            on = r.name not in off
+            w = per if r.quality == "ok" and on else 0.0
+            contributions.append(Contribution(r, w, r.score * w, on))
 
     bias = sum(weights[g] * group_scores[g] for g in GROUPS)
     bias = max(-1.0, min(1.0, bias))

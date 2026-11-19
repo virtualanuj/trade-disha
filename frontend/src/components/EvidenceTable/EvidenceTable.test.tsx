@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { vi } from 'vitest'
 
-import type { BiasOut } from '../../api/types'
+import type { BiasOut, IndicatorOut } from '../../api/types'
 import { EvidenceTable } from './EvidenceTable'
 
 const bias: BiasOut = {
@@ -22,6 +23,7 @@ const bias: BiasOut = {
       value: { sep_pct: 0.12 },
       weight: 0.4,
       contribution: 0.3,
+      enabled: true,
     },
     {
       name: 'pcr',
@@ -32,6 +34,7 @@ const bias: BiasOut = {
       value: {},
       weight: 0,
       contribution: 0,
+      enabled: true,
     },
   ],
 }
@@ -62,6 +65,7 @@ describe('EvidenceTable', () => {
           value: {},
           weight: 1,
           contribution: 0.75,
+          enabled: true,
         },
       ],
     }
@@ -98,6 +102,7 @@ describe('EvidenceTable', () => {
           value: { change_pct: 0.4 },
           weight: 0.05,
           contribution: -0.025,
+          enabled: true,
         },
         {
           name: 'gift_nifty',
@@ -108,6 +113,7 @@ describe('EvidenceTable', () => {
           value: { move_pct: 0.3, fade: 0.67 },
           weight: 0.05,
           contribution: 0.02,
+          enabled: true,
         },
         {
           name: 'silver',
@@ -118,6 +124,7 @@ describe('EvidenceTable', () => {
           value: { change_pct: 1 },
           weight: 0,
           contribution: 0,
+          enabled: true,
         },
       ],
     }
@@ -145,6 +152,7 @@ describe('EvidenceTable', () => {
       value: {},
       weight: 0.075,
       contribution: 0.0375,
+      enabled: true,
     })
     const gold: BiasOut = {
       ...bias,
@@ -183,5 +191,100 @@ describe('EvidenceTable', () => {
   it('leaves the macro group out when it has no weight and no readings', () => {
     render(<EvidenceTable bias={bias} />)
     expect(screen.queryByText(/Macro/)).not.toBeInTheDocument()
+  })
+
+  describe('factor switches (E15)', () => {
+    const [ema, pcr] = bias.indicators as [IndicatorOut, IndicatorOut]
+    const offRow = (on: boolean): BiasOut => ({
+      ...bias,
+      indicators: [{ ...ema, enabled: on, weight: on ? 0.4 : 0, contribution: on ? 0.3 : 0 }, pcr],
+    })
+
+    it('shows no switches without a handler', () => {
+      render(<EvidenceTable bias={bias} />)
+      expect(screen.queryByRole('switch')).toBeNull()
+    })
+
+    it('starts with every factor on and switches one off through the handler', async () => {
+      let done: () => void = () => undefined
+      const onToggle = vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            done = resolve
+          }),
+      )
+      render(<EvidenceTable bias={bias} off={[]} onToggle={onToggle} onAllOn={vi.fn()} />)
+      const sw = screen.getByRole('switch', { name: 'Use EMA crossover in the bias' })
+      expect(sw).toHaveAttribute('aria-checked', 'true')
+      expect(screen.getAllByRole('switch')).toHaveLength(2)
+      fireEvent.click(sw)
+      expect(onToggle).toHaveBeenCalledWith('ema_cross', false)
+      expect(sw).toBeDisabled() // waits for the server
+      done()
+      await waitFor(() => {
+        expect(sw).not.toBeDisabled()
+      })
+      expect(screen.queryByText('Turn all back on')).toBeNull()
+    })
+
+    it('shows a factor that is off, dimmed, with no weight', () => {
+      render(
+        <EvidenceTable
+          bias={offRow(false)}
+          off={['ema_cross']}
+          onToggle={vi.fn()}
+          onAllOn={vi.fn()}
+        />,
+      )
+      const sw = screen.getByRole('switch', { name: 'Use EMA crossover in the bias' })
+      expect(sw).toHaveAttribute('aria-checked', 'false')
+      const row = screen.getByText('EMA crossover').closest('tr')
+      expect(row).toHaveClass('text-fg-muted/70')
+      expect(row).toHaveTextContent('(off)')
+      expect(row).not.toHaveTextContent('next minute')
+    })
+
+    it('says a switch applies from the next minute close until the bias catches up', () => {
+      const { rerender } = render(
+        <EvidenceTable
+          bias={offRow(true)}
+          off={['ema_cross']}
+          onToggle={vi.fn()}
+          onAllOn={vi.fn()}
+        />,
+      )
+      expect(screen.getByText('EMA crossover').closest('tr')).toHaveTextContent(
+        'off from the next minute close',
+      )
+      rerender(<EvidenceTable bias={offRow(false)} off={[]} onToggle={vi.fn()} onAllOn={vi.fn()} />)
+      expect(screen.getByText('EMA crossover').closest('tr')).toHaveTextContent(
+        'on from the next minute close',
+      )
+    })
+
+    it('turns every factor back on', () => {
+      const onAllOn = vi.fn(() => Promise.resolve())
+      render(
+        <EvidenceTable
+          bias={offRow(false)}
+          off={['ema_cross']}
+          onToggle={vi.fn()}
+          onAllOn={onAllOn}
+        />,
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Turn all back on' }))
+      expect(onAllOn).toHaveBeenCalled()
+    })
+
+    it('shows why a switch was refused', async () => {
+      const onToggle = vi.fn(() =>
+        Promise.reject(new Error('GOLD is not an index or metal in use')),
+      )
+      render(<EvidenceTable bias={bias} off={[]} onToggle={onToggle} onAllOn={vi.fn()} />)
+      fireEvent.click(screen.getByRole('switch', { name: 'Use EMA crossover in the bias' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'GOLD is not an index or metal in use',
+      )
+    })
   })
 })

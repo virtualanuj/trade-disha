@@ -122,7 +122,9 @@ Things that are easy to get wrong:
   1 for a database that has none. Components take `params` as a callable so a save applies
   at the next minute close, and each signal stores the `config_version` it fired under. A
   new tunable goes in the model (with a `description`, which is the editor's help text) and
-  the TOML, not in `Settings`.
+  the TOML, not in `Settings`. The Evidence panel's factor switches (E15,
+  `engine/factors.py`) are deliberately not parameters: per index or metal, kept in
+  `app_state`, and recorded only as `enabled` in each stored breakdown.
 - **Pure maths.** `indicators/` holds pure functions over candle and chain series. The
   engines in `engine/` orchestrate them and do the persistence. Each bias and signal is
   stored with its full evidence breakdown.

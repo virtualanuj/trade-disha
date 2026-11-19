@@ -270,6 +270,69 @@ def test_an_info_reading_is_shown_with_no_weight_beside_scored_ones() -> None:
     assert weights == pytest.approx({"crude": 0.10, "silver": 0.0})
 
 
+# -- factor switches (Milestone E15) ---------------------------------------------
+
+THREE = [
+    IndicatorResult("a", "trend", 1.0, ""),
+    IndicatorResult("b", "trend", -1.0, ""),
+    IndicatorResult("c", "oi", -1.0, ""),
+    IndicatorResult("d", "premium", 0.5, ""),
+]
+
+
+def test_a_factor_switched_off_is_shown_with_no_weight_and_its_group_shares_the_rest() -> None:
+    b = aggregate(THREE, P, is_expiry_day=False, off=frozenset({"b"}))
+    by = {c.result.name: c for c in b.contributions}
+    assert (by["b"].enabled, by["b"].weight, by["b"].contribution) == (False, 0.0, 0.0)
+    assert by["b"].result.score == -1.0  # still worked out and shown
+    assert by["a"].enabled
+    assert by["a"].weight == pytest.approx(0.40)
+    assert b.group_scores["trend"] == 1.0
+    assert b.bias == pytest.approx(0.40 - 0.35 + 0.125)
+
+
+def test_a_group_with_every_factor_off_gives_its_share_back() -> None:
+    b = aggregate(THREE, P, is_expiry_day=False, off=frozenset({"c"}))
+    assert b.group_weights["oi"] == 0.0
+    assert b.group_weights["trend"] == pytest.approx(0.40 / 0.65)
+    assert b.group_weights["premium"] == pytest.approx(0.25 / 0.65)
+    assert sum(b.group_weights.values()) == pytest.approx(1.0)
+    assert b.group_scores["oi"] == 0.0
+
+
+def test_switching_off_a_factor_that_carries_no_weight_changes_nothing() -> None:
+    results = [*THREE, _macro(0.0, "silver", quality="info"), _macro(0.3, quality="warming")]
+    on = aggregate(results, P, is_expiry_day=False)
+    off = aggregate(results, P, is_expiry_day=False, off=frozenset({"silver", "crude"}))
+    assert off.bias == on.bias
+    assert off.group_weights == on.group_weights
+
+
+def test_unknown_names_in_off_are_ignored_and_by_default_every_factor_is_on() -> None:
+    b = aggregate(THREE, P, is_expiry_day=False, off=frozenset({"nope"}))
+    assert all(c.enabled for c in b.contributions)
+    assert b.bias == aggregate(THREE, P, is_expiry_day=False).bias
+
+
+@settings(max_examples=50)
+@given(
+    st.lists(st.floats(-1, 1), min_size=6, max_size=6),
+    st.sets(st.sampled_from(["t1", "t2", "o1", "p1", "p2", "m1"])),
+    st.booleans(),
+)
+def test_with_any_factors_off_the_bias_stays_bounded_and_off_ones_weigh_nothing(
+    scores: list[float], off: set[str], expiry: bool
+) -> None:
+    names = [("t1", "trend"), ("t2", "trend"), ("o1", "oi"), ("p1", "premium"), ("p2", "premium")]
+    names.append(("m1", "macro"))
+    results = [IndicatorResult(n, g, s, "") for (n, g), s in zip(names, scores, strict=True)]  # type: ignore[arg-type]
+    b = aggregate(results, P, is_expiry_day=expiry, off=frozenset(off))
+    assert -1.0 <= b.bias <= 1.0
+    assert all(c.weight == 0 for c in b.contributions if c.result.name in off)
+    total = sum(c.weight for c in b.contributions)
+    assert total == pytest.approx(1.0 if len(off) < len(names) else 0.0)
+
+
 @settings(max_examples=50)
 @given(
     st.lists(st.floats(-1, 1), min_size=4, max_size=4),

@@ -791,6 +791,35 @@ feed: the owner verifies it by hand.
 
 **Design:** spec §6.8, §8.6; signal.md §3.4.
 
+## Milestone E15 — Factor switches in the Evidence panel
+
+**Goal:** the trader can leave any factor out of an index's or metal's bias with a switch
+on its Evidence row; every factor is on by default.
+
+- `engine/aggregator.py:aggregate(off=...)`: a factor switched off is shown with weight
+  and contribution 0 and left out of its group's score; a group with every member off
+  hands its share back. `Contribution.enabled`, stored in every breakdown.
+- `engine/factors.py:FactorSwitches`: per index or metal, in `app_state.factors_off`;
+  announces `FactorsChanged`. Not a config version (the owner's choice). Both bias engines
+  read it at each evaluation.
+- API: `GET /api/factors`, `PUT /api/factors/{scope}/{name}`, `DELETE /api/factors/{scope}`;
+  `factors` in `hello` and a `factors` frame. `IndicatorOut.enabled` (true for old rows).
+- Evidence table: a switch per row (waits for the server), "(off)" rows dimmed, "off/on
+  from the next minute close" until the bias catches up, "Turn all back on".
+- Tests: the aggregator (the share moving inside a group and between groups, factors
+  carrying no weight, unknown names) with a property test; the service (per scope,
+  restart, events, a corrupt value); the API (scope and name checks); the socket; a bias
+  engine breakdown; old breakdowns; the table's switches, pending and off states, errors.
+
+**Demo:** on the synthetic feed switch off Put-call ratio on NIFTY: the row says "off from
+the next minute close", then shows "(off)" with weight 0 while ATM OI build-up carries
+Open interest's whole share; BANK NIFTY is unchanged; "Turn all back on" restores it.
+
+**Status (2026-11-19):** built, with unit tests; `make check` green; the demo above checked
+in a browser on the synthetic feed.
+
+**Design:** spec §8.4; signal.md §4, §11.
+
 ## Milestone C1 — Editable, versioned config
 
 **Goal:** the trader tunes the parameters in the app, can always get back to an earlier

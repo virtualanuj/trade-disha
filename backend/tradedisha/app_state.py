@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from tradedisha.auth import AuthService
 from tradedisha.clock import MarketClock
 from tradedisha.config import Settings
+from tradedisha.engine.factors import FactorSwitches
 from tradedisha.events import EventBus
 from tradedisha.market.news import NewsService
 from tradedisha.market.session import FeedSession
@@ -26,3 +27,4 @@ class AppState:
     session: FeedSession
     params: ParameterService
     news: NewsService  # headlines (spec §6.7), apart from the feed
+    factors: FactorSwitches  # evidence switched off per index or metal (Milestone E15)

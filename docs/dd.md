@@ -215,6 +215,7 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Candle builder** | The component that turns ticks into 1-minute candles and calls its close listeners on each minute boundary. The index builder drives the bias engine; bullion has its own (in the bullion tracker). |
 | **Chain state** | The in-memory option chain for one index, with derived values (ATM, PCR, OI changes, max pain) kept up to date per tick. |
 | **Coalescing** | When several updates arrive within one throttle window, sending only the latest state rather than every intermediate one. |
+| **Factor switch** | The on/off switch on each Evidence row (Milestone E15). Off: the factor is shown but carries no weight in that index's or metal's bias, from the next minute close. Per index or metal, kept in `app_state` (`factors_off`), not a config version; every stored breakdown marks each factor `enabled`. |
 | **Config version** | One saved parameter set: a number (1, 2, 3, …), a tag typed by the trader and the values. The highest is in force; versions are never changed or removed. Each signal records the version it fired under. |
 | **Degraded mode** | NSE market is live but auth is missing/expired or the index feed is silent (see Index liveness). Last-known data is shown greyed; bias still computed but greyed; no new signals; paper-trade entry and manual close refused; target/stop checked again from the first tick after the feed returns (`after_gap`); the square-off timer still fires at the last known price (`stale`). |
 | **Display only** | Shown to the trader but never an input to the bias, signals or paper trades, and never recorded or replayed. Applied to bullion until E6; bullion now has its own pipeline (see Bullion desk). |
@@ -283,7 +284,7 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | `signal_outcomes` | what one index signal's option did next: result, best/worst price, spot moves |
 | `config_versions` | one saved set of tunable parameters, numbered and tagged |
 | `paper_trades` | one paper trade from open to close, including exit fill quality |
-| `app_state` | one key/value of application state (the schema version itself is SQLite's `PRAGMA user_version`) |
+| `app_state` | one key/value of application state, e.g. `factors_off` (the factor switches, E15) (the schema version itself is SQLite's `PRAGMA user_version`) |
 | `bullion_ticks` | one bullion (MCX) tick: the `ticks` columns plus the feed's day open, high and low |
 | `gift_nifty` | one NSE trading day's GIFT Nifty reading: its close before the previous 15:30 and before 09:15 |
 | `feed_events` | one operational event (session start, disconnect, gap, bullion gap, re-centre, backfill, ticks pruned) |

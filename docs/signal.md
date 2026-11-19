@@ -299,6 +299,16 @@ gives up is handed to the other groups in proportion to their own weights. When 
 macro reading is `ok`**, the macro share is handed back the same way, so the bias is
 exactly what it was before E12 (last column).
 
+**Switching a factor off.** Each row of the Evidence panel has a switch; every factor is
+on by default. A factor switched off is still worked out and shown (dimmed, marked
+"(off)") but carries no weight: it is left out of its group's average, so the group's other
+ready factors share the group's weight. If every factor of a group is off, the group's
+share is handed to the other groups in proportion, as with no live macro price. Switches
+are per index or metal (crude off on NIFTY leaves BANK NIFTY alone), take effect at the
+next minute close (until then the row says "off from the next minute close"), survive a
+restart, and "Turn all back on" resets the index. They are not config versions, but each
+stored bias minute and signal marks every factor `enabled` true or false.
+
 **3. Sum and clamp.** `bias = Σ (group weight × group score)`, clamped to −1..+1.
 
 **4. Label.** With a neutral band of 0.20: bias ≥ +0.20 is **Bullish**, ≤ −0.20 is
@@ -643,6 +653,9 @@ validated by `parameters/model.py`. Each save is a new numbered version that app
 the next minute close; an invalid save is rejected and the previous values stay in force.
 Any earlier version can be reverted to. Versions are stored in the `config_versions`
 table; `config/params.toml` only supplies version 1 for a new database.
+
+The factor switches in the Evidence panel (section 4) are not parameters: switching one
+makes no new version. Each signal's breakdown records which factors were on.
 
 Each signal records the version in force when it fired (`config_version`). It appears as
 a small `v7` on the signal card and in "Signals today"; hovering it shows that version's

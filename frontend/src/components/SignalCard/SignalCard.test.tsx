@@ -36,6 +36,7 @@ const signal: SignalOut = {
         value: {},
         weight: 0.4,
         contribution: 0.32,
+        enabled: true,
       },
     ],
   },

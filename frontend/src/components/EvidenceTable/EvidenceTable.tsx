@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import type { BiasOut, IndicatorOut } from '../../api/types'
 import { fmtSigned } from '../../lib/format'
 
@@ -47,13 +49,67 @@ function ScoreBar({ score }: { score: number }) {
   )
 }
 
+/** A factor's on/off switch: on means it counts in the bias (E15). */
+function FactorSwitch({
+  label,
+  on,
+  busy,
+  onChange,
+}: {
+  label: string
+  on: boolean
+  busy: boolean
+  onChange: (on: boolean) => void
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={`Use ${label} in the bias`}
+      title={on ? `Leave ${label} out of the bias` : `Count ${label} in the bias`}
+      disabled={busy}
+      onClick={() => {
+        onChange(!on)
+      }}
+      className={`relative inline-flex h-3.5 w-6 shrink-0 rounded-full transition-colors disabled:opacity-50 ${on ? 'bg-accent/80' : 'bg-border'}`}
+    >
+      <span
+        className={`absolute top-0.5 h-2.5 w-2.5 rounded-full bg-bg transition-[left] ${on ? 'left-3' : 'left-0.5'}`}
+      />
+    </button>
+  )
+}
+
 function valueTitle(v: Record<string, number>): string {
   return Object.entries(v)
     .map(([k, x]) => `${k}: ${Number.isInteger(x) ? String(x) : x.toFixed(3)}`)
     .join('\n')
 }
 
-export function EvidenceTable({ bias }: { bias: BiasOut | undefined }) {
+interface Props {
+  bias: BiasOut | undefined
+  /** factors switched off for this index or metal; with `onToggle`, each row gets a switch */
+  off?: string[]
+  /** resolves once the server has the change; rejects with a reason to show */
+  onToggle?: (name: string, enabled: boolean) => Promise<unknown>
+  onAllOn?: () => Promise<unknown>
+}
+
+export function EvidenceTable({ bias, off = [], onToggle, onAllOn }: Props) {
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const run = (key: string, action: () => Promise<unknown>) => {
+    setBusy(key)
+    setError(null)
+    action()
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : String(e))
+      })
+      .finally(() => {
+        setBusy(null)
+      })
+  }
   if (!bias) {
     return <p className="text-xs text-fg-muted">Evidence appears after the first minute closes.</p>
   }
@@ -90,14 +146,36 @@ export function EvidenceTable({ bias }: { bias: BiasOut | undefined }) {
                 <td className="text-right font-mono">{fmtSigned(gs * gw, 3)}</td>
               </tr>,
               ...rows.map((r) => {
-                const dim = r.quality !== 'ok'
+                const label = NAME_LABEL[r.name] ?? r.name
+                const on = !off.includes(r.name) // what the trader asked for
+                const pending = on !== r.enabled // the bias shown predates the switch
+                const dim = r.quality !== 'ok' || !r.enabled
+                const marker = !r.enabled ? 'off' : r.quality !== 'info' ? r.quality : null
                 return (
                   <tr key={r.name} className={`h-7 ${dim ? 'text-fg-muted/70' : ''}`}>
-                    <td className="pr-2">{NAME_LABEL[r.name] ?? r.name}</td>
+                    <td className="pr-2">
+                      <div className="flex items-center gap-2">
+                        {onToggle ? (
+                          <FactorSwitch
+                            label={label}
+                            on={on}
+                            busy={busy !== null}
+                            onChange={(enabled) => {
+                              run(r.name, () => onToggle(r.name, enabled))
+                            }}
+                          />
+                        ) : null}
+                        {label}
+                      </div>
+                    </td>
                     <td className="pr-2" title={valueTitle(r.value)}>
                       {r.note}
-                      {dim && r.quality !== 'info' ? (
-                        <span className="ml-1 italic">({r.quality})</span>
+                      {pending ? (
+                        <span className="ml-1 italic text-warn">
+                          ({on ? 'on' : 'off'} from the next minute close)
+                        </span>
+                      ) : dim && marker ? (
+                        <span className="ml-1 italic">({marker})</span>
                       ) : null}
                     </td>
                     <td className="pr-2">
@@ -119,6 +197,23 @@ export function EvidenceTable({ bias }: { bias: BiasOut | undefined }) {
           </tr>
         </tbody>
       </table>
+      {onToggle && onAllOn && off.length > 0 ? (
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={() => {
+            run('*', onAllOn)
+          }}
+          className="mt-2 text-accent hover:underline disabled:opacity-50"
+        >
+          Turn all back on
+        </button>
+      ) : null}
+      {error ? (
+        <p role="alert" className="mt-1 text-bear">
+          {error}
+        </p>
+      ) : null}
     </div>
   )
 }

@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { openPaperTrade } from './api/client'
+import { allFactorsOn, openPaperTrade, setFactor } from './api/client'
 import type { SignalOut } from './api/types'
 import { MarketSocket } from './api/ws'
 import { BiasMeter } from './components/BiasMeter/BiasMeter'
@@ -143,6 +143,8 @@ export default function App() {
   const parameters = useMarketStore((s) => s.parameters)
   const parametersEffectiveFrom = useMarketStore((s) => s.parametersEffectiveFrom)
   const applyParameters = useMarketStore((s) => s.applyParameters)
+  const factorsOff = useMarketStore((s) => s.factorsOff)
+  const applyFactors = useMarketStore((s) => s.applyFactors)
   const trades = useMarketStore((s) => s.trades)
   const stats = useMarketStore((s) => s.stats)
   const bullion = useMarketStore((s) => s.bullion)
@@ -190,6 +192,17 @@ export default function App() {
     },
     [applyTrades],
   )
+
+  /** switch a factor of the focus's bias on or off; applies from its next minute (E15) */
+  const toggleFactor = useCallback(
+    async (name: string, enabled: boolean) => {
+      applyFactors(await setFactor(focus, name, enabled))
+    },
+    [applyFactors, focus],
+  )
+  const factorsAllOn = useCallback(async () => {
+    applyFactors(await allFactorsOn(focus))
+  }, [applyFactors, focus])
 
   /** bullion trades on MCX prices and hours, not the index feed (spec §9a) */
   const bullionLive = ws === 'open' && health?.bullion?.status === 'live'
@@ -305,7 +318,12 @@ export default function App() {
         <div className="flex flex-col gap-3">
           <BiasMeter bias={bias} />
           <div className="border-t border-border pt-3">
-            <EvidenceTable bias={bias} />
+            <EvidenceTable
+              bias={bias}
+              off={factorsOff[focus] ?? []}
+              onToggle={toggleFactor}
+              onAllOn={factorsAllOn}
+            />
             {onBullion ? null : <FlowLine flow={flow} />}
           </div>
         </div>

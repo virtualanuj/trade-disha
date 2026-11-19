@@ -693,6 +693,21 @@ three-group one. An `info` reading (silver) is shown with weight 0. The groups t
 their share back when idle are an argument of `aggregate()`: macro for the indices
 (`INDEX_IDLE`), OI, flow and macro for bullion (`BULLION_IDLE`).
 
+**Factor switches (Milestone E15).** Asked for on 2026-11-19: each Evidence row has an
+on/off switch, every factor on by default. A switch is per index or metal
+(`engine/factors.py:FactorSwitches`, stored as JSON in `app_state` under `factors_off`)
+and is not a parameter: a click makes no config version (the owner's choice). `aggregate()`
+takes the names switched off (`off`): such a factor is still worked out and shown, but has
+weight and contribution 0 and is left out of its group's score, so the group's other live
+members share its weight. A group whose every member is off gives its share back to the
+others in proportion, whatever `idle_groups` says. Each contribution carries `enabled`,
+stored in the breakdown of every bias minute and signal, so what was off stays on record.
+A switch applies at the next evaluation (minute close; for bullion its offset
+evaluation), never mid-minute. `GET /api/factors`, `PUT /api/factors/{scope}/{name}`
+`{enabled}` and `DELETE /api/factors/{scope}` (all back on); the WebSocket has `factors`
+in `hello` and a `factors` frame on each change. `tools/score.py` replays with every
+factor on.
+
 A `BiasComputed(index, ts, bias, label, strength, breakdown)` event is published every
 minute close and persisted to `bias_minutes`. `breakdown` is the list of
 `IndicatorResult` plus the effective group weights.
@@ -1065,7 +1080,7 @@ applied in order at startup and tracked by `PRAGMA user_version`.
 | `signal_outcomes` | signal_id, end_ts, result, result_ts, best/worst price and ts, px_1m/5m/15m, spot_at_fire, spot_pre_move, spot_best_move, final | what each index signal's option did next (§9.5) |
 | `config_versions` | version, tag, created_ts, source, reverted_from, params_json | every saved parameter set (§3.2) |
 | `paper_trades` | id, signal_id, index, instrument_key, direction, qty, entry, entry_ts, slippage, target, stop, cost, exit, exit_ts, exit_reason, exit_fill_quality, exit_price_age_ms, gross, net, warning | |
-| `app_state` | key, value | small application state |
+| `app_state` | key, value | small application state; `factors_off`: the factor switches (E15) |
 | `feed_events` | ts, kind, detail | session starts, disconnects, gaps, bullion gaps, recentres, backfills, tick prunes |
 | `latency_samples` | ts, hop, p50, p95, p99, n | one row per hop per minute |
 

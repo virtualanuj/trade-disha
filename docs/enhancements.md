@@ -471,6 +471,29 @@ Builder's calls:
   stored per day so replays and `tools/score.py` see it. The global file is not
   downloaded: the key is fixed and a rename would show as a logged fetch failure.
 
+### 19. Switch factors off in the Evidence panel
+
+Asked for (2026-11-19): an on/off toggle in the Evidence panel to enable or disable a
+factor in the bias; all factors on by default.
+
+Status: built in Milestone E15. Design in [spec.md](spec.md) §8.4 and
+[signal.md](signal.md) §4; planned in [plan.md](plan.md) Milestone E15.
+
+Decided with the owner on 2026-11-19:
+- Per index or metal: crude off on NIFTY leaves BANK NIFTY, GOLD and SILVER alone.
+- A quick switch, not a config version: a click makes no new version.
+
+Builder's calls:
+- What was off is still on record: every stored bias minute and signal marks each factor
+  `enabled`.
+- A factor switched off stays visible with its reading; its group's other live factors
+  share its weight, and a group with every factor off hands its share to the others.
+- A switch applies from the next minute close, never mid-minute, so a click cannot fire a
+  signal between closes.
+- Switches are kept in the database (`app_state`), so they survive a restart; replays use
+  that database's switches, `tools/score.py` none.
+- `info` rows (silver, a faded GIFT vote) get a switch too; it changes nothing.
+
 ## Deferred
 
 ### Chart zoom buttons

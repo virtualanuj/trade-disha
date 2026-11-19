@@ -62,6 +62,8 @@ Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by
 - **E14:** NIFTY's bias reads GIFT Nifty's overnight move as an opening-gap vote that
   fades over the first 30 minutes. Upstox has GIFT Nifty only every 120 s and not for
   BANK NIFTY, so it is not used during the session.
+- **E15:** each Evidence row has an on/off switch to leave that factor out of the index's
+  or metal's bias from the next minute close; all on by default, kept across restarts.
 
 ## Documents
 

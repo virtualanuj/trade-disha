@@ -28,6 +28,7 @@ from tradedisha.clock import (
 from tradedisha.config import Settings, hours_enforced
 from tradedisha.engine.bias_engine import BiasComputed, BiasEngine
 from tradedisha.engine.bullion_desk import BullionDesk
+from tradedisha.engine.factors import FactorSwitches
 from tradedisha.engine.outcomes import Outcome, OutcomeTracker
 from tradedisha.engine.paper import PaperTrade, PaperTradeManager, Price
 from tradedisha.engine.signals import Signal, SignalEngine
@@ -132,6 +133,7 @@ class FeedSession:
     bullion_desk: BullionDesk | None = None  # bullion bias, signals, paper (§9a)
     macro: MacroTracker | None = None  # dollar legs and crude, live feed only (§6.8)
     gift: GiftNifty | None = None  # GIFT Nifty's overnight move: live, or stored for replay
+    factor_switches: FactorSwitches | None = None  # set by build_state (Milestone E15)
 
     def __init__(
         self,
@@ -240,6 +242,7 @@ class FeedSession:
             conn=self._conn,
             on_bias=self._on_bias,
             macro=self.index_macro,
+            off=self.factors_off,
         )
         enforce = self.enforce_hours
         self.signals = self._signal_engine(shadow=False)
@@ -671,6 +674,11 @@ class FeedSession:
             or key in self.macro_keys
         )
 
+    def factors_off(self, scope: str) -> frozenset[str]:
+        """The factors switched off for an index or metal; none without the switches."""
+        sw = self.factor_switches
+        return sw.off_for(scope) if sw is not None else frozenset()
+
     # -- macro evidence (spec §6.8, §8.6) ---------------------------------------
 
     def macro_view(self, minute_ts: int) -> dict[str, MacroSeries]:
@@ -790,6 +798,7 @@ class FeedSession:
             on_trade=self._on_trade,
             config_version=self.config_version,
             macro=self.bullion_macro,
+            off=self.factors_off,
         )
         self.bullion_desk = desk
         self.tick_bus.subscribe(desk.on_tick)

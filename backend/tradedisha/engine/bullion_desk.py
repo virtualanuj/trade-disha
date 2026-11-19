@@ -40,11 +40,12 @@ class BullionDesk:
         on_trade: Callable[[PaperTrade], None] | None = None,
         config_version: Callable[[], int | None] | None = None,
         macro: Callable[[int], list[IndicatorResult]] | None = None,
+        off: Callable[[str], frozenset[str]] | None = None,
     ) -> None:
         self._clock = clock
         self._on_bias_out = on_bias
         self.bias = BullionBiasEngine(
-            tracker=tracker, params=params, conn=conn, on_bias=self._on_bias, macro=macro
+            tracker=tracker, params=params, conn=conn, on_bias=self._on_bias, macro=macro, off=off
         )
         self.signals = BullionSignalEngine(
             tracker=tracker,
