@@ -360,6 +360,31 @@ class Macro(BaseModel):
     gold_full_pct: float = Field(
         0.40, gt=0, le=10, description="Gold move (%) over the window that counts as full strength."
     )
+    gift_full_pct: float = Field(
+        0.50,
+        gt=0,
+        le=10,
+        description=(
+            "NIFTY only: GIFT Nifty's overnight move (%), from its price at the previous NSE "
+            "close to its last before 09:15, that counts as full strength."
+        ),
+    )
+    gift_fade_minutes: int = Field(
+        30,
+        ge=1,
+        le=375,
+        description=(
+            "Minutes after the open over which the GIFT Nifty gap vote fades to nothing; "
+            "after that it is shown, not scored."
+        ),
+    )
+    gift_direction: Literal["follow", "fade"] = Field(
+        "follow",
+        description=(
+            "follow: a gap up is bullish (the gap carries on); fade: a gap up is bearish "
+            "(the gap fills)."
+        ),
+    )
 
 
 class Chain(BaseModel):

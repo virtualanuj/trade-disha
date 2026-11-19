@@ -82,10 +82,23 @@ def copy_day(src_path: Path, dst_path: Path, day: date) -> int:
             with dst:
                 dst.executemany(insert, batch)
             copied += len(batch)
+        _copy_gift(src, dst, day)
         return copied
     finally:
         src.close()
         dst.close()
+
+
+def _copy_gift(src: sqlite3.Connection, dst: sqlite3.Connection, day: date) -> None:
+    """The day's GIFT Nifty reading, so NIFTY's gap vote replays (none before E14)."""
+    if not src.execute("SELECT 1 FROM sqlite_master WHERE name = 'gift_nifty'").fetchone():
+        return
+    cols = "day, ref_ts, ref_close, preopen_ts, preopen_price, fetched_at"
+    rows = src.execute(
+        f"SELECT {cols} FROM gift_nifty WHERE day = ?", (day.isoformat(),)
+    ).fetchall()
+    with dst:
+        dst.executemany(f"INSERT INTO gift_nifty ({cols}) VALUES (?, ?, ?, ?, ?, ?)", rows)
 
 
 async def _replay(settings: Settings, day: date) -> tuple[list[Signal], dict[str, Outcome]]:

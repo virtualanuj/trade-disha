@@ -241,6 +241,7 @@ rupee, rising crude and rising gold are all **bearish** for NIFTY and BANK NIFTY
 | `crude` | MCX CRUDEOIL near-month future | `−clamp(move / 0.80)`: a bigger import bill and inflation |
 | `gold` | MCX GOLD near-month future | `−clamp(move / 0.40)`: money seeking safety |
 | `silver` | MCX SILVER near-month future | shown as `info`, never scored: half industrial, its sign is unclear |
+| `gift_nifty` | GIFT Nifty's overnight move, NIFTY only (Milestone E14) | `+clamp(move / 0.50)` (follow) or `−` (fade), fading to nothing over the first 30 minutes |
 
 **The dollar-index proxy.** From the four rupee rates: euro-dollar = EUR/INR ÷ USD/INR,
 pound-dollar = GBP/INR ÷ USD/INR, dollar-yen = USD/INR ÷ (JPY/INR ÷ 100). The proxy is
@@ -253,6 +254,17 @@ currency market after 17:00. Without the live feed (synthetic, or replay without
 `replay_bullion`) there is no macro data at all.
 
 **Worked example:** crude up 0.40 % in 30 minutes scores −0.40 / 0.80 = **−0.50**.
+
+**GIFT Nifty gap (NIFTY only).** GIFT Nifty trades on NSE IX while NSE is shut. Upstox
+refreshes it every 2 minutes, so during market hours it adds nothing to the NIFTY future
+the bias already reads. What it does add is the overnight move: GIFT's last price before
+09:15 against its own price at the previous NSE close (15:29), so its usual premium over
+spot cancels out. The vote is that move against `macro.gift_full_pct` (0.50 %), signed by
+`macro.gift_direction` (`follow`: a gap up is bullish; `fade`: a gap up is bearish), and
+shrinks in a straight line to nothing over `macro.gift_fade_minutes` (30) after the open;
+after that it is shown as `info`. With no reading (Upstox had no price, or synthetic) it is
+`warming`. Example: on 19/11/2026 GIFT went from 25 237.5 to 25 154.0, −0.33 %; at the
+09:19 close (5 minutes in) it scores −0.33 / 0.50 × (1 − 5/30) = **−0.55**.
 
 ---
 
@@ -644,6 +656,7 @@ values and highlights the ones that differ from the current config.
 | `macro.window_minutes` | 30 | minutes over which each macro move is measured |
 | `macro.max_age_seconds` | 180 | a macro price older than this is not live |
 | `macro.dollar_full_pct` / `usdinr_full_pct` / `crude_full_pct` / `gold_full_pct` | 0.15 / 0.10 / 0.80 / 0.40 | % move that counts as full strength |
+| `macro.gift_full_pct` / `gift_fade_minutes` / `gift_direction` | 0.50 / 30 / `follow` | NIFTY's GIFT Nifty gap: overnight % at full strength, minutes it fades over, follow or fade the gap |
 | `bias.entry_threshold` | 0.50 | \|bias\| to fire under `minute_close` |
 | `bias.setup_threshold` | 0.35 | \|bias\| to set up under `trigger`; must be above the neutral band and no higher than the entry threshold |
 | `bias.neutral_band` | 0.20 | below this the bias is Neutral, and an active signal is reversed |
@@ -673,8 +686,9 @@ quoted in section 3. The `bullion` section is in 13.10.
 
 | Part | File |
 |---|---|
-| Indicators (pure maths) | `backend/tradedisha/indicators/trend.py`, `oi.py`, `premium.py`, `macro.py`, `series.py`, `greeks.py` |
+| Indicators (pure maths) | `backend/tradedisha/indicators/trend.py`, `oi.py`, `premium.py`, `macro.py`, `gift.py`, `series.py`, `greeks.py` |
 | Macro data: currency and crude contracts, candles, the evidence view | `backend/tradedisha/market/macro.py` (`MacroTracker`, `build_view`) |
+| GIFT Nifty's overnight reading: fetch and store | `backend/tradedisha/market/gift.py` (`GiftNifty`), `store/gift.py` |
 | Combining votes into the bias | `backend/tradedisha/engine/aggregator.py` |
 | Running indicators each minute, storing the bias | `backend/tradedisha/engine/bias_engine.py` |
 | Order-flow score | `backend/tradedisha/market/flow.py` |

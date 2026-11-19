@@ -92,6 +92,10 @@ futures (the dollar-index proxy, USD/INR) and MCX crude, read by the macro group
 biases (`indicators/macro.py`). Every `MCX_FO|` / `NCD_FO|` key is a side market
 (`FeedSession.is_side_market`): never the index candles or liveness, recorded in
 `bullion_ticks`.
+`market/gift.py:GiftNifty` (E14) is not on the socket: Upstox has GIFT Nifty only as
+`GLOBAL_INDEX|SGX NIFTY`, refreshed every 120 s, so it is fetched over REST once NSE is
+open, stored per day in `gift_nifty` (replay and `tools/score.py` read that row) and used
+only as NIFTY's opening-gap vote in the macro group.
 
 Headlines (spec §6.7) sit outside this pipeline: `market/news.py:NewsService` hangs on
 `AppState.news`, polls Upstox's news API while the login is valid, and publishes

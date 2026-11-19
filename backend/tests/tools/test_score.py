@@ -10,8 +10,10 @@ from tradedisha.clock import IST, ist_to_ms
 from tradedisha.config import Settings
 from tradedisha.engine.outcomes import ScoreRow
 from tradedisha.feed.provider import Tick
+from tradedisha.indicators.gift import GiftSnapshot
 from tradedisha.instruments.upstox_master import master_path
 from tradedisha.store.db import connect
+from tradedisha.store.gift import GiftStore
 from tradedisha.store.ticks import TickStore
 from tradedisha.tools.score import copy_day, format_rows, score_days
 
@@ -44,6 +46,30 @@ def test_copy_day_takes_only_that_days_ticks_with_every_column(tmp_path: Path) -
     got = TickStore(connect(dst)).read_day(DAY)
     assert [t.ltp for t in got] == [25_110.0, 25_120.0]
     assert got[0].bid_qty5 == 10
+
+
+def test_copy_day_takes_that_days_gift_nifty_reading(tmp_path: Path) -> None:
+    src = _recorded(tmp_path)
+    snap = GiftSnapshot(DAY, 1, 25_000.0, 2, 25_100.0)
+    conn = connect(src)
+    GiftStore(conn).put(snap, 0)
+    GiftStore(conn).put(GiftSnapshot(date(2026, 11, 14), 3, 1.0, 4, 1.0), 0)  # another day
+    conn.close()
+    dst = tmp_path / "scratch.sqlite"
+
+    copy_day(src, dst, DAY)
+
+    out = connect(dst)
+    assert GiftStore(out).get(DAY) == snap
+    assert out.execute("SELECT COUNT(*) FROM gift_nifty").fetchone()[0] == 1
+
+
+def test_copy_day_from_a_database_without_gift_nifty(tmp_path: Path) -> None:
+    src = _recorded(tmp_path)
+    conn = connect(src)
+    conn.execute("DROP TABLE gift_nifty")  # recorded before Milestone E14
+    conn.close()
+    assert copy_day(src, tmp_path / "scratch.sqlite", DAY) == 2
 
 
 async def test_score_days_replays_without_touching_the_recorded_database(tmp_path: Path) -> None:

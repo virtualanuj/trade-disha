@@ -59,6 +59,9 @@ Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by
   order flow (net traded volume, the book's lean) and the other metal's trend: trend
   0.60, OI 0.15, flow 0.15, other markets 0.10. Starting weights, to be tuned on more
   recorded days.
+- **E14:** NIFTY's bias reads GIFT Nifty's overnight move as an opening-gap vote that
+  fades over the first 30 minutes. Upstox has GIFT Nifty only every 120 s and not for
+  BANK NIFTY, so it is not used during the session.
 
 ## Documents
 

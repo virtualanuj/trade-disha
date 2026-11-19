@@ -24,6 +24,7 @@ const NAME_LABEL: Record<string, string> = {
   crude: 'Crude oil',
   gold: 'Gold',
   silver: 'Silver',
+  gift_nifty: 'GIFT Nifty gap',
   futures_oi: 'Futures OI build-up',
   net_volume: 'Net traded volume',
   book_imbalance: 'Order-book lean',

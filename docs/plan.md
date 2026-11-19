@@ -749,6 +749,48 @@ recorded. Not yet checked on the live feed: the owner verifies it by hand.
 
 **Design:** spec §7.1 (net volume), §8.4, §9a; signal.md §13.
 
+## Milestone E14 — GIFT Nifty opening gap in the NIFTY bias
+
+**Goal:** NIFTY's bias takes account of how far the market moved overnight, as GIFT Nifty
+shows it, for the first minutes after the open.
+
+- Upstox has GIFT Nifty only as a global index (`GLOBAL_INDEX|SGX NIFTY`, global
+  instrument file), refreshed every 120 s, with candles on REST; there is no GIFT Bank
+  Nifty. During NSE hours it repeats the NIFTY future, so only the overnight move is used.
+- `indicators/gift.py`: `snapshot_from()` takes GIFT's last close before the previous NSE
+  close and before today's open; `gift_gap()` scores the move
+  `dir · clamp(move / gift_full_pct) · (1 − m / gift_fade_minutes)`, `info` once faded,
+  `warming` without a reading. In the macro group, NIFTY only.
+- `market/gift.py:GiftNifty`: live, a minute after the open, fetches the previous NSE
+  day's and today's 1-minute candles (`fetch_day_candles`, new), retrying every 2 minutes;
+  stores the reading in `gift_nifty` (migration 013, `store/gift.py`). Replay reads the row;
+  `tools/score.py` copies it. Fails soft.
+- `BiasEngine`'s macro hook takes the index as well as the minute.
+- Three `macro.gift_*` parameters with help text, in the model and `config/params.toml`.
+  Evidence table: a `GIFT Nifty gap` label.
+- Tests: the snapshot (cut-offs, a missing minute, missing prices) and the vote (follow,
+  fade, the fade-out, clamping, warming) table-driven with a property test for bounds; the
+  store; the fetch (previous trading day over a weekend and a holiday, nothing stored
+  without a price, when it is due); NIFTY gets the vote and BANK NIFTY does not; the
+  scorer copying the row; the evidence table.
+
+**Demo:** on the live feed, from the 09:16 minute close NIFTY's Evidence shows `GIFT Nifty
+gap` under Macro with the overnight move and the weight left, fading to "not scored" by
+09:45; BANK NIFTY has no such row. The log shows `GIFT Nifty a -> b (±x%) overnight`.
+
+**Status (2026-11-19):** built, with unit tests; `make check` green. Checked against
+Upstox on 19/11/2026: GIFT 25 237.5 at 15:29 on 18/11, 25 154.0 at 09:14, −0.33 %.
+Replayed with `tools/score.py` on 16–18/11/2026 with the real GIFT readings (+0.23 %,
+−0.17 %, −0.49 %) against no readings: the same 37 `minute_close` and 64 `trigger`
+signals, with the same outcomes. The vote was live (18/11: −0.91 at 09:16, fading to
+`info` at 09:44) but, as the only macro reading in a replay without `replay_bullion`, it
+moved NIFTY's bias by at most 0.09 against a 0.50 entry threshold; live, sharing the macro
+group with up to four other readings, it moves it by at most about 0.02. Giving it real
+influence needs a weight of its own, which the owner decides. Not yet checked on the live
+feed: the owner verifies it by hand.
+
+**Design:** spec §6.8, §8.6; signal.md §3.4.
+
 ## Milestone C1 — Editable, versioned config
 
 **Goal:** the trader tunes the parameters in the app, can always get back to an earlier

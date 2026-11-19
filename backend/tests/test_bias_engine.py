@@ -65,10 +65,10 @@ def test_macro_evidence_joins_the_bias_with_its_share() -> None:
     master = build_synthetic_master(TODAY)
     r = resolve_index(master, "NIFTY", TODAY, 25_000.0, strike_window=3)
     candles = CandleBuilder()
-    asked: list[int] = []
+    asked: list[tuple[str, int]] = []
 
-    def macro(minute_ts: int) -> list[IndicatorResult]:
-        asked.append(minute_ts)
+    def macro(index: str, minute_ts: int) -> list[IndicatorResult]:
+        asked.append((index, minute_ts))
         return [IndicatorResult("crude", "macro", -1.0, "Crude +0.80% in 30 min")]
 
     seen: list[BiasComputed] = []
@@ -86,7 +86,7 @@ def test_macro_evidence_joins_the_bias_with_its_share() -> None:
     candles.apply(Tick(key=spot, ts=M, ltp=25_005.0))
 
     b = seen[-1].bias
-    assert asked == [0]  # asked for the minute being evaluated
+    assert asked == [("NIFTY", 0)]  # asked for the index and minute being evaluated
     crude = next(c for c in b.contributions if c.result.name == "crude")
     assert crude.weight == pytest.approx(0.10)
     assert b.group_scores["macro"] == -1.0

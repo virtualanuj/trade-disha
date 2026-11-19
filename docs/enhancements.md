@@ -441,6 +441,36 @@ Builder's calls:
   80 after; SILVER +0.04 % → +0.10 % per signal, GOLD +0.04 % → −0.02 %. Too little data
   to judge either way.
 
+### 18. GIFT Nifty in the signal
+
+Asked for (2026-11-19): include GIFT Nifty as a factor in the signal calculation; does
+the Upstox feed carry it in real time?
+
+Status: built in Milestone E14. Design in [spec.md](spec.md) §6.8 and §8.6, and
+[signal.md](signal.md) §3.4; planned in [plan.md](plan.md) Milestone E14.
+
+What Upstox has (checked 2026-11-19):
+- Not in the NSE or MCX instrument files. Its global instrument file lists
+  `GLOBAL_INDEX|SGX NIFTY` (GIFT NIFTY, 06:30 Monday to 02:45 Saturday) with a 120 s
+  refresh: not real time. Quote, LTP and 1-minute candles (today and past days) work;
+  the WebSocket is not documented for it.
+- No GIFT Bank Nifty.
+
+Decided with the owner on 2026-11-19:
+- Used for the opening gap only: during NSE hours it is a delayed copy of the NIFTY future
+  the bias already reads. The overnight move is a NIFTY vote that fades over the first
+  minutes, with a parameter to follow or fade the gap.
+
+Builder's calls:
+- The move is GIFT against itself (previous 15:29 to 09:14), so its premium over spot
+  cancels; full strength at 0.50 %, fading over 30 minutes, follow by default. Starting
+  values, not tuned.
+- A member of the macro group, sharing its 10 % with the live readings, rather than a
+  group of its own, so no saved config needed changing.
+- REST only, fetched once a minute after the open (nothing reads it before 09:16), and
+  stored per day so replays and `tools/score.py` see it. The global file is not
+  downloaded: the key is fixed and a rename would show as a logged fetch failure.
+
 ## Deferred
 
 ### Chart zoom buttons

@@ -509,6 +509,16 @@ currency futures.
 - **Loading:** with the `upstox` provider, and in replay with `replay_bullion` (contracts
   from that day's cached files). Today's candles are backfilled at start so the window is
   full at once. Every step fails soft: the index feed always starts.
+- **GIFT Nifty (Milestone E14):** not in the NSE or MCX files; Upstox lists it in its
+  global instrument file (`global.json.gz`) as `GLOBAL_INDEX|SGX NIFTY` with a 120 s
+  refresh, for the quote and candle APIs (the WebSocket is not documented for it, and it
+  is not subscribed). There is no GIFT Bank Nifty. `market/gift.py:GiftNifty` fetches,
+  once NSE has been open a minute, the previous NSE trading day's and today's 1-minute
+  candles (`fetch_day_candles`, `fetch_intraday_candles`), retrying every 2 minutes until
+  it has a reading, and stores GIFT's last close before the previous 15:30 and its last
+  close before today's 09:15 in `gift_nifty` (migration 013), one row per day. Replay reads
+  that row whatever `replay_bullion` says; `tools/score.py` copies it with the ticks. On
+  synthetic there is none.
 
 ---
 
@@ -737,6 +747,18 @@ yen and pound weights (0.576, 0.136, 0.119, 83 % of it) renormalised; the Canadi
 dollar, krona and franc are not traded on NSE. Only its % change is used, so its level
 and the futures' forward premium do not matter. A move of the rupee alone leaves it
 unchanged; that is what `usd_inr` reads.
+
+**GIFT Nifty gap (Milestone E14, NIFTY only).** Asked for on 2026-11-19. During NSE hours
+GIFT Nifty is a 2-minute-late copy of the NIFTY future the bias already reads, so it is
+used only for what it knows while NSE is shut: the overnight move,
+`move% = preopen / ref − 1` (both GIFT's own prices, §6.8, so its premium over spot
+cancels). `indicators/gift.py:gift_gap` scores it
+`dir · clamp(move% / gift_full_pct) · (1 − m / gift_fade_minutes)`, where `m` is the
+minutes since the open at the close of the minute evaluated and `dir` is +1 for
+`gift_direction = "follow"`, −1 for `"fade"`. From `m ≥ gift_fade_minutes` (and before the
+open) it is `info`; without a reading it is `warming`. Defaults: 0.50 %, 30 minutes,
+follow. It is one more macro member, so it shares the group's weight equally with the live
+ones; alone (replay without `replay_bullion`) it carries the whole group.
 
 Every reading is in the bias breakdown, so each bias minute and each signal keeps its
 macro evidence; `signals.config_version` separates signals before and after.

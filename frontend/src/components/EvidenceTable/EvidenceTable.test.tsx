@@ -100,6 +100,16 @@ describe('EvidenceTable', () => {
           contribution: -0.025,
         },
         {
+          name: 'gift_nifty',
+          group: 'macro',
+          score: 0.4,
+          note: 'GIFT Nifty +0.30% overnight, follow, 67% weight left',
+          quality: 'ok',
+          value: { move_pct: 0.3, fade: 0.67 },
+          weight: 0.05,
+          contribution: 0.02,
+        },
+        {
           name: 'silver',
           group: 'macro',
           score: 0,
@@ -115,6 +125,7 @@ describe('EvidenceTable', () => {
     expect(screen.getByText('Macro: dollar, crude, metals')).toBeInTheDocument()
     expect(screen.getByText('Crude oil')).toBeInTheDocument()
     expect(screen.getByText('Crude +0.40% in 30 min')).toBeInTheDocument()
+    expect(screen.getByText('GIFT Nifty gap')).toBeInTheDocument()
     const silver = screen.getByText('Silver').closest('tr')
     expect(silver).toHaveClass('text-fg-muted/70')
     expect(silver).not.toHaveTextContent('(info)') // its note already says it is not scored

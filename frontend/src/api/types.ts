@@ -254,8 +254,9 @@ export interface CandlesResponse {
 
 export interface IndicatorOut {
   name: string
-  /** 'macro' since E12: the dollar, USD/INR, crude and gold (spec §8.6); 'flow' since E13,
-   * bullion only: net traded volume and the order book's lean (spec §9a) */
+  /** 'macro' since E12: the dollar, USD/INR, crude and gold (spec §8.6), plus NIFTY's
+   * GIFT Nifty gap since E14; 'flow' since E13, bullion only: net traded volume and the
+   * order book's lean (spec §9a) */
   group: 'trend' | 'oi' | 'premium' | 'flow' | 'macro'
   score: number
   note: string

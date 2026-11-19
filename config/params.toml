@@ -115,3 +115,6 @@ dollar_full_pct = 0.15         # dollar-index proxy move (%) that counts as full
 usdinr_full_pct = 0.10
 crude_full_pct = 0.80
 gold_full_pct = 0.40
+gift_full_pct = 0.50           # NIFTY only: GIFT Nifty's overnight move (%) that counts as full strength
+gift_fade_minutes = 30         # the gap vote fades to nothing over this many minutes after 09:15
+gift_direction = "follow"      # follow: a gap up is bullish; fade: a gap up is bearish

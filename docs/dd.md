@@ -19,6 +19,7 @@ differs, its value follows or is in §1a.
 | **FII / FPI** | Foreign Institutional (Portfolio) Investors. Their net daily buying/selling is a widely watched sentiment input. Planned v2 input, not in v1. |
 | **F&O** | Futures and Options segment of NSE. |
 | **Futures (current-month)** | A contract to buy or sell the index at a fixed price on expiry. TradeDisha subscribes to the nearest monthly future for each index and uses it (not spot) for VWAP, because spot has no traded volume. |
+| **GIFT Nifty** | NIFTY futures traded on NSE International Exchange (NSE IX) in GIFT City, Gujarat, from about 06:30 to 02:45 IST, so it moves while NSE is shut (formerly SGX Nifty). Upstox refreshes it every 120 s. TradeDisha uses only its overnight move, as an opening-gap vote in NIFTY's bias (Milestone E14). |
 | **Holiday calendar** | The list of NSE trading holidays for the year, in `config/nse-holidays.txt`; drives the `holiday` market status. MCX keeps its own calendar (§1a). |
 | **Index / spot** | The live value of NIFTY 50 or NIFTY BANK itself, computed by NSE from constituent stocks. "Spot" is this value, as opposed to futures or option prices. |
 | **IST** | Indian Standard Time (UTC+5:30). All user-facing times and all trading-hour rules are in IST. Stored timestamps are UTC epoch milliseconds. |
@@ -284,6 +285,7 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | `paper_trades` | one paper trade from open to close, including exit fill quality |
 | `app_state` | one key/value of application state (the schema version itself is SQLite's `PRAGMA user_version`) |
 | `bullion_ticks` | one bullion (MCX) tick: the `ticks` columns plus the feed's day open, high and low |
+| `gift_nifty` | one NSE trading day's GIFT Nifty reading: its close before the previous 15:30 and before 09:15 |
 | `feed_events` | one operational event (session start, disconnect, gap, bullion gap, re-centre, backfill, ticks pruned) |
 | `latency_samples` | one hop's latency percentiles for one minute |
 

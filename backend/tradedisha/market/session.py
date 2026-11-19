@@ -23,6 +23,7 @@ from tradedisha.clock import (
     epoch_ms_now,
     ist_to_ms,
     load_calendar,
+    ms_to_ist,
 )
 from tradedisha.config import Settings, hours_enforced
 from tradedisha.engine.bias_engine import BiasComputed, BiasEngine
@@ -37,6 +38,7 @@ from tradedisha.feed.replay import ReplayProvider
 from tradedisha.feed.synthetic import SyntheticProvider, SyntheticUniverse
 from tradedisha.feed.upstox import UpstoxProvider, fetch_ltp
 from tradedisha.indicators import IndicatorResult
+from tradedisha.indicators.gift import gift_gap
 from tradedisha.indicators.macro import (
     MacroSeries,
     bullion_macro_indicators,
@@ -64,6 +66,7 @@ from tradedisha.market.bullion import BullionTracker
 from tradedisha.market.candles import MINUTE_MS, Candle, CandleBuilder, CandleStore
 from tradedisha.market.chain_manager import ChainManager, SubscriptionChange
 from tradedisha.market.flow import FlowReading, FlowTracker
+from tradedisha.market.gift import GiftNifty
 from tradedisha.market.macro import MacroTracker, build_view
 from tradedisha.market.stats import (
     VIX_KEY,
@@ -74,6 +77,7 @@ from tradedisha.market.stats import (
 )
 from tradedisha.metrics.latency import LatencyTracker
 from tradedisha.parameters.model import ParameterSet
+from tradedisha.store.gift import GiftStore
 from tradedisha.store.ticks import FeedEventLog, TickStore
 
 log = logging.getLogger(__name__)
@@ -127,6 +131,7 @@ class FeedSession:
 
     bullion_desk: BullionDesk | None = None  # bullion bias, signals, paper (§9a)
     macro: MacroTracker | None = None  # dollar legs and crude, live feed only (§6.8)
+    gift: GiftNifty | None = None  # GIFT Nifty's overnight move: live, or stored for replay
 
     def __init__(
         self,
@@ -285,6 +290,8 @@ class FeedSession:
             macro = await self._load_recorded_macro(self.replay_day or self._replay_day())
         if macro is not None:
             self.attach_macro(macro)
+        if self.settings.feed_provider in ("upstox", "replay"):
+            self.gift = GiftNifty(GiftStore(self._conn), self.clock)
         self.provider = self._build_provider()
         await self.provider.connect()
         keys = [k for r in self.resolved.values() for k in r.all_keys]
@@ -300,6 +307,8 @@ class FeedSession:
             asyncio.create_task(self._housekeeping(), name="feed-housekeeping"),
             asyncio.create_task(self._apply_subscription_changes(), name="feed-resubscribe"),
         ]
+        if self.settings.feed_provider == "upstox" and self.gift is not None:
+            self._tasks.append(asyncio.create_task(self._gift_poll(), name="gift-nifty"))
 
     async def stop(self) -> None:
         for t in self._tasks:
@@ -673,11 +682,33 @@ class FeedSession:
             max_age_ms=self.params().macro.max_age_seconds * 1000,
         )
 
-    def index_macro(self, minute_ts: int) -> list[IndicatorResult]:
-        """The index bias's macro group; nothing when neither tracker is loaded."""
-        if self.macro is None and self.bullion is None:
-            return []
-        return index_macro_indicators(self.macro_view(minute_ts), self.params().macro)
+    def index_macro(self, index: str, minute_ts: int) -> list[IndicatorResult]:
+        """The index bias's macro group: the other markets when either tracker is loaded,
+        and for NIFTY the GIFT Nifty gap when the service is (live or replay)."""
+        p = self.params().macro
+        out: list[IndicatorResult] = []
+        if self.macro is not None or self.bullion is not None:
+            out = index_macro_indicators(self.macro_view(minute_ts), p)
+        if index == "NIFTY" and self.gift is not None:
+            day = ms_to_ist(minute_ts).date()
+            open_ms, _ = self.clock.session_bounds(day)
+            minutes = (minute_ts + MINUTE_MS - open_ms) / MINUTE_MS  # the minute has closed
+            out.append(gift_gap(self.gift.snapshot(day), minutes, p))
+        return out
+
+    async def _gift_poll(self) -> None:
+        """Live: fetch GIFT Nifty's overnight move once NSE is open, retrying until it comes."""
+        while True:
+            await asyncio.sleep(5)
+            gift = self.gift
+            token = self.auth.token if self.auth is not None else None
+            if gift is None or token is None or not gift.due(self.clock.now_ms()):
+                continue
+            try:
+                async with httpx.AsyncClient(timeout=20, transport=self.http_transport) as client:
+                    await gift.fetch(client, token)
+            except Exception as exc:
+                log.warning("GIFT Nifty fetch failed: %s", type(exc).__name__)
 
     def bullion_macro(self, minute_ts: int) -> list[IndicatorResult]:
         """The bullion bias's macro group: the dollar; nothing without the currency feed."""

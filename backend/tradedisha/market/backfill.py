@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 INTRADAY_URL = "https://api.upstox.com/v3/historical-candle/intraday/{key}/minutes/1"
 CHAIN_URL = "https://api.upstox.com/v2/option/chain"
 DAILY_URL = "https://api.upstox.com/v3/historical-candle/{key}/days/1/{to}/{frm}"
+MINUTES_URL = "https://api.upstox.com/v3/historical-candle/{key}/minutes/1/{to}/{frm}"
 YEAR_DAYS = 365
 
 
@@ -74,6 +75,15 @@ async def fetch_intraday_candles(
     url = INTRADAY_URL.format(key=quote(key, safe=""))
     data = _check(await client.get(url, headers=_bearer(token)), "candle request")
     return parse_candles(key, (data or {}).get("candles") or [], before_ms=before_ms)
+
+
+async def fetch_day_candles(
+    client: httpx.AsyncClient, token: str, key: str, day: date
+) -> list[Candle]:
+    """A past day's 1-minute candles (the whole calendar day, IST), oldest first."""
+    url = MINUTES_URL.format(key=quote(key, safe=""), to=day.isoformat(), frm=day.isoformat())
+    data = _check(await client.get(url, headers=_bearer(token)), "candle request")
+    return parse_candles(key, (data or {}).get("candles") or [], before_ms=2**62)
 
 
 def parse_range(
