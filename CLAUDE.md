@@ -193,6 +193,13 @@ Things that are easy to get wrong:
 - Work is done in milestones; each ends with a runnable demo, one commit
   (`Milestone N: ...`) and a README status update. A behaviour change is reflected in the
   spec and plan as well as the code.
+- **Finishing a piece of work (the owner's rule):**
+  1. Once the implementation is done and `make check` is green, stop and ask the owner
+     whether to run an end-to-end test of it in the running app. Do not skip the
+     question, even if a test copy was already checked.
+  2. **Never commit without the owner's explicit confirmation**, even when a plan
+     includes a commit step and even for small doc changes such as this file. Show what
+     would be committed and wait for a yes.
 - Trading logic (indicators, signal rules, paper-trade exits) is written test-first, with
   table-driven lifecycle tests and hypothesis property tests for score bounds.
 
