@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   ConfigRejected,
@@ -11,7 +11,13 @@ import {
 } from '../../api/client'
 import type { ConfigVersionOut, ParameterField, ParametersOut, ParamValues } from '../../api/types'
 import { changedPaths, flatten, limitsText, toValues, type Draft } from '../../lib/config'
-import { FACTOR_LABEL, FACTOR_SCOPES, factorSwitches, offNames } from '../../lib/factors'
+import {
+  FACTOR_HELP,
+  FACTOR_LABEL,
+  FACTOR_SCOPES,
+  factorSwitches,
+  offNames,
+} from '../../lib/factors'
 import { fmtDate, fmtIstTime } from '../../lib/format'
 import { useNow } from '../../lib/useNow'
 import { FactorSwitch } from '../FactorSwitch/FactorSwitch'
@@ -59,7 +65,7 @@ function describe(e: unknown): ConfigError[] {
 
 export function ConfigControl({ parameters, effectiveFrom, onSaved, api = API }: Props) {
   const [open, setOpen] = useState(false)
-  const [tab, setTab] = useState<'edit' | 'factors' | 'history'>('edit')
+  const [tab, setTab] = useState<'parameters' | 'factors' | 'versions'>('parameters')
   const [fields, setFields] = useState<ParameterField[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [appliedAt, setAppliedAt] = useState<number | null>(null)
@@ -81,6 +87,17 @@ export function ConfigControl({ parameters, effectiveFrom, onSaved, api = API }:
     }
   }, [open, fields, api])
 
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !document.querySelector('[role="tooltip"]')) setOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
   const saved = (p: ParametersOut) => {
     const at = nextMinute()
     setAppliedAt(at)
@@ -96,7 +113,7 @@ export function ConfigControl({ parameters, effectiveFrom, onSaved, api = API }:
     <div className="relative flex items-center gap-2 text-xs">
       <button
         type="button"
-        className={BUTTON}
+        className={`${BUTTON} ${open ? 'relative z-50 bg-bg-elev text-fg' : ''}`}
         aria-expanded={open}
         title={parameters ? `Config version ${String(parameters.version)}: ${parameters.tag}` : ''}
         onClick={() => {
@@ -121,56 +138,90 @@ export function ConfigControl({ parameters, effectiveFrom, onSaved, api = API }:
         </span>
       ) : null}
       {open && parameters ? (
-        <div
-          className="absolute top-7 right-0 z-20 flex max-h-[78vh] w-[540px] flex-col whitespace-normal rounded border border-border bg-bg-elev shadow-lg"
-          data-testid="config-panel"
-        >
-          <div className="flex shrink-0 items-center gap-1 border-b border-border/60 px-3 py-2">
-            {(['edit', 'factors', 'history'] as const).map((t) => (
+        <>
+          <div
+            className="fixed inset-0 z-30 bg-black/30"
+            aria-hidden="true"
+            data-testid="config-backdrop"
+            onClick={() => {
+              setOpen(false)
+            }}
+          />
+          <aside
+            role="dialog"
+            aria-label="Config"
+            className="fixed inset-y-0 right-0 z-40 flex w-[min(600px,100vw)] flex-col whitespace-normal border-l border-border bg-bg-elev text-[13px] shadow-xl"
+            data-testid="config-panel"
+          >
+            <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-4 py-3">
               <button
-                key={t}
                 type="button"
-                role="tab"
-                aria-selected={tab === t}
-                className={`rounded px-2 py-0.5 ${
-                  tab === t ? 'bg-bg-row text-fg' : 'text-fg-muted hover:text-fg'
-                }`}
+                title="Close config"
+                className="flex min-w-0 flex-1 items-baseline gap-2 text-left"
                 onClick={() => {
-                  setTab(t)
+                  setOpen(false)
                 }}
               >
-                {t === 'edit'
-                  ? 'Edit'
-                  : t === 'history'
-                    ? 'History'
-                    : `Factors${factorsOff > 0 ? ` · ${String(factorsOff)} off` : ''}`}
+                <h2 className="text-sm font-semibold text-fg">Config</h2>
+                <span className="truncate text-xs text-fg-muted">
+                  in force: <span className="font-mono text-fg">v{parameters.version}</span>{' '}
+                  {parameters.tag}, saved {fmtDate(parameters.created_ts)}{' '}
+                  {fmtIstTime(parameters.created_ts)}
+                </span>
               </button>
-            ))}
-            <span className="ml-auto text-fg-muted">
-              in force: <span className="font-mono text-fg">v{parameters.version}</span>, saved{' '}
-              {fmtDate(parameters.created_ts)} {fmtIstTime(parameters.created_ts)}
-            </span>
-          </div>
-          {tab === 'edit' ? (
-            fields ? (
-              <Editor
-                key={parameters.version}
-                parameters={parameters}
-                fields={fields}
-                save={api.save}
-                onSaved={saved}
-              />
-            ) : (
-              <div className="p-3 text-fg-muted" role={loadError ? 'alert' : undefined}>
-                {loadError ? `Could not load the fields: ${loadError}` : 'Loading…'}
+              <button
+                type="button"
+                aria-label="Close config"
+                className="flex shrink-0 items-center gap-1 rounded border border-border bg-bg-row px-2.5 py-1 text-xs font-medium text-fg hover:border-accent hover:text-accent"
+                onClick={() => {
+                  setOpen(false)
+                }}
+              >
+                <span aria-hidden="true" className="text-base leading-none">
+                  ✕
+                </span>
+                Close
+              </button>
+            </div>
+            <div className="flex shrink-0 gap-1 border-b border-border/60 px-4 py-2" role="tablist">
+              {(['parameters', 'factors', 'versions'] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === t}
+                  className={`rounded px-3 py-1 ${
+                    tab === t ? 'bg-bg-row text-fg' : 'text-fg-muted hover:text-fg'
+                  }`}
+                  onClick={() => {
+                    setTab(t)
+                  }}
+                >
+                  {t === 'versions'
+                    ? 'Versions'
+                    : t === 'parameters'
+                      ? 'Parameters'
+                      : `Factors${factorsOff > 0 ? ` · ${String(factorsOff)} off` : ''}`}
+                </button>
+              ))}
+            </div>
+            {tab === 'parameters' ? (
+              fields ? (
+                <Editor parameters={parameters} fields={fields} save={api.save} onSaved={saved} />
+              ) : (
+                <div className="p-4 text-fg-muted" role={loadError ? 'alert' : undefined}>
+                  {loadError ? `Could not load the parameters: ${loadError}` : 'Loading…'}
+                </div>
+              )
+            ) : tab === 'factors' ? (
+              <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
+                <FactorsTab parameters={parameters} setFactor={api.setFactor} onSaved={saved} />
               </div>
-            )
-          ) : tab === 'factors' ? (
-            <FactorsTab parameters={parameters} setFactor={api.setFactor} onSaved={saved} />
-          ) : (
-            <History key={parameters.version} api={api} onSaved={saved} />
-          )}
-        </div>
+            ) : (
+              <History key={parameters.version} api={api} onSaved={saved} />
+            )}
+          </aside>
+        </>
       ) : null}
     </div>
   )
@@ -183,9 +234,24 @@ interface EditorProps {
   onSaved: (p: ParametersOut) => void
 }
 
+/** Values the user has not touched follow `next`; edited ones are kept. */
+function rebase(prev: Draft, next: Draft, draft: Draft): Draft {
+  const out: Draft = { ...next }
+  for (const [k, v] of Object.entries(draft)) if (v !== prev[k]) out[k] = v
+  return out
+}
+
 function Editor({ parameters, fields, save, onSaved }: EditorProps) {
   const base = useMemo(() => flatten(parameters.params), [parameters])
   const [draft, setDraft] = useState<Draft>(base)
+  const prevBase = useRef(base)
+  useEffect(() => {
+    // a factor flip or a save made a new version: keep unsaved edits, take the rest
+    if (prevBase.current === base) return
+    const prev = prevBase.current
+    prevBase.current = base
+    setDraft((d) => rebase(prev, base, d))
+  }, [base])
   const [tag, setTag] = useState('')
   const [busy, setBusy] = useState(false)
   const [errors, setErrors] = useState<ConfigError[]>([])
@@ -205,9 +271,12 @@ function Editor({ parameters, fields, save, onSaved }: EditorProps) {
     setBusy(true)
     setErrors([])
     try {
-      onSaved(await save(tag.trim(), toValues(parameters.params, fields, draft)))
+      const p = await save(tag.trim(), toValues(parameters.params, fields, draft))
+      setTag('')
+      onSaved(p)
     } catch (e: unknown) {
       setErrors(describe(e))
+    } finally {
       setBusy(false)
     }
   }
@@ -224,15 +293,17 @@ function Editor({ parameters, fields, save, onSaved }: EditorProps) {
         void submit()
       }}
     >
-      <div className="min-h-0 flex-1 overflow-auto px-3 py-2">
+      <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
         {general.map((e) => (
           <div key={`${e.field}:${e.message}`} className="mb-2 text-bear" role="alert">
             {e.message}
           </div>
         ))}
         {groups.map(([group, members]) => (
-          <fieldset key={group} className="mb-3">
-            <legend className="text-[10px] uppercase tracking-wide text-fg-muted">{group}</legend>
+          <fieldset key={group} className="mb-4">
+            <legend className="mb-1 text-xs font-semibold uppercase tracking-wide text-fg">
+              {group}
+            </legend>
             {errorAt(group).map((e) => (
               <div key={e.message} className="text-bear" role="alert">
                 {e.message}
@@ -254,22 +325,26 @@ function Editor({ parameters, fields, save, onSaved }: EditorProps) {
                 value: draft[f.path] ?? '',
               }
               return (
-                <div key={f.path} className="flex items-start gap-3 border-t border-border/40 py-1">
-                  <label htmlFor={`cfg-${f.path}`} className="min-w-0 flex-1">
-                    <span className="font-mono">{f.key}</span>
+                <div key={f.path} className="flex items-start gap-3 border-t border-border/40 py-2">
+                  <div className="min-w-0 flex-1">
+                    <label htmlFor={`cfg-${f.path}`} className="font-mono">
+                      {f.key}
+                    </label>
                     {changed.has(f.path) ? (
-                      <span className="ml-2 text-accent">was {base[f.path]}</span>
+                      <span className="ml-2 text-xs text-accent">was {base[f.path]}</span>
                     ) : null}
-                    <span className="block text-[11px] leading-snug text-fg-muted">
-                      {f.help}
-                      {limits ? ` (${limits})` : ''}
-                    </span>
+                    <p className="mt-0.5 text-xs leading-relaxed text-fg-muted">{f.help}</p>
+                    {limits ? (
+                      <p className="text-[11px] leading-relaxed text-fg-muted/80">
+                        Allowed: {limits}
+                      </p>
+                    ) : null}
                     {bad.map((e) => (
                       <span key={e.message} className="block text-bear" role="alert">
                         {e.message}
                       </span>
                     ))}
-                  </label>
+                  </div>
                   {f.kind === 'choice' ? (
                     <select
                       {...common}
@@ -300,7 +375,7 @@ function Editor({ parameters, fields, save, onSaved }: EditorProps) {
           </fieldset>
         ))}
       </div>
-      <div className="shrink-0 border-t border-border/60 px-3 py-2">
+      <div className="shrink-0 border-t border-border/60 px-4 py-3">
         {errorAt('tag').map((e) => (
           <div key={e.message} className="mb-1 text-bear" role="alert">
             Tag: {e.message}
@@ -374,8 +449,9 @@ function FactorsTab({
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto px-3 py-2" data-testid="factors-tab">
-      <p className="mb-2 text-[11px] leading-snug text-fg-muted">
+    <section className="mb-4" data-testid="factors-tab">
+      <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-fg">Factors</h3>
+      <p className="mb-2 text-xs leading-relaxed text-fg-muted">
         A factor switched off is shown in the Evidence panel but carries no weight in that
         index&apos;s or metal&apos;s bias. Each switch is saved at once as a new version and applies
         from the next minute close.
@@ -398,10 +474,11 @@ function FactorsTab({
             {Object.entries(switches).map(([name, value]) => {
               const on = value !== 'off'
               const factor = FACTOR_LABEL[name] ?? name
+              const help = FACTOR_HELP[name]
               return (
                 <div
                   key={name}
-                  className={`flex items-center gap-2 border-t border-border/40 py-1 ${on ? '' : 'text-fg-muted'}`}
+                  className={`flex items-start gap-3 border-t border-border/40 py-2 ${on ? '' : 'opacity-60'}`}
                 >
                   <FactorSwitch
                     on={on}
@@ -412,9 +489,12 @@ function FactorsTab({
                       void change(scope, name, enabled)
                     }}
                   />
-                  <span>{factor}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-fg">{factor}</div>
+                    {help ? <p className="text-xs leading-relaxed text-fg-muted">{help}</p> : null}
+                  </div>
                   {busy === `${scope}.${name}` ? (
-                    <span className="ml-auto text-fg-muted">saving…</span>
+                    <span className="shrink-0 text-xs text-fg-muted">saving…</span>
                   ) : null}
                 </div>
               )
@@ -422,7 +502,7 @@ function FactorsTab({
           </fieldset>
         )
       })}
-    </div>
+    </section>
   )
 }
 
@@ -466,7 +546,7 @@ function History({ api, onSaved }: { api: ConfigApi; onSaved: (p: ParametersOut)
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto px-3 py-2" data-testid="config-history">
+    <div className="min-h-0 flex-1 overflow-auto px-4 py-3" data-testid="config-history">
       {errors.map((e) => (
         <div key={`${e.field}:${e.message}`} className="mb-2 text-bear" role="alert">
           {e.message}
@@ -485,7 +565,9 @@ function History({ api, onSaved }: { api: ConfigApi; onSaved: (p: ParametersOut)
               {v.tag}
             </span>
             {v.active ? (
-              <span className="shrink-0 text-bull">in force</span>
+              <span className="shrink-0 rounded border border-bull px-1.5 text-xs text-bull">
+                in force
+              </span>
             ) : (
               <button
                 type="button"

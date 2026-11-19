@@ -101,9 +101,8 @@ describe('ConfigControl', () => {
     setup()
     const entry = await openEditor()
     expect(entry).toHaveValue('0.5')
-    expect(
-      screen.getByText(/help for bias.entry_threshold \(more than 0, at most 1\)/),
-    ).toBeVisible()
+    expect(screen.getByText('help for bias.entry_threshold')).toBeVisible()
+    expect(screen.getByText('Allowed: more than 0, at most 1')).toBeVisible()
     expect(screen.getByLabelText('signal.entry_mode')).toHaveValue('minute_close')
     expect(screen.getByLabelText('signal.last_signal_time')).toHaveValue('15:00')
     expect(screen.getByRole('button', { name: 'Save as v2' })).toBeDisabled()
@@ -164,7 +163,7 @@ describe('ConfigControl', () => {
     expect(entry).toHaveValue('0.5')
   })
 
-  it('starts the form again from a new version', async () => {
+  it('keeps unsaved edits when a new version arrives and takes the rest from it', async () => {
     const { rerender, api } = setup()
     const entry = await openEditor()
     fireEvent.change(entry, { target: { value: '0.9' } })
@@ -180,14 +179,43 @@ describe('ConfigControl', () => {
         api={api}
       />,
     )
-    expect(screen.getByLabelText('bias.entry_threshold')).toHaveValue('0.6')
-    expect(screen.getByRole('button', { name: 'Save as v3' })).toBeDisabled()
+    expect(screen.getByLabelText('bias.entry_threshold')).toHaveValue('0.9')
+    expect(screen.getByLabelText('bias.neutral_band')).toHaveValue('0.2')
+    expect(screen.getByText('was 0.6')).toBeInTheDocument()
+  })
+
+  it('opens as a drawer that closes on Escape, the backdrop or the close button', async () => {
+    setup()
+    await openEditor()
+    expect(screen.getByRole('dialog', { name: 'Config' })).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByTestId('config-panel')).not.toBeInTheDocument()
+    await openEditor()
+    fireEvent.click(screen.getByTestId('config-backdrop'))
+    expect(screen.queryByTestId('config-panel')).not.toBeInTheDocument()
+    await openEditor()
+    fireEvent.click(screen.getByRole('button', { name: 'Close config' }))
+    expect(screen.queryByTestId('config-panel')).not.toBeInTheDocument()
+    await openEditor()
+    fireEvent.click(screen.getByRole('button', { name: /^Config v1/ }))
+    expect(screen.queryByTestId('config-panel')).not.toBeInTheDocument()
+    await openEditor()
+    fireEvent.click(screen.getByTitle('Close config'))
+    expect(screen.queryByTestId('config-panel')).not.toBeInTheDocument()
+  })
+
+  it('explains each factor on the line below its name', async () => {
+    setup()
+    await openEditor()
+    fireEvent.click(screen.getByRole('tab', { name: 'Factors · 1 off' }))
+    const tab = screen.getByTestId('factors-tab')
+    expect(within(tab).getAllByText(/Put-call ratio over ATM/)[0]).toBeVisible()
   })
 
   it('history lists the versions and reverts to an old one under a tag', async () => {
     const { api, onSaved } = setup({}, { ...v1, version: 2, tag: 'higher bar' })
     fireEvent.click(screen.getByRole('button', { name: /^Config/ }))
-    fireEvent.click(screen.getByRole('tab', { name: 'History' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Versions' }))
 
     const newest = await screen.findByTestId('config-version-2')
     expect(newest).toHaveTextContent('higher bar')
