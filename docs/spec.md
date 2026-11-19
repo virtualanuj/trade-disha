@@ -30,7 +30,7 @@ in configuration and can be changed without code changes.
                           │                                                 │
                           ▼                                                 ▼
           listener lists on FeedSession (candle, bias, signal, trade, bullion) ──► WS hub
-          EventBus (low-rate state: feed health, auth, window, parameters) ─────► WS hub
+          EventBus (low-rate state: feed health, auth, window, parameters, news)► WS hub
                                                                                  │
                                                        HTTP + WS (localhost)     ▼
               Frontend (React, single page): top bar, NIFTY / BANKNIFTY / BULLION tabs,
@@ -48,7 +48,7 @@ session and persisted to one SQLite file. The frontend never talks to Upstox dir
   their inputs. Side effects (persistence, push) happen in thin orchestrators.
 - **Event-driven push.** Per-tick and per-minute data (candles, bias, signals, trades,
   bullion) reaches the WebSocket hub through callback lists on `FeedSession`; low-rate
-  state changes (feed health, auth, strike window, parameters) go through the in-process
+  state changes (feed health, auth, strike window, parameters, headlines) go through the in-process
   `EventBus`. The frontend never polls for live data.
 - **Explainability is data.** Every bias and signal carries its full indicator breakdown
   as a structured object, persisted alongside it.
@@ -72,7 +72,8 @@ TradeDisha/
 │   │   ├── auth/                # Upstox OAuth, token store
 │   │   ├── instruments/         # master download and parsing, resolution, expiry rules
 │   │   ├── feed/                # provider interface, upstox (+ protobuf), replay, synthetic, tick bus
-│   │   ├── market/              # FeedSession, candles, chain, flow, backfill, bullion tracker
+│   │   ├── market/              # FeedSession, candles, chain, flow, backfill, bullion tracker,
+│   │   │                        # macro tracker, GIFT Nifty, news, index stats
 │   │   ├── indicators/          # pure indicator functions, series maths, delta
 │   │   ├── engine/              # bias, aggregator, signals, outcomes, paper trades, bullion desk
 │   │   ├── parameters/          # ParameterSet model, field schema, versioned service
@@ -86,14 +87,16 @@ TradeDisha/
 │   └── src/
 │       ├── api/                 # REST client, WS client, hand-written types
 │       ├── state/               # Zustand store
-│       ├── lib/                 # formatting, panels, prefs, latency, direction, summaries
+│       ├── lib/                 # formatting, panels, prefs, latency, direction, summaries,
+│       │                        # config form helpers, factor names and help, news
 │       ├── theme/               # dark/light theme
 │       └── components/          # one folder per component, test beside it: TopBar,
 │                                # IndexTabs, IndexTiles, BullionView, BiasMeter, PriceChart,
 │                                # SignalCard, EvidenceTable, OpenTrades, SignalHistory,
 │                                # OptionChain, Journal, ConfigControl, DataPanel,
 │                                # StatusBanner, PanelFrame, SidePanel, RightColumn,
-│                                # Headlines, Divider, DebugOverlay, …
+│                                # Headlines, Divider, DebugOverlay, FactorSwitch, FlowLine,
+│                                # ConfigVersionChip, Facts, …
 ├── config/
 │   ├── params.toml              # starting parameters for a new database
 │   ├── nse-holidays.txt         # NSE trading holidays
@@ -161,6 +164,7 @@ by section. Each field carries a one-line description, which the editor shows as
 | Weights | `macro` | 0.10 (E12: share of the bias for the macro group; the three above keep their proportions in the rest, so 0.36 / 0.315 / 0.225 / 0.10; §8.6) |
 | Macro | `window_minutes`, `max_age_seconds` | 30, 180 |
 | Macro | `dollar_full_pct`, `usdinr_full_pct`, `crude_full_pct`, `gold_full_pct` | 0.15, 0.10, 0.80, 0.40 (% move over the window that counts as full strength) |
+| Macro | `gift_full_pct`, `gift_fade_minutes`, `gift_direction` | 0.50, 30, `follow` (or `fade`); NIFTY only (E14, §8.6) |
 | Bias | `entry_threshold` | 0.50 |
 | Bias | `neutral_band` | 0.20 |
 | Bias | `setup_threshold` | 0.35 (trigger rule; see §9.6) |
@@ -183,7 +187,7 @@ by section. Each field carries a one-line description, which the editor shows as
 | Signal | `entry_mode` | `minute_close` (or `trigger`; see §9.6) |
 | Signal | `max_spread_pct` | 1.0 (trigger rule) |
 | Signal | `last_signal_time`, `last_signal_time_expiry` | 15:00, 13:00 |
-| Chain | `strike_window`, `recenter_strikes` | 10, 2 |
+| Chain | `strike_window`, `recenter_strikes` | 10, 2 (**not read**: the chain uses the process settings `TRADEDISHA_STRIKE_WINDOW` / `TRADEDISHA_RECENTER_STRIKES`, §3.1; open item in enhancements.md) |
 | Paper | `square_off_time` | 15:15 |
 | Paper | `cost_per_trade` | ₹60 |
 | Paper | `lots` | 1 |
@@ -197,7 +201,8 @@ by section. Each field carries a one-line description, which the editor shows as
 | Bullion | `oi_weight`, `flow_weight` | 0.15, 0.15 (E13; trend has what OI, flow and macro leave) |
 | Bullion | `oi_window_minutes`, `oi_full_pct`, `oi_price_flat_pct`, `oi_unwind_factor` | 15, 0.50 %, 0.02 %, 0.5 |
 | Bullion | `flow_window_minutes`, `flow_trades_full`, `flow_book_minutes`, `flow_book_full` | 15, 0.50, 30, 0.20 |
-| News | `poll_seconds` | 180 (30–3600; display only, §6.7) |
+| News | `poll_seconds` | 180 (30–3600; display only, §6.7; applies at once, not at a minute close) |
+| Factors | `factors.nifty`, `factors.banknifty`, `factors.gold`, `factors.silver`: one value per factor | `on` (or `off`; E16, §8.4; flipped in Config → Factors, not in the typed form) |
 
 **Versions (Milestone C1).** The database is the source of truth. Table
 `config_versions` holds every saved set: `version` (1, 2, 3, …), `tag` (typed by the
@@ -246,7 +251,9 @@ manual step.
   `state`.
 - `GET /auth/callback?code=…&state=…` → exchanges code for access token via Upstox token
   endpoint; stores `{token, obtained_at, expires_at}` in `sessions`; publishes
-  `AuthChanged(logged_in=True)`; redirects to `/`.
+  `AuthChanged("valid")`; starts the feed (`FeedSession.start()`, 502 if it fails); then
+  redirects to `/` when the backend serves the frontend, else to `frontend_url`. (Both
+  routes sit under `/api`, like every REST route.)
 - `AuthState` is one of `missing | valid | expired`. Computed from `expires_at` and
   confirmed by a cheap profile call at startup.
 - When `AuthState != valid`, the feed adapter does not connect, the top bar shows
@@ -636,14 +643,16 @@ All indicators are pure functions `f(inputs) -> IndicatorResult`:
 @dataclass(frozen=True)
 class IndicatorResult:
     name: str
-    group: Literal["trend", "oi", "premium"]
+    group: Literal["trend", "oi", "premium", "flow", "macro"]
     score: float            # clamp to [-1, +1]; +bullish / −bearish
     value: dict[str, float] # raw numbers shown in the evidence table
     note: str               # one-line human reason, e.g. "EMA9 above EMA21 by 0.12%"
-    quality: Literal["ok", "warming", "partial"]
+    quality: Literal["ok", "warming", "partial", "info"]
 ```
 
 `quality != ok` indicators are shown greyed and contribute 0 until they have enough data.
+`info` is shown for context and never scored (silver in the index macro group; GIFT Nifty
+outside its window). `flow` is weighted only in the bullion bias (§9a); `macro` in both.
 
 ### 8.1 Price trend group (weight 0.40, equal split within group)
 
@@ -698,7 +707,7 @@ index's and metal's bias can be switched off; every factor is on by default. Sin
 switches are parameters: `factors.nifty`, `factors.banknifty`, `factors.gold` and
 `factors.silver`, one `"on"`/`"off"` value per factor (`IndexFactors`, `NiftyFactors` with
 `gift_nifty`, `BullionFactors`; a test keeps the names equal to what the engines emit).
-They are flipped only in the Config dialog's **Factors** tab, and each flip is saved at once
+They are flipped only in the Config drawer's **Factors** tab (§13.2), and each flip is saved at once
 as its own version tagged `Factor NIFTY.pcr: off` (`ParameterService.set_factor`,
 `PUT /api/parameters/factors/{scope}/{name}` `{enabled}`; no version when already so). The
 typed editor does not list them (`describe()` skips `factors`) and a typed save keeps the
@@ -900,10 +909,11 @@ The **scorecard** sums a date range: signals, how many are scored, the share tha
 target first, stop first or neither, the average best and worst move (% of entry), and the
 average lateness; one row for everything and one per index.
 
-`uv run python -m tradedisha.tools.score [--days D ...] [--params FILE]` replays recorded
-days at full speed, each in a scratch database, with the given parameter file, and prints
-the scorecard. The recorded database is opened read-only. Running it with the current
-file and with a trial file is how a parameter change is judged.
+`uv run python -m tradedisha.tools.score [--days D ...] [--db FILE] [--params FILE]` replays
+recorded days at full speed, each in a scratch database, with the given parameter file, and
+prints the scorecard. The recorded database (`--db`, default `TRADEDISHA_DB_PATH`) is opened
+read-only. Running it with the current file and with a trial file is how a parameter change
+is judged.
 
 The scorecard keeps each entry rule apart (§9.6): rows carry the rule and whether it was
 running in shadow, live rules first.
@@ -1075,21 +1085,22 @@ applied in order at startup and tracked by `PRAGMA user_version`.
 | Table | Key columns | Purpose |
 |---|---|---|
 | `sessions` | id, token, obtained_at, expires_at | daily auth |
-| `instruments` | instrument_key, symbol, exchange, type, expiry, strike, lot_size, step, loaded_on | daily master subset |
+| `instruments` | instrument_key, trading_symbol, exchange, segment, name, instrument_type, expiry, strike, lot_size, tick_size, loaded_on (key: instrument_key, loaded_on) | daily master subset |
 | `ticks` | key, ts, ltp, volume, oi, bid, ask, iv, delta, close_prev, bid_qty, ask_qty, bid_qty5, ask_qty5, tbq, tsq, atp, ltq | raw NSE feed, replay source |
 | `bullion_ticks` | the `ticks` columns plus day_open, day_high, day_low | raw MCX bullion feed (E6), kept apart so evening ticks never stretch an NSE replay |
 | `candles_1m` | key, minute_ts, o, h, l, c, v, synthetic, bv, sv | index and bullion candles, keyed by instrument; bv/sv = buyer-/seller-initiated volume (E8, migration 012), NULL with no side information |
-| `chain_minutes` | index, minute_ts, strike, ce_*, pe_* | per-strike per-minute chain snapshot |
-| `bias_minutes` | index, minute_ts, bias, label, strength, breakdown_json | evidence history (indices and GOLD / SILVER) |
+| `chain_minutes` | idx, minute_ts, strike, ce_* / pe_* (ltp, oi, oi_chg_open, iv, buildup), atm, pcr, max_pain | per-strike per-minute chain snapshot |
+| `bias_minutes` | idx, minute_ts, bias, label, strength, breakdown_json | evidence history (indices and GOLD / SILVER) |
 | `signals` | the `Signal` fields (§9.2), with `index` stored as `idx` | every signal, live and shadow, index and bullion |
 | `signal_outcomes` | signal_id, end_ts, result, result_ts, best/worst price and ts, px_1m/5m/15m, spot_at_fire, spot_pre_move, spot_best_move, final | what each index signal's option did next (§9.5) |
 | `config_versions` | version, tag, created_ts, source, reverted_from, params_json | every saved parameter set (§3.2) |
-| `paper_trades` | id, signal_id, index, instrument_key, direction, qty, entry, entry_ts, slippage, target, stop, cost, exit, exit_ts, exit_reason, exit_fill_quality, exit_price_age_ms, gross, net, warning | |
-| `app_state` | key, value | small application state; `factors_off`: the factor switches (E15) |
+| `paper_trades` | id, signal_id, idx, instrument_key, trading_symbol, direction, strike, expiry, lots, qty, signal_entry, entry_price, entry_ts, slippage, target_price, stop_price, cost, status, exit_price, exit_ts, exit_reason, exit_fill_quality, exit_price_age_ms, gross, net, warning | index and bullion paper trades |
+| `app_state` | key, value | small application state; unused since migration 014 removed E15's `factors_off` |
+| `gift_nifty` | day, ref_ts, ref_close, preopen_ts, preopen_price, fetched_at | GIFT Nifty's previous-close and pre-open prices per NSE day (E14, §6.8); read by replay and `tools/score.py` |
 | `feed_events` | ts, kind, detail | session starts, disconnects, gaps, bullion gaps, recentres, backfills, tick prunes |
 | `latency_samples` | ts, hop, p50, p95, p99, n | one row per hop per minute |
 
-Indexes on `(key, ts)` for ticks and candles, `(index, minute_ts)` for chain and bias.
+Indexes on `(key, ts)` for ticks and candles, `(idx, minute_ts)` for chain and bias.
 Schema managed with plain versioned SQL migrations applied at startup.
 
 Volume estimate: ~45 instruments × ~2 ticks/s × 6.25 h ≈ 2 M tick rows/day ≈ 150 MB/day
@@ -1107,13 +1118,13 @@ is reclaimable without a full rewrite.
 |---|---|---|
 | GET | `/health` | app, auth state, feed health, NSE market status, feed live, the banner, and the `bullion` status (§6.6) |
 | GET | `/auth/login` | 302 to Upstox |
-| GET | `/auth/callback` | handles code, 302 to `/` |
+| GET | `/auth/callback` | handles code, starts the feed, 302 to `/` or `frontend_url` (§4) |
 | GET | `/instruments` | resolved spot/futures/expiry/window per index |
 | GET | `/chain/{index}` | current `ChainState` snapshot + derived values |
 | GET | `/stats/{index}` | `IndexStats` for the details view (§7.4) |
 | GET | `/candles/{index}?minutes=375` | today's spot candles with EMA/VWAP/supertrend series, and `fut_candles` (the near-month future's, whose `bv`/`sv` give net volume) |
 | GET | `/bias/{index}` | latest bias + breakdown |
-| GET | `/bias/{index}/history?date=` | per-minute bias for a day |
+| GET | `/bias/{index}/history?day=` | per-minute bias for a day |
 | GET | `/signals?index=&status=&day=` | signals of a day (index and bullion) |
 | GET | `/signals/active` | signals that can still be paper-traded, with their `live` levels |
 | GET | `/signals/gates` | the last gate result per index and metal |
@@ -1122,8 +1133,8 @@ is reclaimable without a full rewrite.
 | GET | `/signals/{id}` | one signal with breakdown and outcome |
 | POST | `/paper-trades` | body `{signal_id}` → trade |
 | POST | `/paper-trades/{id}/close` | manual close |
-| GET | `/paper-trades?index=&date=&status=` | trades |
-| GET | `/journal/stats?from=&to=` | summary stats: overall (index options), per index, `bullion` and per metal |
+| GET | `/paper-trades?index=&status=&from=&to=` | trades |
+| GET | `/journal/stats?from=&to=&index=` | summary stats: overall (index options), per index, `bullion` and per metal |
 | GET | `/bullion` | the GOLD / SILVER snapshot (§6.6) |
 | GET | `/bullion/{metal}/candles` | today's bullion candles with VWAP |
 | GET | `/parameters` | the config in force: version, tag, created_ts and the `ParameterSet` |
@@ -1132,6 +1143,7 @@ is reclaimable without a full rewrite.
 | GET | `/parameters/versions` | every version, newest first, with `active` on the one in force |
 | GET | `/parameters/versions/{n}` | one version with its stored values; 404 if there is none |
 | POST | `/parameters/versions/{n}/revert` | `{tag?}`: saves version n's values as a new version; 422 if n is unknown or already in force |
+| PUT | `/parameters/factors/{scope}/{name}` | `{enabled}`: flips one factor switch as its own version (§8.4); 422 for an unknown scope or factor; no new version when already so |
 | GET | `/data/usage?until_date=` | DB size, tick rows/days total, and what a prune up to `until_date` would remove |
 | POST | `/data/prune-ticks` | body `{until_date}` → deletes ticks up to and including that date; returns rows removed |
 | GET | `/metrics` | latency p50/p95/p99 per hop (last 1 and 15 min), event-loop lag |
@@ -1149,11 +1161,11 @@ Server → client JSON frames `{type, ts, payload}`:
 | type | cadence | payload |
 |---|---|---|
 | `hello` | on connect | full snapshot: health, instruments, prices, chain per index, candles, bias (indices and metals), parameters, active signals, today's signals, gates, flow, today's trades, index stats, bullion snapshot and candles, news |
-| `stats` | leading-edge throttle, max 1/s per index | `IndexStats` |
+| `stats` | checked once a second, sent when it changed | `IndexStats` |
 | `tick` | leading-edge throttle, max 20/s per index | `{index, spot_ltp, spot_ts, fut_ltp, fut_ts}` |
 | `chain` | leading-edge throttle, max 2/s per index | full window (21 rows) + derived values; small enough that diffs are not worth it |
 | `candle` | per minute | closed candle (`role` spot or fut; every candle carries `bv`/`sv`) |
-| `bias` | per minute | bias + breakdown |
+| `bias` | per minute | bias + breakdown, the chart `overlay` and the current `gates` |
 | `signal` | on change | full `Signal` with the current gates, shadow ones included (flagged) |
 | `signal_live` | 1/s while any signal is active | the active signals with their `live` levels (§9.3) |
 | `flow` | about 1/s per index | order-flow score and its three parts (§8.5) |
@@ -1168,7 +1180,7 @@ Every frame carries `t_src` (exchange ts), `t_in` (backend ingest), `t_out` (bac
 so the client can compute per-hop latency. Frames are serialised with pydantic and the
 standard `json` module; throttled channels send only the latest state of the window.
 
-Client → server: `{"type":"ping"}` only. All mutations go through REST.
+Client → server: `{"type":"ping"}` only, answered with a `pong` frame. All mutations go through REST.
 
 On reconnect the client receives a fresh `hello`, so no event replay is needed.
 
@@ -1267,8 +1279,8 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   trader-set order with the same ↑ ↓ and minimise controls as the index tabs, for the metal
   picked by a GOLD / SILVER switch above them (`MetalSwitch`, remembered in `localStorage`
   as `tradedisha.bullionChart`). The tiles unit is `BullionCards` (below) instead of the
-  index tiles; Market view, Signal, Price chart, Evidence (trend group only, no order-flow
-  line), Open paper trades and Signals today show the metal (§9a). The option-chain column
+  index tiles; Market view, Signal, Price chart, Evidence (trend, OI, flow and macro groups;
+  no order-flow line), Open paper trades and Signals today show the metal (§9a). The option-chain column
   and its divider are not shown.
 - **BullionCards** (the BULLION tiles):
   - A card per metal, headed by the contract, expiry and lot:
@@ -1405,6 +1417,9 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   Last in the main column.
 - **EvidenceTable**: one row per indicator: name, note, raw values on hover, score bar,
   weight, contribution; greyed when `quality != ok`; group subtotals; expiry-day banner.
+  Each factor row carries a read-only ON/OFF label (`FactorSwitch` without `onChange`),
+  with "(off from the next minute close)" or "(on from …)" while the bias shown predates
+  a flip; a footer counts the factors switched off ("Change in Config, Factors.").
   Under it, the **FlowLine**: the order-flow score and its three parts (§8.5), marked
   "recorded only, not used for signals yet" while the trigger is the shadow rule.
 - **OptionChain**: virtualised table, ATM centred and highlighted, OI build-up heat
@@ -1418,14 +1433,28 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   M rows, ~X MB") fetched from `/data/usage`; a confirm step that requires typing the date;
   progress and result. Derived data is stated as unaffected.
 - **Config control** (in the TopBar): a button showing the version and tag in force
-  ("Config v7 higher bar"). It opens a panel with two tabs. **Edit** is a form built from
-  `/parameters/schema`, grouped as in §3.2, each field with its help text and limits; a
-  changed field is outlined and shows its previous value. Saving needs a tag and at least
-  one change; the server's field errors appear beside the field, its group or the tag,
-  and the draft is kept. After a save the bar shows "applies from HH:MM" and the form
-  starts again from the new version. **History** lists the versions, newest first, with
-  the one in force marked and a Revert button on the others, which asks for a tag
-  (pre-filled "Revert to vN") and a confirmation. There is no "Reload config" button.
+  ("Config v7 higher bar"). It opens a **drawer on the right** over a dimmed backdrop
+  (since 19/11/2026; it was a dropdown panel). Its header reads "Config  in force: v7
+  higher bar, saved DD/MM/YYYY HH:MM". It closes from the header line, the **✕ Close**
+  button, a click on the backdrop, or Escape. Three tabs:
+  - **Parameters** (was "Edit"): a form built from `/parameters/schema`, grouped as in
+    §3.2. Each field shows its name, then its help text on the line below and its limits
+    ("Allowed: …") under that; a changed field is outlined and shows its previous value
+    ("was 0.5"). Saving needs a tag and at least one change; the server's field errors
+    appear beside the field, its group or the tag, and the draft is kept. Discard drops
+    the draft. After a save the bar shows "applies from HH:MM". When a new version arrives
+    (a save, a factor flip or a revert), values the trader has not touched follow it and
+    unsaved edits are kept.
+  - **Factors · N off**: the factor switches (§8.4), one section per index and metal
+    (NIFTY, BANK NIFTY, GOLD, SILVER) with its count of factors off. Each row has the
+    toggle, the factor's name and a one-line plain explanation below it (`FACTOR_HELP` in
+    `lib/factors.ts`); a factor switched off is dimmed. A flip is saved at once as its own
+    version; "saving…" shows while it is in flight.
+  - **Versions** (was "History"): every version, newest first, with its date, time and
+    source (from params.toml, edited, revert to vN); the one in force carries an "in
+    force" badge and the others a Revert button, which asks for a tag (pre-filled "Revert
+    to vN") and a confirmation.
+  There is no "Reload config" button.
 - **ConfigVersionChip**: "v7" beside a signal in the signal card and in the Config column
   of "Signals today"; nothing for a signal with no version. Hovering or focusing it opens
   a panel, fixed to the window so the scrolling column cannot clip it, with that
@@ -1456,15 +1485,17 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
 ### 13.4 State and data flow
 - WS client with exponential reconnect; on `hello` replaces all live stores.
 - One Zustand store (`state/store.ts`), keyed by index name where it varies: `prices`,
-  `chains`, `candles`, `overlays`, `bias`, `signals` (the active one, with `live` levels),
-  `gates`, `flow`, `stats`; plus `trades`, `signalHistory`, `health`, `parameters`,
-  `bullion`, `bullionCandles`, `bullionOverlays`. GOLD and SILVER use the same per-name
-  maps as the indices.
+  `lastFrameAt`, `chains`, `candles`, `futCandles`, `overlays`, `bias`, `signals` (the
+  active one, with `live` levels), `gates`, `flow`, `stats`; plus `ws`, `instruments`,
+  `selectedIndex`, `trades`, `signalHistory`, `health`, `parameters`,
+  `parametersEffectiveFrom`, `bullion`, `bullionCandles`, `bullionOverlays` and `news`.
+  GOLD and SILVER use the same per-name maps as the indices.
 - Per-browser preferences in `localStorage`, read through one small hook with a
   try/catch fallback to defaults: theme (existing), `layout` (`{chainWidth, chartHeight}`),
   `panels` (which panels are minimised; replaces E1's `chainOpen`, which is read once to
-  carry the choice over), `panelOrder` (the order of the main column's units) and
-  `detailsOpen`.
+  carry the choice over), `panelOrder` (the order of the main column's units),
+  `detailsOpen`, `bullionDetailsOpen`, `sectorsOpen`, `bullionChart` (the metal picked),
+  `newsHidden` and `newsSeen`. All keys are prefixed `tradedisha.`.
 - REST via plain `fetch` (`api/client.ts`) for history, the journal and mutations
   (`POST /paper-trades`).
 - Optimistic UI is not used for paper trades; the button shows a spinner until the server
@@ -1539,8 +1570,9 @@ wall-clock fallback when ticks are sparse; the detection delay is reported separ
   and go out on the next pusher pass.
 - Indicators recompute over the candle window (<= 400 bars) at each minute close rather
   than carrying incremental state; measured cost is microseconds and the functions stay
-  pure. Revisit only if the instrument count grows by orders of magnitude. A client that falls behind by > 2 s is
-  disconnected and reconnects to a fresh `hello`.
+  pure. Revisit only if the instrument count grows by orders of magnitude. A client with
+  64 frames queued (`SLOW_CLIENT_LIMIT`) is closed with code 1008 ("client too slow") and
+  reconnects to a fresh `hello`.
 - Event-loop lag is sampled every 100 ms and reported as the `loop_lag` hop in `/metrics`
   and the dev overlay.
 - Replay at `speed=0` is used as the load test: a full day must process in under 60 s on
@@ -1569,7 +1601,7 @@ production build (`vite.config.ts`) splits the libraries from the app's code: `c
   package and the tests, no `Any` in public signatures, pydantic models at the API and
   settings boundaries, pure functions for all trading maths, docstrings on public
   functions stating units and conventions (IST vs UTC, % vs fraction). Modules are aimed at
-  ~300 lines; `market/session.py` (~800) and `engine/signals.py` (~520) are over it and are
+  ~300 lines; `market/session.py` (~950) and `engine/signals.py` (~520) are over it and are
   candidates to split.
 - **TypeScript**: `strict: true`, ESLint (typescript-eslint strict + react-hooks +
   jsx-a11y) with zero warnings, Prettier, no `any`. API types are a hand-written mirror of
@@ -1600,7 +1632,7 @@ production build (`vite.config.ts`) splits the libraries from the app's code: `c
 | Integration | replay recorded ticks through the full session (fault injection, a recorded live day, a bullion evening) and assert the persisted results; there is no golden-file comparison |
 | API | FastAPI test client for REST contracts; WS `hello` and per-second frames |
 | Frontend | Vitest component tests beside each component (SignalCard states, EvidenceTable, TopBar, StatusBanner, BullionView, …) and store tests; no browser end-to-end suite |
-| Bullion | parameters, trend-only aggregation, the offset queue, the signal gates and lifecycle, short P&L, MCX square-off, ownership on restore, recording and replay |
+| Bullion | parameters, four-group aggregation (trend, OI, flow, macro), the offset queue, the signal gates and lifecycle, short P&L, MCX square-off, ownership on restore, recording and replay |
 | Fault injection | replay provider configured to drop/delay ranges; assert reconnect, re-subscribe, and degraded-mode behaviour |
 
 Live verification per milestone is described in plan.md.

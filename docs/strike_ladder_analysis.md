@@ -52,8 +52,9 @@ switching the setting and waiting.
 
 - **Coverage:** the chain subscribes ±10 strikes in full mode (LTP, bid/ask, OI, IV, and
   delta from the feed's option Greeks).
-- **After a re-centre:** the chain re-centres when spot moves 2 strikes
-  (`chain.recenter_strikes`), so a leg at offset ±3 sits at most about 5 strikes from the
+- **After a re-centre:** the chain re-centres when spot moves 2 strikes (the process
+  setting `TRADEDISHA_RECENTER_STRIKES`; the `chain.recenter_strikes` parameter is not
+  read), so a leg at offset ±3 sits at most about 5 strikes from the
   centre, still inside the window.
 - **History:** every strike in the window is recorded in `ticks` (114 option keys on
   2026-11-17). The replay scorer (`tools/score.py`) can therefore backtest the ladder on
@@ -101,7 +102,7 @@ the same for calls and puts.
 | Area | Change | Size |
 |---|---|---|
 | `engine/signals.py` | Pull leg pricing (entry, delta, target and stop) out of `_fire()` and run it for 7 strikes; `live()` and `levels_at()` work per leg; the spread check per leg | M |
-| Migration 013 | A new `signal_legs` table (signal_id, offset, strike, key, entry, target, stop, delta, spread). The `signals` row keeps the ATM leg so the journal, old data and the scorecard keep working | S |
+| Migration 015 (the next free number) | A new `signal_legs` table (signal_id, offset, strike, key, entry, target, stop, delta, spread). The `signals` row keeps the ATM leg so the journal, old data and the scorecard keep working | S |
 | `engine/outcomes.py` | Track (signal, offset) pairs; outcomes keyed by leg (a new table or a `leg` column); look trackers up by instrument key instead of looping over all of them | M |
 | `engine/paper.py`, `api/paper.py` | `open(signal_id, offset=0)`: buy the chosen leg at its live levels | S |
 | `tools/score.py` and the scorecard | Results per offset (hit rate, best and worst, late share), which is the point of the exercise | M |

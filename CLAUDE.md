@@ -7,7 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 TradeDisha is a single-user, localhost trading assistant for NSE index options (NIFTY,
 BANK NIFTY). It takes a live broker feed, computes a bullish/bearish bias at each
 1-minute close, raises buy-call / buy-put signals with the evidence shown, and tracks
-paper trades. One Python process (FastAPI + asyncio + one SQLite file) and one React page.
+paper trades. It does the same for MCX gold and silver futures (buy or sell the near-month
+future, BULLION tab). One Python process (FastAPI + asyncio + one SQLite file) and one React
+page.
 
 **Hard rule: there is no real-order code path, and none is ever added, not even behind a
 flag.** The Upstox code covers auth, market data, instruments and candles only.
@@ -21,6 +23,7 @@ The frontend uses npm in `frontend/`.
 make setup      # uv sync, npm install, install the pre-commit hook
 make backend    # API on http://127.0.0.1:8000, reload on change
 make frontend   # Vite on http://localhost:5173, proxies /api and /ws to the backend
+make dev        # both at once (backend in the background; Ctrl-C stops the frontend)
 make start      # build the frontend and serve everything from :8000
 make check      # every gate: ruff check, ruff format --check, mypy, pytest, then frontend check
 ```
@@ -74,15 +77,19 @@ MarketDataProvider (feed/synthetic | replay | upstox)
   -> TickBus (feed/bus.py, sync fan-out of StampedTick)
        -> TickStore (batched SQLite writes; skipped in replay)
        -> CandleBuilder (spot and future keys only)
-            -> on 1-minute close -> BiasEngine -> SignalEngine -> PaperTradeManager
+            -> on 1-minute close -> BiasEngine -> SignalEngine (live entry rule)
+                                                  + shadow SignalEngine (the other rule)
+                                               -> PaperTradeManager
        -> ChainManager / ChainState (option chain, re-centring, subscription changes)
+       -> FlowTracker (market/flow.py; order-flow score) -> SignalEngine.on_flow (trigger)
+       -> OutcomeTracker (engine/outcomes.py; what each signal's option did next)
        -> PaperTradeManager.on_tick (target / stop)
        -> BullionTracker (market/bullion.py; MCX gold/silver, own CandleBuilder)
             -> bullion_tick_store (bullion_ticks; skipped in replay)
             -> BullionDesk (engine/bullion_desk.py), on mcx_clock:
                  candle close queued -> eval_offset_seconds later
                  -> BullionBiasEngine -> BullionSignalEngine -> its own PaperTradeManager
-  -> listener lists on FeedSession (candle, bias, signal, trade, bullion candle)
+  -> listener lists on FeedSession (candle, bias, signal, trade, flow, bullion candle)
        -> api/ws.py:WsHub -> browser
 ```
 
@@ -123,8 +130,9 @@ Things that are easy to get wrong:
   at the next minute close, and each signal stores the `config_version` it fired under. A
   new tunable goes in the model (with a `description`, which is the editor's help text) and
   the TOML, not in `Settings`. The factor switches (`factors`, E16) are parameters that the
-  typed editor skips (`describe()`): each flip in Config → Factors is its own version via
-  `ParameterService.set_factor`, and a new indicator needs a switch field (a test checks).
+  typed editor skips (`parameters/schema.py:describe()`): each flip in the Config drawer's
+  Factors tab is its own version via `ParameterService.set_factor`, and a new indicator
+  needs a switch field (a test checks).
 - **Pure maths.** `indicators/` holds pure functions over candle and chain series. The
   engines in `engine/` orchestrate them and do the persistence. Each bias and signal is
   stored with its full evidence breakdown.
@@ -134,8 +142,8 @@ Things that are easy to get wrong:
 - **Starting can be deferred.** With `upstox` and no valid token the app comes up without
   a feed and `FeedSession.start()` is called from the login callback (`api/auth.py`); it
   is idempotent, and `_start()` does all network work before wiring anything. Parts of
-  `FeedSession` (`chains`, `bias`, `signals`, `paper`, `provider`, `bullion`,
-  `bullion_desk`) are `None` until then.
+  `FeedSession` (`chains`, `bias`, `signals`, `shadow_signals`, `flow`, `outcomes`,
+  `paper`, `provider`, `bullion`, `bullion_desk`, `macro`, `gift`) are `None` until then.
 - **Degraded mode.** When the feed is silent during market hours, signals stop,
   paper-trade entry and manual close are refused, and fills after the gap are marked. See
   `feed_live()`, `_track_gap()` and spec §14. Liveness means NSE ticks arriving: bullion
@@ -163,8 +171,8 @@ Things that are easy to get wrong:
 - `api/ws.ts:MarketSocket` keeps one WebSocket with exponential reconnect and feeds the
   Zustand store in `state/store.ts`. The `hello` frame replaces all live state; later
   frames (`tick`, `chain`, `candle`, `bias`, `signal`, `signal_live`, `paper_trade`,
-  `stats`, `flow`, `bullion`, `bullion_candle`, `health`, `parameters`, `news`) update it.
-  Live data is never polled.
+  `stats`, `flow`, `bullion`, `bullion_candle`, `health`, `parameters`, `news`) update it;
+  `pong` answers the client's ping. Live data is never polled.
 - `selectedIndex` is an index or `BULLION_TAB` (`state/store.ts`), which is not in
   `instruments`; code keyed by the selected index must allow for it. The tab shows only
   while bullion data exists. The main-column panels show the **focus** (`App.tsx`): the
@@ -189,7 +197,7 @@ Things that are easy to get wrong:
 - `docs/intent.md` requirements, `docs/spec.md` design (section numbers are cited in code
   comments), `docs/plan.md` milestones, `docs/signal.md` how a signal is worked out
   (indices and bullion), `docs/dd.md` data dictionary, `docs/enhancements.md` post-1.0
-  requests.
+  requests, `docs/strike_ladder_analysis.md` an analysis of ATM ±3 signals (not built).
 - Work is done in milestones; each ends with a runnable demo, one commit
   (`Milestone N: ...`) and a README status update. A behaviour change is reflected in the
   spec and plan as well as the code.

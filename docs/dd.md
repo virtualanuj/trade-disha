@@ -45,7 +45,7 @@ ones: nothing of bullion feeds the index market view or recommendations.
 |---|---|
 | **ATP (average traded price)** | The exchange's own volume-weighted average price for the day, sent with each full-mode tick. Shown as "ATP (VWAP)" on the metal card. |
 | **Bullion** | Gold and silver. In TradeDisha, the MCX `GOLD` and `SILVER` futures shown on the BULLION tab. Upstox has no spot price for either, so the near-month future stands in for it. |
-| **Bullion bias** | The trend-only bias of one metal: EMA cross, VWAP position and supertrend on its near-month 1-minute candles, the trend group carrying the whole weight. Worked out `eval_offset_seconds` after each minute close. |
+| **Bullion bias** | The bias of one metal, from four groups read off its near-month future (Milestones E6, E12, E13): trend (EMA cross, VWAP position, supertrend on the 1-minute candles), OI (`futures_oi`), flow (`net_volume`, `book_imbalance`) and macro (`dollar_index`, `usd_inr`, `peer_metal`). Default weights: OI 0.15, flow 0.15, macro 0.10, trend the rest (0.60); a group with no `ok` reading hands its share to the others. Worked out `eval_offset_seconds` after each minute close. |
 | **Bullion gap** | An MCX outage while MCX is open: no bullion tick for `bullion_live_max_tick_age_ms` (15 s). Logged to `feed_events` as `bullion_gap_start` / `bullion_gap_end`. While it lasts the bullion status is `stale`, so bullion signals and paper-trade entry pause; the index side is unaffected. |
 | **Bullion signal** | A recommendation to buy or sell a metal's near-month future, fired when its bullion bias reaches `bullion.entry_threshold` within the bullion signal hours (09:15–22:45). Target and stop are a % of the price. Paper only. |
 | **Bullion status** | `live`, `stale`, `closed` or `holiday`: MCX status combined with how fresh the last bullion tick is. `stale` means MCX is open but no bullion tick has arrived recently. Sent in the health response; drives the BULLION tab's banner and top-bar pills, and only `live` lets bullion signals fire and paper trades open or close. |
@@ -116,22 +116,34 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Divergence** | Spot moves one way but premiums do not confirm (for example spot up, calls flat). Scored negatively by `premium_confirmation`. |
 | **EMA crossover** | EMA 9 above EMA 21 is read as bullish, below as bearish; the gap size sets strength. |
 | **EMA (exponential moving average)** | A moving average that weights recent prices more. TradeDisha uses EMA 9 and EMA 21 of 1-minute spot closes. |
+| **Entry mode** | `signal.entry_mode`: the live rule that fires index signals. `minute_close` (default) fires at a minute close when the bias passes the entry threshold; `trigger` waits for a setup, then for order flow to confirm it (Milestone S2). The other rule runs in shadow. |
 | **Entry threshold** | The absolute bias value at which a signal fires. Default 0.50 for the indices, 0.60 for bullion (`bullion.entry_threshold`). |
 | **Evidence / breakdown** | The structured list of every indicator's score, weight, contribution, raw values, and one-line note that accompanies each bias and signal. The explainability payload. |
 | **Fired / live levels** | A signal's entry, target and stop as it fired (stored, never changed) and the same rule applied to the price now (shown while it waits). A paper trade takes the live levels at its fill. |
-| **Group** | One of the three families of indicators: `trend`, `oi`, `premium`. Each has a weight; indicators within a group split that weight equally. |
+| **Futures OI build-up (`futures_oi`)** | A bullion OI factor (E13): the future's price change against its OI change over `oi_window_minutes`. Build-up counts fully in the price's direction, covering and unwinding by `oi_unwind_factor`. |
+| **Gate / no-fire reason** | Why no signal fired at an evaluation, kept per index and metal and shown under the signal card: `below_threshold`, `active_exists`, `rearm`, `outside_hours`, `feed_down`, `no_price`, `disabled` (bullion signals off), and for the trigger rule `no_setup`, `flow_not_confirmed`, `spread_wide` (`engine/signals.py:NoFireReason`). |
+| **GIFT Nifty gap** | The `gift_nifty` factor (Milestone E14, NIFTY only): GIFT Nifty's overnight move, voted at the open with (`follow`) or against (`fade`) the gap and fading to nothing over the first 30 minutes. Part of the macro group. |
+| **Group** | One of the families of indicators: `trend`, `oi`, `premium`, `macro` (both biases) and `flow` (bullion only). Each has a weight; indicators within a group split that weight equally. |
 | **Hysteresis (re-arm)** | Optional gate, off by default (`rearm_hysteresis = 0`). If set, a new signal in the same direction as the one that just ended needs bias to fall below `entry_threshold − rearm_hysteresis` and re-cross. With it off, a fresh signal fires at the next minute close whenever bias is beyond threshold and no signal is active. |
 | **Indicator** | A pure function from candles and/or chain state to an `IndicatorResult` (score, raw values, note, quality). Nine in v1. |
 | **Lapse** | A signal that was not paper-traded within its time-to-live (default 5 minutes). |
+| **Lateness (`late_share`)** | How much of the move had already happened when a signal fired: spot move in the 10 minutes before ÷ (that move + best move after). 0 = fired at the start, 1 = at the end. Part of each outcome (Milestone S1). |
 | **Momentum / ROC (rate of change)** | Percentage change of a value over N minutes. Used for ATM call vs put premium momentum (5 minutes). |
-| **Net volume** | Buyer-initiated minus seller-initiated traded volume in one minute, worked out from the ticks (Upstox does not supply it): see Quote rule and Tick rule. Shown as a histogram under the price chart, from the near-month future (an index has no volume). Display only. |
+| **Net volume** | Buyer-initiated minus seller-initiated traded volume in one minute, worked out from the ticks (Upstox does not supply it): see Quote rule and Tick rule. Shown as a histogram under the price chart, from the near-month future (an index has no volume). Display only for the indices; since E13 a vote (`net_volume`) in the bullion bias's flow group. |
 | **Neutral band** | Absolute bias below which the label is `Neutral`. Default 0.20. |
+| **Order-flow score** | A −1…+1 reading, about once a second per index, of who is leaning on the book and who is paying up: the future's book lean, its aggressor-signed trades and the ATM call against put flow (`market/flow.py`, `FlowReading`). Used only by the `trigger` entry mode; otherwise recorded and shown. For bullion, `net_volume` and `book_imbalance` are separate votes in the bias. |
+| **Order-book lean (`book_imbalance`)** | A bullion flow factor (E13): bid against offer quantity (total and five levels) compared with its own average over `flow_book_minutes`, because MCX books lean one way for hours. |
+| **Other metal's trend (`peer_metal`)** | A bullion macro factor (E13): the mean of the other metal's `ok` trend votes, read as support. |
+| **Outcome** | What a signal's option did after firing, whether traded or not: `target` or `stop` (whichever came first), `neither` within `outcome_horizon_minutes`, or `open` until then, with best and worst prices and lateness (`signal_outcomes`, Milestone S1). |
 | **Points** | Index points, the unit of index movement (NIFTY 24,500 → 24,540 is 40 points). Expiry-day targets and stops are set in points. |
 | **Premium confirmation** | Whether call/put premium changes agree with the spot move over the last 5 minutes. |
-| **Quality (indicator)** | `ok`, `warming` (not enough history yet), or `partial` (baseline uncertain, for example opening OI). Non-`ok` indicators show greyed and contribute 0. |
+| **Quality (indicator)** | `ok`, `warming` (not enough history yet), `partial` (baseline uncertain, for example opening OI) or `info` (shown for context, never scored: silver in the index macro group, GIFT Nifty outside its window). Non-`ok` indicators show greyed and contribute 0. |
 | **Quote rule** | Signing a trade by where it printed against the quote standing before it: at or above the ask, a buy; at or below the bid, a sell. |
 | **Reversal** | Bias changes sign, or falls inside the neutral band, while a signal is active. Ends the signal. Also flags opposing open paper trades with "bias reversed". |
 | **Score** | An indicator's output in [−1, +1]. |
+| **Scorecard** | Outcomes summed over a date range, per entry rule and live or shadow: share reaching target first, stop first or neither, average best and worst move, average lateness (`/signals/scorecard`, `tools/score.py`). |
+| **Setup** | In the `trigger` entry mode, a minute close with \|bias\| ≥ `setup_threshold` (0.35) sets up that direction; a signal then waits for the trigger. |
+| **Shadow signal** | A signal from the entry rule that is not live, run by a second `SignalEngine` on the same bias and flow. Stored with `shadow = 1` and scored, listed greyed in "Signals today", never the active signal, never paper-traded. |
 | **Signal / recommendation** | A concrete trade suggestion: index, option (strike, expiry, CE/PE), entry premium, target, stop, time, evidence. Fires at a minute close when \|bias\| ≥ entry threshold, no signal is active on that index, it is within signal hours, and the feed is live. Open paper trades never block it. For gold and silver see **Bullion signal** (§1a). |
 | **Signal status** | `active` (shown, can be paper-traded), `traded` (a paper trade was opened from it), `lapsed`, `reversed`. |
 | **Signal TTL** | Time-to-live: how long a signal stays active untraded. Default 300 seconds. |
@@ -141,8 +153,9 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Target** | Price at which a trade is closed at a profit. Index options: entry × (1 + 30 %); expiry day: entry + \|delta\| × target points. Bullion: 0.40 % of the future's price in the signal's favour (below the entry for a short). |
 | **Tick rule** | Signing a trade that printed between bid and ask by the price move: up from the last trade, a buy; down, a sell; unchanged, the last trade's side. |
 | **Trend (price trend)** | The indicator group reading direction and momentum of the index: EMA crossover, VWAP position, supertrend. |
+| **Trigger** | In the `trigger` entry mode, the moment a standing setup is confirmed: the order-flow score agrees with it at `trigger_score` or beyond for `hold_seconds`, and the option's quote is no wider than `max_spread_pct`. Entry is then the option's ask. |
 | **VWAP (volume-weighted average price)** | Σ(price × volume) / Σ volume from session open, on the futures contract. Price above VWAP is bullish. |
-| **Weight** | The share of the bias assigned to a group. Defaults: trend 0.40, OI 0.35, premium 0.25. On expiry day the OI weight is halved and redistributed. |
+| **Weight** | The share of the bias assigned to a group. Index defaults: macro 0.10 taken first, then trend 0.40, OI 0.35, premium 0.25 of the rest, so 0.36 / 0.315 / 0.225 / 0.10 in effect. On expiry day the OI weight is halved and redistributed. Bullion weights: see Bullion bias. |
 
 ---
 
@@ -194,7 +207,7 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Replay** | Feeding recorded ticks back through the system at real or accelerated speed. Used for tests, after-hours demos, load testing, and fault injection. |
 | **Sector index** | An NSE index of one sector's stocks (Nifty Auto, Nifty IT, Nifty PSU Bank, …). Shown with its level and change on the Index panel beside the index it helps explain (Milestone E11); configured per index in `sector_indices`. Display only. |
 | **Dollar-index proxy** | The US dollar against the euro, yen and pound, rebuilt from NSE's USD/INR, EUR/INR, GBP/INR and JPY/INR futures because Upstox does not carry the dollar index (DXY). Uses the DXY's weights for those three currencies (83 % of it), renormalised; only its % change is used. Milestone E12. |
-| **Macro evidence** | The fourth group of the bias (Milestone E12): the moves of the dollar-index proxy, USD/INR, MCX crude and gold over 30 minutes, with 10 % of the index bias and, for bullion, the dollar's 10 %. Silver is shown but not scored. Read by `MacroTracker` (`market/macro.py`). |
+| **Macro evidence** | The fourth group of the bias (Milestone E12): the moves of the dollar-index proxy, USD/INR, MCX crude and gold over 30 minutes, with 10 % of the index bias; for NIFTY also the GIFT Nifty opening gap (E14). For bullion the 10 % covers the dollar, USD/INR and the other metal's trend (`peer_metal`, E13). Silver is shown but not scored in the index group. Read by `MacroTracker` (`market/macro.py`) and `GiftNifty` (`market/gift.py`). |
 | **Session** | (Auth sense) one day's login record. See also "trading day / session" in §1. |
 | **Subscription** | Telling the websocket which instrument keys to stream. Subject to a provider-set cap on count. |
 | **Synthetic candle** | A carry-forward candle created for a minute with no ticks (O=H=L=C=previous close, volume 0) so indicator windows stay aligned. |
@@ -215,13 +228,14 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Candle builder** | The component that turns ticks into 1-minute candles and calls its close listeners on each minute boundary. The index builder drives the bias engine; bullion has its own (in the bullion tracker). |
 | **Chain state** | The in-memory option chain for one index, with derived values (ATM, PCR, OI changes, max pain) kept up to date per tick. |
 | **Coalescing** | When several updates arrive within one throttle window, sending only the latest state rather than every intermediate one. |
-| **Factor switch** | A parameter (`factors.nifty.pcr` and so on, Milestone E16) turning one factor of one index's or metal's bias on or off. Off: the factor is shown in the Evidence panel but carries no weight, from the next minute close. Flipped in Config → Factors, each flip its own version tagged `Factor NIFTY.pcr: off`; the Evidence panel shows it read only; every stored breakdown marks each factor `enabled`. |
+| **Factor switch** | A parameter (`factors.nifty.pcr` and so on, Milestone E16) turning one factor of one index's or metal's bias on or off. Off: the factor is shown in the Evidence panel but carries no weight, from the next minute close. Flipped in the Factors tab of the Config drawer, each flip its own version tagged `Factor NIFTY.pcr: off`; the Evidence panel shows it read only; every stored breakdown marks each factor `enabled`. |
+| **Config drawer** | The panel the top bar's Config button opens on the right of the screen, with three tabs: Parameters (every typed value with its explanation and limits), Factors (the factor switches with a one-line explanation each) and Versions (every version, the one in force marked, Revert). Closes from its header, the Close button, the backdrop or Escape. |
 | **Config version** | One saved parameter set: a number (1, 2, 3, …), a tag typed by the trader and the values. The highest is in force; versions are never changed or removed. Each signal records the version it fired under. |
 | **Degraded mode** | NSE market is live but auth is missing/expired or the index feed is silent (see Index liveness). Last-known data is shown greyed; bias still computed but greyed; no new signals; paper-trade entry and manual close refused; target/stop checked again from the first tick after the feed returns (`after_gap`); the square-off timer still fires at the last known price (`stale`). |
 | **Display only** | Shown to the trader but never an input to the bias, signals or paper trades, and never recorded or replayed. Applied to bullion until E6; bullion now has its own pipeline (see Bullion desk). |
 | **DTO (data transfer object)** | A typed structure that defines the shape of data crossing a boundary (API request/response, websocket frame). Pydantic models in `api/schemas.py` and the routers; mirrored by hand in `frontend/src/api/types.ts` (both sides change together). |
 | **Evaluation offset** | `bullion.eval_offset_seconds`: how long after a minute close the bullion bias and signals run, so they never run at the same instant as the index engines. |
-| **Event bus** | `events.py:EventBus`, the in-process publish/subscribe used for low-rate state changes only: feed health, auth, strike-window change, parameters changed. The per-tick and per-minute data (candles, bias, signals, trades) goes through callback lists on `FeedSession` instead. |
+| **Event bus** | `events.py:EventBus`, the in-process publish/subscribe used for low-rate state changes only: feed health, auth, strike-window change, parameters changed, headlines changed. The per-tick and per-minute data (candles, bias, signals, trades) goes through callback lists on `FeedSession` instead. |
 | **Event-loop lag** | How late asyncio runs a task compared to when it was due. Sampled every 100 ms; a sign the hot path is blocked. |
 | **Fan-out** | Delivering each tick to several consumers (candle builder, chain state, paper manager, tick store) one after another from the tick bus. |
 | **FastAPI** | The Python web framework used for REST and websocket endpoints. |
@@ -279,12 +293,12 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | `ticks` | one tick for one instrument |
 | `candles_1m` | one 1-minute candle for one instrument, with its buyer- and seller-initiated volume where known |
 | `chain_minutes` | one strike of one index at one minute close (CE and PE values) |
-| `bias_minutes` | one index's bias and evidence at one minute close |
+| `bias_minutes` | one index's or metal's bias and evidence at one minute close |
 | `signals` | one signal (index or bullion) with its evidence, final status and the config version it fired under |
 | `signal_outcomes` | what one index signal's option did next: result, best/worst price, spot moves |
 | `config_versions` | one saved set of tunable parameters, numbered and tagged |
 | `paper_trades` | one paper trade from open to close, including exit fill quality |
-| `app_state` | one key/value of application state (the schema version itself is SQLite's `PRAGMA user_version`) |
+| `app_state` | one key/value of application state; unused since migration 014 removed E15's `factors_off` (the schema version itself is SQLite's `PRAGMA user_version`) |
 | `bullion_ticks` | one bullion (MCX) tick: the `ticks` columns plus the feed's day open, high and low |
 | `gift_nifty` | one NSE trading day's GIFT Nifty reading: its close before the previous 15:30 and before 09:15 |
 | `feed_events` | one operational event (session start, disconnect, gap, bullion gap, re-centre, backfill, ticks pruned) |

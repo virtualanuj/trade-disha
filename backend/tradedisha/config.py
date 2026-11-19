@@ -1,7 +1,8 @@
 """Static settings loaded from the environment or a .env file.
 
 These are values that need a restart and are not about the signal algorithm.
-Tunable signal parameters live in config/params.toml (Milestone 3).
+Tunable signal parameters are versioned in the database (parameters/, Milestone C1);
+config/params.toml only seeds version 1 for a new database.
 """
 
 from datetime import time
@@ -59,8 +60,9 @@ class Settings(BaseSettings):
     market_open: time = time(9, 15)
     market_close: time = time(15, 30)
     pre_open_start: time = time(9, 0)
-    # MCX bullion (display only, spec §6.6). MCX closes at 23:55 while the US is on standard
-    # time (roughly November to March) and at 23:30 otherwise: change it with the season.
+    # MCX bullion (signals and paper trades since E6, spec §6.6, §9a). MCX closes at 23:55
+    # while the US is on standard time (roughly November to March) and at 23:30 otherwise:
+    # change it with the season.
     mcx_open: time = time(9, 0)
     mcx_close: time = time(23, 30)
     mcx_holidays_file: Path = REPO_ROOT / "config" / "mcx-holidays.txt"

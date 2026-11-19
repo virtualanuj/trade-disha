@@ -120,8 +120,8 @@ gift_fade_minutes = 30         # the gap vote fades to nothing over this many mi
 gift_direction = "follow"      # follow: a gap up is bullish; fade: a gap up is bearish
 
 # Factor switches (E16): "off" leaves a factor out of that index's or metal's bias. Flipped
-# one at a time in the Config dialog, each flip a new version; here only for version 1 and
-# for trial files given to tools/score.py.
+# one at a time in the Config drawer's Factors tab, each flip a new version; here only for
+# version 1 and for trial files given to tools/score.py.
 [factors.nifty]
 ema_cross = "on"
 vwap_position = "on"

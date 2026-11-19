@@ -30,12 +30,14 @@ direction can be corrected early rather than at the end.
 
 As built (the source of truth is `backend/pyproject.toml` and `frontend/package.json`):
 
-- Backend: Python 3.12 managed with uv; FastAPI + uvicorn; `websockets`, `httpx` and
-  `protobuf` for the broker; SQLite through the standard `sqlite3` module; pure-Python
-  indicator maths; pytest, hypothesis; ruff, mypy strict, pre-commit.
+- Backend: Python 3.12 managed with uv; FastAPI + uvicorn; pydantic and
+  pydantic-settings for models and settings; `websockets`, `httpx` and `protobuf` for the
+  broker (`grpcio-tools` in dev, to regenerate the protobuf code); SQLite through the
+  standard `sqlite3` module; pure-Python indicator maths; pytest, pytest-asyncio,
+  hypothesis; ruff, mypy strict, pre-commit.
 - Frontend: Vite + React 19 + TypeScript (strict); Zustand for live stores; plain `fetch`
   for REST; TradingView `lightweight-charts`; Tailwind v4 with a design-token theme;
-  ESLint, Prettier, Vitest.
+  ESLint, Prettier, Vitest with Testing Library and jsdom.
 - Layout: `backend/` and `frontend/` under the repository root; `docs/` for intent, plan,
   spec, signal walkthrough, enhancements and the data dictionary.
 
@@ -72,6 +74,14 @@ version, then enhancements, configuration and signal quality).
 | E7 | Live signal levels | 2026-11-16 | built, with unit tests |
 | E8 | Net volume per candle | 2026-11-16 | built, with unit and replay tests |
 | E9 | One Market view panel | 2026-11-16 | built; checked in a browser |
+| E10 | Headlines | 2026-11-17 | built, with unit tests |
+| E11 | Sector indices, ATM in Details | 2026-11-17 | built, with unit tests |
+| E12 | Macro evidence: dollar, crude, gold | 2026-11-18 | built; weights to be tuned on recorded weeks |
+| E13 | Futures OI, order flow and the other metal in the bullion bias | 2026-11-18 | built; replayed on 16–18/11 |
+| E14 | GIFT Nifty opening gap in the NIFTY bias | 2026-11-19 | built; checked against Upstox |
+| E15 | Factor switches in the Evidence panel | 2026-11-19 | built; superseded the same day by E16 |
+| E16 | Factor switches in the versioned config | 2026-11-19 | built; checked by the owner in the app |
+| — | Config drawer (not a milestone) | 2026-11-19 | built, with unit tests; checked by the owner in the app |
 | S3 | Switch the trigger on, on evidence | — | planned: after five live sessions of shadow data |
 
 ---
@@ -118,7 +128,8 @@ synthetic and replay feeds, instrument resolution against a generated master, ti
 recording, WebSocket push, latency instrumentation and the top bar are done. **Deferred
 until an Upstox account exists:** the OAuth login flow, the real instrument-master
 download, and the Upstox websocket adapter. These slot in behind the existing
-`MarketDataProvider` interface and `AuthService` without touching the rest.
+`MarketDataProvider` interface and `AuthService` without touching the rest. *(Built in
+Milestone 5, with the live Upstox feed; in daily use since.)*
 
 ---
 
@@ -146,7 +157,9 @@ re-centring with live subscribe/unsubscribe; `/api/chain/{index}` and `chain` WS
 the panel with index tabs. **Still open for Upstox:** whether IV/delta arrive on the real
 feed (the Black-Scholes fallback in spec §7.3 stays planned) and opening-OI backfill from
 the option-chain REST snapshot; until then OI change is measured from the first tick seen,
-which equals market open when the app starts before 09:15.
+which equals market open when the app starts before 09:15. *(Both resolved since: IV
+comes from the feed and delta is computed when absent; opening OI is backfilled in
+Milestone 6. See spec §17.)*
 
 ---
 
@@ -187,7 +200,8 @@ overlays, bias meter and evidence table. Two deliberate deviations from the spec
 is computed on every minute close regardless of market status (signal firing is what
 market hours gate, in Milestone 4), and indicators recompute over the stored candle window
 (at most 400 bars) rather than incrementally, which measures in microseconds and keeps
-them pure. Late-start candle backfill belongs to the Upstox adapter.
+them pure. Late-start candle backfill belongs to the Upstox adapter. *(Built in Milestone
+6.)*
 
 ---
 
@@ -293,8 +307,10 @@ owner.
 - Tick pruning: `GET /api/data/usage`, `POST /api/data/prune-ticks`, and the Data panel
   with a typed-date confirmation; batches of 50k, then incremental vacuum.
 - One command: `make start` builds the web app and the backend serves it.
-- **Not done:** the full-day 1x soak (memory, latency at 15:29, frame drops) has not been
-  run. Backfill responses are parsed as documented by Upstox and are unverified live.
+- ~~Not done: the full-day 1x soak (memory, latency at 15:29, frame drops) has not been
+  run. Backfill responses are parsed as documented by Upstox and are unverified live.~~
+  Both since done: the soak was run by the owner (above), and backfill is in live use
+  (spec §17).
 
 ---
 
@@ -436,7 +452,10 @@ already provides.
   Below the cards: the gold/silver ratio, and a 1-minute chart with VWAP and a metal
   switch. The option chain is hidden on this tab.
 - **Display only.** Not recorded, not replayed, no part in the bias or signals. Live feed
-  only; any failure leaves the tab out and the index feed untouched.
+  only; any failure leaves the tab out and the index feed untouched. *(Superseded by E6:
+  bullion ticks are recorded in `bullion_ticks`, replayed with `TRADEDISHA_REPLAY_BULLION`,
+  and drive bullion signals and paper trades. Failures still leave the index feed
+  untouched.)*
 - Tests:
   - backend: parsing real-shaped MCX records (minis and petals excluded); near and next
     month including expiry day; the once-a-day download and its failure; the `1d` OHLC
@@ -464,7 +483,8 @@ month. Switch the chart; reload to find the tab and switch kept.
   `config/mcx-holidays.txt` (full holidays and evening-only days); a second `MarketClock`
   on the same time source.
 - **Bullion status** (`live`, `stale`, `closed`, `holiday`) in the health frame; MCX
-  outages logged as `bullion_gap_start`/`bullion_gap_end`; display only.
+  outages logged as `bullion_gap_start`/`bullion_gap_end`; display only. *(Since E6 it
+  also gates bullion signals and paper trades.)*
 - **Banner on the BULLION tab** follows MCX: no NSE "Market closed" after 15:30, a stale
   warning when bullion stops.
 - **Top bar follows the tab.** On BULLION the market pill reads MCX status and the feed
@@ -824,7 +844,7 @@ the config, and the Evidence panel shows them read only.
 ## Milestone E16 — Factor switches in the versioned config
 
 **Goal:** the factor switches are parameters, so each signal's config version says which
-factors were on; they are flipped in the Config dialog and shown read only in Evidence.
+factors were on; they are flipped in the Config control and shown read only in Evidence.
 
 - `parameters/model.py`: `factors` with `nifty` (`NiftyFactors`, 15), `banknifty`
   (`IndexFactors`, 14), `gold` and `silver` (`BullionFactors`, 9), each `"on"`/`"off"`,
@@ -835,9 +855,11 @@ factors were on; they are flipped in the Config dialog and shown read only in Ev
   the switches in force.
 - Engines read `p.factors.off_for(...)`. E15's store, routes, event and frame removed;
   migration 014 deletes `app_state.factors_off`, so every factor starts on.
-- Config dialog: a **Factors** tab (its label counts the factors off), one list per index
+- Config control: a **Factors** tab (its label counts the factors off), one list per index
   and metal, a working switch per factor that saves at once. A tab rather than a section of
-  the Edit form, because each flip is a new version and the form restarts on a new version.
+  the Edit form, because each flip is a new version and the form restarted on a new version.
+  *(Since the Config drawer below, the form keeps unsaved edits across a new version; the
+  Factors tab stays a tab of its own.)*
 - Evidence panel: a read-only switch per row from the config in force, "(off)" rows
   dimmed, "off/on from the next minute close" until the bias catches up, and "N factors
   switched off. Change in Config, Factors."
@@ -858,6 +880,31 @@ read-only state is a flat label (a green ON, a grey OFF), unlike the Config tab'
 
 **Design:** spec §8.4; signal.md §4, §11.
 
+## Config drawer (19/11/2026, not a milestone)
+
+**Goal:** the config is easier to read and edit: more room than a dropdown, and every
+value explained where it is shown.
+
+- The Config button opens a **drawer on the right** over a dimmed backdrop instead of a
+  dropdown panel. It closes from its header line, a clear ✕ Close button, the backdrop or
+  Escape.
+- Three tabs: **Parameters** (was Edit), **Factors · N off**, **Versions** (was History),
+  opening on Parameters.
+- Parameters: each value's help text on the line below its name, then "Allowed: …" with
+  its limits; groups headed in bold. Values not touched follow a new version when one
+  arrives (a factor flip, a save, a revert); unsaved edits are kept (`rebase` in
+  `ConfigControl.tsx`).
+- Factors: each row has the toggle, the factor's name and a one-line plain explanation
+  below it (`FACTOR_HELP` in `lib/factors.ts`).
+- Versions: unchanged apart from an "in force" badge.
+- Tests: the drawer and each way to close it, help and limits shown without hovering, the
+  factor explanations, unsaved edits surviving a new version.
+
+**Status (2026-11-19):** built, with unit tests; `make check` green; checked by the owner
+in the app. Commit a891615.
+
+**Design:** spec §13.2 (Config control).
+
 ## Milestone C1 — Editable, versioned config
 
 **Goal:** the trader tunes the parameters in the app, can always get back to an earlier
@@ -865,11 +912,12 @@ set, and can see which set produced each signal.
 
 - **Versions in the database.** Table `config_versions` (migration 010); the highest
   version is in force; a new database takes version 1 from `config/params.toml`.
-- **Edit.** A form in the Config control built from a field list the server describes
+- **Edit** (since 19/11/2026 the Parameters tab of the Config drawer). A form in the
+  Config control built from a field list the server describes
   (kind, limits, help). A save needs a tag and a change, is validated as a whole, and
   applies from the next minute close.
-- **History and revert.** Every version listed; reverting saves the old values as a new
-  version.
+- **History and revert** (now the Versions tab). Every version listed; reverting saves the
+  old values as a new version.
 - **Signals carry the version** (`signals.config_version`), shown as a chip on the signal
   card and in "Signals today"; hovering it shows that version's values, with those that
   differ from the config in force highlighted.
@@ -877,10 +925,11 @@ set, and can see which set produced each signal.
 - Tests: the service (seed, save, tag and no-change refusals, revert, a stored version
   the model no longer accepts, surviving a restart); the field list; the stamp on live
   signals; the six routes and the websocket frame; the editor (save, server errors,
-  discard, new version resets the form), history and revert; the chip and its panel.
+  discard, new version resets the form; since the Config drawer a new version keeps
+  unsaved edits instead), history and revert; the chip and its panel.
 
 **Demo:** change the entry threshold and save with a tag; see the version in the top bar
-and in History; try an invalid value and see it refused; wait for a signal and hover its
+and in History (now Versions); try an invalid value and see it refused; wait for a signal and hover its
 chip; revert to version 1; restart and find the history intact.
 
 **Not in C1:** scorecard split by config version; comparing two versions; scoring a stored
@@ -917,7 +966,9 @@ neither with its best and worst move; the tool prints the same numbers for that 
 **Status (2026-11-13):** built, `make check` green. The tool was run on the day recorded
 live on 2026-11-13 (one signal: stop first, lateness 0.95). Not yet done: a live session,
 which is what will confirm that the order-flow fields arrive and show how much the
-database grows (spec §17); the demo in a browser on a replayed day.
+database grows (spec §17); the demo in a browser on a replayed day. *(Since done: the
+order-flow fields are recorded live and the app is in daily use; table growth is watched
+from the Data panel. See spec §17.)*
 
 **Design:** spec §6.2, §9.5, §11, §12.1, §13.2 (SignalHistory).
 
@@ -948,7 +999,9 @@ feed: the flow line, shadow trigger signals greyed beside the live ones with out
 both count lines, a scorecard row per rule, and a paper trade on a shadow signal refused.
 That run used a trial parameter file (bias on trend only, lower flow bar), because the
 synthetic option chain is random and never builds a bias on the shipped values; it shows
-the mechanism, not that the rule is any good. Not yet done: a live day.
+the mechanism, not that the rule is any good. Not yet done: a live day. *(Since done: the
+shadow rule has run on the live sessions of 16–18/11/2026; see E14's status. S3 still
+waits for five sessions of shadow data.)*
 
 The scoring tool on the day recorded on 2026-11-13, shipped parameters. That day has no
 book quantities, so the flow score came from signed trades alone:

@@ -125,13 +125,15 @@ Considered and not chosen: order flow as a fourth evidence group in the bias (st
 only at minute close, and averaging dilutes it); tuning persistence and thresholds on the
 existing inputs (fewer false signals only by making them later).
 
-Status: Milestones S1 (recording and scoring) and S2 (order-flow trigger in shadow) built,
-awaiting a live day. S3 (switch on, on evidence) waits for at least five live sessions of
-shadow data. Requirement in [intent.md](intent.md); design in [spec.md](spec.md) §6.2,
+Status: Milestones S1 (recording and scoring) and S2 (order-flow trigger in shadow) built;
+the order-flow fields are recorded live and the shadow rule has run on the live sessions of
+16–18/11/2026. S3 (switch on, on evidence) waits for at least five live sessions of shadow
+data. Requirement in [intent.md](intent.md); design in [spec.md](spec.md) §6.2,
 §8.5, §9.5, §9.6, §11, §12; milestones S1 to S3 in [plan.md](plan.md).
 
 Not included: targets and stops sized from theta, gamma and vega; choosing a strike other
-than ATM; the 30-level order book.
+than ATM (analysed, not built: see the strike ladder under Deferred); the 30-level order
+book.
 
 ### 7. OI build-up vote reads the premium's direction
 
@@ -171,6 +173,42 @@ Decided with the owner on 2026-11-16:
 
 Not included: a scorecard split by config version; comparing two versions side by side;
 scoring a stored version with the offline tool.
+
+### 8a. Config drawer
+
+Asked for (2026-11-19): make the config dropdown a right-side panel; each parameter's and
+factor's explanation shown clearly in the line below its name; tabs for the parameters,
+the factors and the version history; clear ways to close it.
+
+Status: built and checked by the owner in the app (commit a891615). Design in
+[spec.md](spec.md) §13.2 (Config control); noted in [plan.md](plan.md) under "Config
+drawer".
+
+Decided with the owner on 2026-11-19:
+- A drawer on the right over a dimmed backdrop, with tabs **Parameters**, **Factors** and
+  **Versions**, opening on Parameters.
+- The explanation sits on the line below each name, not behind an (i) button (tried first
+  and dropped the same day); the limits go on a line of their own ("Allowed: …").
+- Each factor gets a one-line plain explanation, beside its toggle.
+- It closes from a clear ✕ Close button, its header line, the backdrop or Escape.
+
+Builder's calls:
+- Unsaved parameter edits are kept when a new version arrives (a factor flip, for
+  instance); values not touched follow the new version.
+- The factor explanations are written in `frontend/src/lib/factors.ts` (`FACTOR_HELP`),
+  from [signal.md](signal.md) §3, since the backend's switch descriptions are only names.
+
+### 8b. Chain parameters that are not read (open)
+
+Found in the docs review of 2026-11-19: `chain.strike_window` and
+`chain.recenter_strikes` are parameters, so they show in the Parameters tab and can be
+saved, but no code reads them. The option chain takes its width and re-centring from the
+process settings `TRADEDISHA_STRIKE_WINDOW` and `TRADEDISHA_RECENTER_STRIKES` (defaults 10
+and 2, restart needed). Editing them in the app does nothing.
+
+To decide: wire the chain to the parameters (re-centring could take a new value at the
+next minute close; the window width changes the subscriptions), or remove them from the
+parameter model and `config/params.toml` so the editor stops offering them.
 
 ## Market data
 
@@ -239,6 +277,8 @@ Decided with the owner on 2026-11-16:
 - The near-month GOLD and SILVER futures (the full contracts already on the tab), long or
   short.
 - Trend-only evidence (EMA cross, VWAP position, supertrend) on the bullion candles.
+  *(Since items 16 and 17: also the dollar, the future's OI, order flow and the other
+  metal.)*
 - The full MCX session: signals 09:15–22:45, square-off 23:00, all editable.
 - Bullion ticks recorded to their own table, with a bullion replay.
 - Journal: GOLD, SILVER and a bullion total; "overall" stays index options only.
@@ -495,21 +535,29 @@ Builder's calls:
 - `info` rows (silver, a faded GIFT vote) get a switch too; it changes nothing.
 
 Changed the same day (Milestone E16), decided with the owner:
-- The switches move into the versioned config. They are flipped only in the Config dialog,
+- The switches move into the versioned config. They are flipped only in the Config control
+  (since 8a, the Factors tab of the Config drawer),
   and each flip creates a version automatically with a fixed tag naming the change
   (`Factor NIFTY.pcr: off`).
 - The Evidence panel shows each factor's switch state clearly, read only.
 - Every factor starts on: switches set under E15 are not carried over.
 
 Builder's calls (E16):
-- A Factors tab in the Config dialog rather than a section of the Edit form: each flip is a
-  new version, and the form starts again on a new version, which would drop half-typed
-  edits.
+- A Factors tab in the Config control rather than a section of the Edit form: each flip is
+  a new version, and the form started again on a new version, which would drop half-typed
+  edits. *(Since 8a the form keeps unsaved edits across a new version; the tab stays.)*
 - The typed editor does not list the switches, and a typed save keeps them as they are.
 - A test keeps the switch names equal to the factors the engines produce, so a new factor
   cannot ship without a switch.
 
 ## Deferred
+
+### Strike ladder (ATM ±3)
+
+Signals that recommend, and score, options from three strikes in the money to three out
+of the money instead of the ATM strike alone. Analysed on 2026-11-17 in
+[strike_ladder_analysis.md](strike_ladder_analysis.md) (complexity, performance and data
+needs); nothing is built.
 
 ### Chart zoom buttons
 

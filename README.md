@@ -40,7 +40,7 @@ Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by
   ticks only. A closed market's quiet feed shows muted, not red, under an amber banner.
 - **E6:** bullion signals (buy or sell the GOLD/SILVER future on a trend-only bias, worked
   out 20 s after each minute close) and long/short paper trades through the MCX session,
-  with their own Journal rows.
+  with their own Journal rows. (The bias is no longer trend-only: see E12 and E13.)
 - **E7:** a waiting signal shows its fired and live entry, target and stop, and a paper
   trade takes the live levels at its fill.
 - **E8:** a net-volume histogram under the price chart: buyer- minus seller-initiated
@@ -67,6 +67,10 @@ Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by
 - **E16:** the factor switches are part of the versioned config: flipped in Config →
   Factors, each flip its own version (`Factor NIFTY.pcr: off`), shown read only in the
   Evidence panel, and usable in `tools/score.py` trial files.
+- **Config drawer** (19/11/2026): the Config button opens a drawer on the right with three
+  tabs, Parameters, Factors and Versions. Each parameter and factor is explained on the
+  line below its name; it closes from its header, a Close button, the backdrop or Escape;
+  unsaved edits survive a factor flip.
 
 ## Documents
 
@@ -78,6 +82,7 @@ Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by
 | [docs/signal.md](docs/signal.md) | How a signal is worked out, end to end, for the indices and for bullion, with worked examples. |
 | [docs/enhancements.md](docs/enhancements.md) | Requests made after 1.0.0, with what was decided and where each was built. |
 | [docs/dd.md](docs/dd.md) | Data dictionary: every domain and technical term used in these documents. |
+| [docs/strike_ladder_analysis.md](docs/strike_ladder_analysis.md) | Analysis (not built): what signals for ATM ±3 strikes would take. |
 
 ## Stack
 
@@ -88,7 +93,7 @@ Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by
 
 ## Setup
 
-Requirements: [uv](https://docs.astral.sh/uv/), Node 20+.
+Requirements: [uv](https://docs.astral.sh/uv/), Node 20.19+, 22.13+ or 24+ (what Vite 8 and jsdom need).
 
 ```bash
 make setup                 # uv sync, npm install, git pre-commit hook
@@ -100,6 +105,7 @@ cp .env.example .env       # Upstox key and secret are needed only for the live 
 ```bash
 make backend               # FastAPI on http://127.0.0.1:8000 (reload on change)
 make frontend              # Vite on http://localhost:5173 (proxies /api and /ws to the backend)
+make dev                   # both at once (backend in the background; Ctrl-C stops the frontend)
 ```
 
 For daily use, one command builds the web app and serves everything from the backend:
@@ -119,7 +125,7 @@ Set `TRADEDISHA_FEED_PROVIDER` in `.env`:
 |---|---|
 | `synthetic` (default) | Random-walk prices for both indices, ticking regardless of market hours. Ticks are recorded to SQLite. `TRADEDISHA_SYNTHETIC_TREND_PER_TICK=0.02` adds an upward drift (in strike steps per spot tick) to exercise re-centring. |
 | `replay` | Replays a recorded day from SQLite, driving the app clock from tick timestamps. `TRADEDISHA_REPLAY_DATE=YYYY-MM-DD` picks the day (default: latest); `TRADEDISHA_REPLAY_SPEED=0` runs as fast as possible. `TRADEDISHA_REPLAY_DROP='["10:05:00-10:07:30"]'` withholds the ticks in those IST time ranges, to see how the app behaves through a feed outage. |
-| `upstox` | Live market data. Needs `TRADEDISHA_UPSTOX_API_KEY` / `_SECRET` in `.env` and an Upstox app whose redirect URL is `http://127.0.0.1:8000/api/auth/callback`. Press **Login** in the top bar once a day (the token ends at 03:30 IST). Set `TRADEDISHA_DB_PATH=data/live.sqlite` so live recordings stay apart from synthetic ones; replay with the same path replays a live day against that day's real instruments. The BULLION tab (MCX gold and silver) comes from this feed; a replay shows it only with `TRADEDISHA_REPLAY_BULLION=true`, which also replays that day's recorded bullion ticks. MCX closes at 23:30, or 23:55 while the US is on standard time: set `TRADEDISHA_MCX_CLOSE=23:55` for those months. |
+| `upstox` | Live market data. Needs `TRADEDISHA_UPSTOX_API_KEY` / `_SECRET` in `.env` and an Upstox app whose redirect URL is `http://127.0.0.1:8000/api/auth/callback`. Press **Login** in the top bar once a day (the token ends at 03:30 IST). Set `TRADEDISHA_DB_PATH=data/live.sqlite` so live recordings stay apart from synthetic ones; replay with the same path replays a live day against that day's real instruments. The BULLION tab (MCX gold and silver) comes from this feed; a replay shows it only with `TRADEDISHA_REPLAY_BULLION=true`, which also replays that day's recorded bullion ticks. The macro ticks (currency futures, crude) are recorded with the bullion ticks, so a replay has macro evidence only with that flag too; NIFTY's GIFT Nifty gap replays either way. MCX closes at 23:30, or 23:55 while the US is on standard time: set `TRADEDISHA_MCX_CLOSE=23:55` for those months. |
 
 Trading holidays are read from `config/nse-holidays.txt`, and MCX's (which differ, and
 include evening-only days) from `config/mcx-holidays.txt`. Signal hours are enforced for
@@ -134,11 +140,21 @@ either way.
 ### Tuning the signal
 
 Every parameter that shapes the bias is edited in the app. The **Config** button in the top
-bar shows the version in force and opens the editor: change values, type a tag, and save. A
-valid save becomes the next numbered version and applies from the next minute close; an
-invalid one is rejected with the failing fields and nothing changes. The **History** tab
-lists every version and can revert to any of them (as a new version). Each signal shows the
-config version it fired under; hover it for that version's values.
+bar shows the version in force and opens a drawer on the right with three tabs:
+
+- **Parameters**: every value, with its explanation and allowed range on the line below its
+  name. Change values, type a tag, and save. A valid save becomes the next numbered version
+  and applies from the next minute close; an invalid one is rejected with the failing
+  fields and nothing changes.
+- **Factors**: a switch per factor of each index and metal, with a one-line explanation. A
+  flip is saved at once as its own version.
+- **Versions**: every version, the one in force marked; any other can be reverted to (as a
+  new version).
+
+Each signal shows the config version it fired under; hover it for that version's values.
+Two parameters, `chain.strike_window` and `chain.recenter_strikes`, are not read yet: the
+chain uses `TRADEDISHA_STRIKE_WINDOW` / `TRADEDISHA_RECENTER_STRIKES` (open item in
+enhancements.md).
 
 Versions are kept in the database, so the live and synthetic databases each have their own
 history. `config/params.toml` only supplies version 1 for a new database.
@@ -152,7 +168,10 @@ file and compare the scorecards:
 cd backend
 uv run python -m tradedisha.tools.score --db ../data/live.sqlite
 uv run python -m tradedisha.tools.score --db ../data/live.sqlite --params /path/to/trial.toml
+uv run python -m tradedisha.tools.score --db ../data/live.sqlite --days 2026-11-17 2026-11-18
 ```
+
+`--days` picks the days to replay (default: every recorded day).
 
 The recorded database is opened read-only; each day is replayed in a scratch copy.
 
@@ -177,7 +196,8 @@ not the tests, so run `make check` before calling something done.
 ```
 backend/    Python package `tradedisha`, tests
 frontend/   React app
-config/     NSE and MCX holiday lists; params.toml, the starting parameters for a new database
-docs/       intent, plan, spec, signal, enhancements, data dictionary
+config/     NSE and MCX holiday lists; news-stocks.txt, the stocks whose headlines are shown;
+            params.toml, the starting parameters for a new database
+docs/       intent, plan, spec, signal, enhancements, data dictionary, strike ladder analysis
 scripts/    check.sh
 ```

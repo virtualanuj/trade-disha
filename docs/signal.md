@@ -7,8 +7,13 @@ scored afterwards. Section 13 explains the separate engine for gold and silver, 
 buys or sells a future instead of an option.
 
 It describes the code as it stands. The design reference is `docs/spec.md` §8 (indicators)
-and §9 (signal engine); every tunable number mentioned here is a config parameter
-(section 11) and the values quoted are the shipped defaults.
+and §9 (signal engine). Most tunable numbers mentioned here are config parameters (section
+11) and the values quoted are the shipped defaults. A few are process settings in `.env`
+that need a restart (`TRADEDISHA_FEED_LIVE_MAX_TICK_AGE_MS` 5 s, `TRADEDISHA_RISK_FREE_RATE`
+6.5 %, `TRADEDISHA_BULLION_LIVE_MAX_TICK_AGE_MS` 15 s, `TRADEDISHA_STRIKE_WINDOW` 10 and
+`TRADEDISHA_RECENTER_STRIKES` 2), and a few are fixed in the code (the 15 % fallback IV, the
+10-minute pre-move of lateness, the `/10` scale of premium confirmation, the 5-minute gap
+the bullion OI vote tolerates).
 
 Each section starts with a **Note** that explains the terms it is about to use.
 
@@ -55,14 +60,15 @@ per minute, per index.
 ```
 ticks ─┬─> 1-minute candles ─┐
        ├─> option chain ─────┼─> 9 indicators ─> bias (−1..+1) ─┐
+       ├─> macro markets ────┤   (plus the macro votes)         │
        │                     │      (every minute close)        │
        └─> order flow (about once a second) ────────────────────┼─> entry rule ─> signal
                                                                 │
                                            live feed, signal hours, no active signal
 ```
 
-In one sentence: **nine indicators each vote between −1 and +1, the votes are averaged
-into a bias, and when the bias is strong enough (and a few safety checks pass) the engine
+In one sentence: **nine indicators (plus the macro votes of other markets) each vote
+between −1 and +1, the votes are averaged into a bias, and when the bias is strong enough (and a few safety checks pass) the engine
 raises a signal to buy the call or the put nearest the current index level.** Sections 1
 to 12 describe this index engine; gold and silver run a smaller engine of their own that
 buys or sells a future (section 13).
@@ -114,7 +120,8 @@ The net-volume histogram under the chart (buy minus sell volume per minute, sign
 the same futures ticks) is shown for the trader only; no indicator or rule reads it.
 
 **Which strike is "ATM" here.** The chain is centred on a strike, and that centre only
-moves when spot has travelled 2 strikes away from it (`chain.recenter_strikes`). So the
+moves when spot has travelled 2 strikes away from it (the process setting
+`TRADEDISHA_RECENTER_STRIKES`; the `chain.recenter_strikes` parameter is not read). So the
 strike the engine calls ATM can be up to about two strikes from the true nearest strike.
 Indicators and signals both use this centre strike.
 
@@ -203,7 +210,8 @@ weight:
 | Put | bearish | bullish |
 
 The score is `(bullish OI − bearish OI) / (bullish OI + bearish OI)`. A leg whose price or
-OI did not change in the minute is ignored.
+OI did not change in the minute is ignored. If no leg in range has a build-up reading, the
+vote is `warming` (no weight), not 0.
 
 ### 3.3 Premium group: are option prices agreeing
 
@@ -251,7 +259,8 @@ those three currencies (83 % of it) scaled to sum to 1. Only its % move is used.
 A reading is `warming` (no weight) when there is no price yet, fewer than 31 closes, or
 its last tick is more than 3 minutes old (`macro.max_age_seconds`), for example the
 currency market after 17:00. Without the live feed (synthetic, or replay without
-`replay_bullion`) there is no macro data at all.
+`replay_bullion`) there is no macro data, except NIFTY's GIFT Nifty gap in any replay, which
+comes from the stored `gift_nifty` row.
 
 **Worked example:** crude up 0.40 % in 30 minutes scores −0.40 / 0.80 = **−0.50**.
 
@@ -262,8 +271,8 @@ the bias already reads. What it does add is the overnight move: GIFT's last pric
 spot cancels out. The vote is that move against `macro.gift_full_pct` (0.50 %), signed by
 `macro.gift_direction` (`follow`: a gap up is bullish; `fade`: a gap up is bearish), and
 shrinks in a straight line to nothing over `macro.gift_fade_minutes` (30) after the open;
-after that it is shown as `info`. With no reading (Upstox had no price, or synthetic) it is
-`warming`. Example: on 19/11/2026 GIFT went from 25 237.5 to 25 154.0, −0.33 %; at the
+after that it is shown as `info`. With no reading (Upstox had no price) it is `warming`; on
+the synthetic feed the vote does not appear at all. Example: on 19/11/2026 GIFT went from 25 237.5 to 25 154.0, −0.33 %; at the
 09:19 close (5 minutes in) it scores −0.33 / 0.50 × (1 − 5/30) = **−0.55**.
 
 ---
@@ -276,8 +285,8 @@ after that it is shown as `info`. With no reading (Upstox had no price, or synth
 > - **Neutral band**: the range around zero in which the bias is treated as "no view".
 > - **Strength**: the bias without its sign, as a whole number from 0 to 100.
 
-At every minute close of the spot candle, `BiasEngine` runs all nine indicators and
-`aggregate()` combines them.
+At every minute close of the spot candle, `BiasEngine` runs all nine indicators, adds the
+macro readings (section 3.4) and `aggregate()` combines them.
 
 **1. Average within each group.** A group's score is the plain average of its `ok`
 indicators. Warming indicators are left out, so with two of three ready the group is the
@@ -296,8 +305,10 @@ Macro takes its share first (`weights.macro`, 0.10) and trend, OI and premium ke
 proportions 0.40 / 0.35 / 0.25 in the rest. On expiry day OI is distorted by positions
 being closed, so its weight is halved (`expiry_oi_weight_factor = 0.5`) and the share it
 gives up is handed to the other groups in proportion to their own weights. When **no
-macro reading is `ok`**, the macro share is handed back the same way, so the bias is
-exactly what it was before E12 (last column).
+macro reading is `ok`**, the macro share is handed back the same way, so on a normal day the
+bias is exactly what it was before E12 (last column). On expiry day the two hand-backs
+happen one after the other, so with no live macro price the weights (0.505 / 0.180 / 0.316)
+differ from the pre-E12 expiry weights (0.508 / 0.175 / 0.317) by under 0.01.
 
 **Switching a factor off.** Every factor is on by default. In **Config → Factors** each
 index and metal lists its factors with a switch; a flip is saved at once as a new config
@@ -308,7 +319,8 @@ no weight: it is left out of its group's average, so the group's other ready fac
 the group's weight. If every factor of a group is off, the group's share is handed to the
 other groups in proportion, as with no live macro price. Switches are per index or metal
 (crude off on NIFTY leaves BANK NIFTY alone). Until the next minute close the Evidence row
-says "off from the next minute close".
+says "off from the next minute close" (or "on from the next minute close" when a factor is
+switched back on).
 
 **3. Sum and clamp.** `bias = Σ (group weight × group score)`, clamped to −1..+1.
 
@@ -513,7 +525,8 @@ The index move is converted to an option price move with delta:
 
 Delta comes from the feed. If the feed has none, it is computed with Black-Scholes from
 spot, strike, time to the 15:30 close on expiry day, the option's IV (15 % if unknown) and
-the risk-free rate. Example: NIFTY call at ₹60 with delta 0.5 gives target 60 + 0.5 × 40 =
+the risk-free rate. If `signal.expiry_points` has no entry for the index, the normal-day
+percentages are used on expiry day too. Example: NIFTY call at ₹60 with delta 0.5 gives target 60 + 0.5 × 40 =
 ₹80 and stop 60 − 0.5 × 20 = ₹50.
 
 **What a signal records** (table `signals`):
@@ -649,14 +662,16 @@ Where to see it:
 > **Note:** a **config version** is one saved set of all the parameters, with a number
 > and a tag you type. The highest version is the one in force.
 
-Everything below is edited in the app (the **Config** button in the top bar) and
-validated by `parameters/model.py`. Each save is a new numbered version that applies from
-the next minute close; an invalid save is rejected and the previous values stay in force.
-Any earlier version can be reverted to. Versions are stored in the `config_versions`
+Everything below is edited in the app: the **Config** button in the top bar opens a drawer
+on the right, whose **Parameters** tab lists every value with its explanation and allowed
+range on the line below its name. Values are validated by `parameters/model.py`. Each save
+is a new numbered version that applies from the next minute close (`news.poll_seconds`
+applies at once); an invalid save is rejected and the previous values stay in force. Any
+earlier version can be reverted to from the **Versions** tab. Versions are stored in the `config_versions`
 table; `config/params.toml` only supplies version 1 for a new database.
 
-The factor switches (section 4) are parameters too, but are not typed in the editor: each
-flip in the Factors tab is its own version with a fixed tag such as `Factor NIFTY.pcr:
+The factor switches (section 4) are parameters too, but are not in the Parameters tab: each
+flip in the **Factors** tab (toggle, factor name and a one-line explanation) is its own version with a fixed tag such as `Factor NIFTY.pcr:
 off`.
 
 Each signal records the version in force when it fired (`config_version`). It appears as
@@ -688,13 +703,22 @@ values and highlights the ones that differ from the current config.
 | `signal.expiry_points.<INDEX>` | 40/20, 100/50 | expiry-day target and stop in index points |
 | `signal.outcome_horizon_minutes` | 30 | how long each signal is scored for |
 | `signal.last_signal_time` / `_expiry` | 15:00 / 13:00 | last time a signal may fire |
-| `chain.strike_window` / `recenter_strikes` | 10 / 2 | strikes either side of the chain's centre, and how far spot moves before it re-centres (this decides the "ATM" strike, section 2) |
+| `chain.strike_window` / `recenter_strikes` | 10 / 2 | **not read by the code** (open item in enhancements.md). The chain's width and re-centring, which decide the "ATM" strike (section 2), come from the process settings `TRADEDISHA_STRIKE_WINDOW` / `TRADEDISHA_RECENTER_STRIKES` and need a restart |
 | `paper.square_off_time` | 15:15 | open index paper trades close |
 | `paper.cost_per_trade` | ₹60 | round-trip cost per lot |
 | `paper.lots` | 1 | lots per paper trade |
+| `trend.ema_fast` / `ema_slow` / `ema_k` | 9 / 21 / 8 | EMA periods and the `tanh` scale of the crossover vote |
+| `trend.vwap_full_pct` | 0.3 | % above or below VWAP that counts as full strength |
+| `trend.supertrend_period` / `supertrend_mult` / `supertrend_ramp_bars` | 10 / 3.0 / 3 | supertrend ATR period and multiplier, and bars a fresh flip takes to count fully |
+| `oi.pcr_strike_range` / `pcr_centre` / `pcr_full_dev` | 5 / 1.0 / 0.5 | strikes either side of ATM in the PCR, its neutral value, and the distance from it at full strength |
+| `oi.oi_change_strike_range` | 2 | strikes either side of ATM in the build-up vote |
+| `oi.maxpain_drift_minutes` / `maxpain_full_steps` | 15 / 2 | window and strike steps at full strength for max-pain drift |
+| `premium.premium_roc_minutes` / `premium_roc_full_spread` | 5 / 20 | CE vs PE momentum window and the spread (percentage points) at full strength |
+| `premium.iv_change_minutes` / `iv_full_change` | 15 / 2.0 | IV-change window and the IV points at full strength |
+| `premium.confirmation_minutes` / `divergence_score` | 5 / −0.5 | premium-confirmation window and the vote when premiums disagree with spot |
+| `news.poll_seconds` | 180 | seconds between headline fetches (30–3600); display only, applies at once |
 
-The `[trend]`, `[oi]` and `[premium]` tables hold the periods and full-strength values
-quoted in section 3. The `bullion` section is in 13.10.
+The bullion parameters are in 13.10.
 
 ---
 
@@ -714,7 +738,8 @@ quoted in section 3. The `bullion` section is in 13.10.
 | Wiring (live and shadow engines, flow, outcomes) | `backend/tradedisha/market/session.py` |
 | Option chain, build-up, PCR, max pain | `backend/tradedisha/market/chain.py` |
 | Parameters | `backend/tradedisha/parameters/model.py` (the fields), `parameters/service.py` (versions), `config/params.toml` (starting values) |
-| Tests | `backend/tests/test_signals.py`, `test_outcomes.py`, `tests/market/test_flow.py`, `tests/indicators/` |
+| Factor switches | `parameters/model.py` (`Factors`, `off_for`), `ParameterService.set_factor`, `PUT /api/parameters/factors/{scope}/{name}` in `api/analysis.py`; on screen `frontend/src/components/ConfigControl/ConfigControl.tsx` (Factors tab, explanations in `lib/factors.ts`) and `EvidenceTable.tsx` (read only) |
+| Tests | `backend/tests/test_signals.py`, `test_outcomes.py`, `test_factors.py`, `tests/market/test_flow.py`, `tests/indicators/` |
 
 ---
 
@@ -761,7 +786,7 @@ MCX GOLD / SILVER ticks ─> BullionTracker (its own 1-minute candles)
 | | Index (NIFTY, BANK NIFTY) | Bullion (GOLD, SILVER) |
 |---|---|---|
 | What a signal trades | buy the ATM call or put | buy or sell the near-month future |
-| Evidence | 9 indicators: trend, OI, premium; plus macro (dollar, USD/INR, crude, gold) | 3 trend votes; the future's OI build-up; order flow (net volume, the book's lean); the dollar, USD/INR and the other metal's trend (there is no option chain) |
+| Evidence | 9 indicators: trend, OI, premium; plus macro (dollar, USD/INR, crude, gold; silver shown as info; NIFTY also the GIFT Nifty gap) | 3 trend votes; the future's OI build-up; order flow (net volume, the book's lean); the dollar, USD/INR and the other metal's trend (there is no option chain) |
 | Candles the trend reads | spot (EMAs, supertrend), future (VWAP) | the near-month future for all three |
 | Order flow | read at the trigger (section 5), not in the bias | two votes in the bias, the `flow` group (E13) |
 | When it is worked out | at the minute close | 20 s after the minute close |
@@ -893,7 +918,8 @@ breakdown, and shown in the Market view and Evidence panels of the BULLION tab.
 The index engines run at the minute close, where their latency budget is measured. So that
 bullion never competes with them for the same instant, a bullion candle close only
 **queues** the minute with a due time of `minute start + 60 s + offset`. The queue is
-checked on every bullion tick and twice a second, on the market clock. A minute is
+checked on every tick on the socket (index, bullion or macro) and twice a second, on the
+market clock. A minute is
 evaluated once, when its due time has passed. In replay the market clock follows the
 recorded ticks, so a replayed signal fires at the same moment it did live. A changed offset
 applies from the next minute queued. The actual delay is recorded as the latency hop
@@ -1006,7 +1032,7 @@ The same three endings as section 8:
 
 ### 13.10 Bullion parameters
 
-All in the `bullion` section of the config editor:
+All in the `bullion` section of the Config drawer's Parameters tab:
 
 | Parameter | Default | Effect |
 |---|---|---|

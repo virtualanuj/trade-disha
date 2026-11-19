@@ -59,8 +59,9 @@ These apply to the whole product, not to one feature.
 4. **Tunable signal algorithm.** Everything that shapes a recommendation — the weight of
    each kind of evidence, the thresholds, the indicator settings, targets and stops,
    time cut-offs — can be changed by the trader in the app, without restarting; the new
-   values take effect from the next minute. Every saved set is kept as a numbered version
-   that can be brought back (see "Configuration" under "The screen").
+   values take effect from the next minute. Each individual piece of evidence can also be
+   switched off for one index or metal (enhancement 17). Every saved set is kept as a
+   numbered version that can be brought back (see "Configuration" under "The screen").
 
 ## Scope of the first version
 
@@ -94,14 +95,16 @@ These apply to the whole product, not to one feature.
 - For each index, the app maintains a continuously updated view: bullish, neutral, or
   bearish, with a strength.
 - The view is refreshed every minute during market hours.
-- The view is built from three kinds of evidence:
+- The view is built from these kinds of evidence:
   1. **Price trend** — the direction and momentum of the index itself.
   2. **Open interest** — where positions are building up in the option chain, the balance
      between puts and calls, and how that is shifting.
   3. **Premium behaviour** — whether call and put premiums, and their implied volatility,
      agree with the move in the index.
-  4. **Macro** (added after 1.0, enhancement 16) — the dollar, the rupee, crude oil and
-     gold, with a small weight. It also counts in the bullion view.
+  4. **Macro** (added after 1.0, enhancement 14) — the dollar, the rupee, crude oil and
+     gold, with a small weight; for NIFTY also the overnight move of GIFT Nifty, at the
+     open only (enhancement 16). It also counts in the bullion view, which has its own
+     evidence (enhancements 7 and 15).
 - Each kind of evidence contributes a vote and a weight. The trader can see every vote.
 - The model must be able to take on further kinds of evidence later, in particular news
   flow and FII/DII buying and selling. These are not part of the first version.
@@ -166,20 +169,23 @@ These apply to the whole product, not to one feature.
   - a summary of the index with a details view that can be opened and closed, showing the
     day's open, high and low and where the price sits in that range, the 52-week high and
     low, the previous close and the change on the day, the futures premium over the index,
-    and India VIX,
+    and India VIX, with the sector indices below it (enhancement 13),
   - the current market view as a bearish-to-bullish meter with its strength,
-  - an intraday price chart of the index with recommendation markers,
+  - an intraday price chart of the index with recommendation markers, and the minute's
+    buying against selling volume under it (enhancement 10),
   - the active recommendation, if any, with its details and the Paper trade action,
   - the evidence breakdown behind the current view.
 - **Right-hand panel**: a live option chain for the selected index and expiry, showing for
   each strike the call and put price, change, open interest, change in open interest, and
   implied volatility. The at-the-money strike is highlighted and heavy open-interest
   build-up is visually emphasised. The put-call ratio and max-pain level are shown at the
-  top of the panel.
+  top of the panel. Below the chain, the latest headlines (enhancement 12).
 - **Journal page**: the paper-trade list and summary.
-- **Configuration**: the top bar shows which version of the configuration is in force.
-  The trader edits the values in the app and saves them under a tag of their own; each
-  save is a numbered version. An invalid value is refused with the reason and the
+- **Configuration**: the top bar shows which version of the configuration is in force,
+  and opens a panel on the right of the screen (enhancement 18) with the values, the
+  evidence switches and the versions, each value and piece of evidence explained where it
+  is shown. The trader edits the values in the app and saves them under a tag of their
+  own; each save is a numbered version. An invalid value is refused with the reason and the
   previous values stay. Any earlier version can be brought back. Every recommendation
   shows the version it was made under, and hovering it shows that version's values.
 - **Data**: an action to delete raw tick data up to and including a chosen date, which
@@ -211,9 +217,10 @@ These apply to the whole product, not to one feature.
 
 ## Enhancements after the first version
 
-Requested once the first version was in daily use. Items 1 to 5 change how the screen
-looks and what it shows. Items 6 to 9 also change how recommendations and paper trades
-work, as each says.
+Requested once the first version was in daily use. Items 1 to 5, 10 to 13 and 18 change
+how the screen looks and what it shows. Items 6 to 9 and 14 to 17 also change how
+recommendations and paper trades work, as each says. The numbers here are this document's
+own; [enhancements.md](enhancements.md) numbers the same requests differently.
 
 1. **Resizable panels.** The borders between the main area and the option chain, and
    under the price chart, can be dragged. The layout is remembered.
@@ -235,7 +242,7 @@ work, as each says.
    **5a. Re-ordering.** The panels of the main area can be moved up and down with buttons
    on each panel. The order is remembered, and one button puts the original layout back.
    (Originally the market view and the recommendation sat side by side and moved as a
-   pair; since enhancement 13 the market view holds the evidence at full width and the
+   pair; since enhancement 11 the market view holds the evidence at full width and the
    recommendation is its own panel above it.)
 
 6. **Earlier recommendations with fewer false ones.** Unlike the items above, this one
@@ -251,8 +258,9 @@ work, as each says.
    traded in India: the price and change on the day, the day's range, trading activity,
    the contract's range and price limits, the next month's price, the gold/silver ratio,
    and a minute chart. Gold and silver have their own market view and recommendations
-   (buy or sell the near-month future), worked out from price trend alone, and can be
-   paper-traded through the MCX evening session. They play no part in the index market
+   (buy or sell the near-month future), worked out at first from price trend alone (since
+   enhancements 14 and 15 also from the future's open interest, its order flow, the dollar
+   and the other metal), and can be paper-traded through the MCX evening session. They play no part in the index market
    view or recommendations, and the journal keeps their results apart from the index
    options'. This is the one place the app recommends selling: a short future, when the
    view on a metal is bearish.
@@ -264,6 +272,47 @@ work, as each says.
 9. **Live levels while a recommendation waits.** The recommendation shows the entry,
    target and stop it was issued with and the same levels at the current price, updated
    every second. A paper trade opened from it takes the live levels at its fill.
+
+10. **Buying and selling volume per minute.** Under the price chart, a histogram of each
+    minute's buyer-initiated against seller-initiated volume of the near-month future
+    (the metal's future on BULLION). Shown only; it is not part of the index market view.
+
+11. **One market view panel.** The market view meter and the evidence behind it are one
+    panel, the evidence at full width under the meter; the recommendation is its own
+    panel, above it by default.
+
+12. **Headlines.** The latest headlines from the broker, newest first, under the option
+    chain, for the heaviest NIFTY and BANK NIFTY stocks (the broker has no index, gold or
+    silver news). Grouped by day, new ones marked; the panel can be minimised or hidden.
+    A quick check on what is moving the market, not an input to the recommendations.
+
+13. **Sector indices.** The index summary shows the main sector indices for NIFTY (Auto,
+    FMCG, IT, Pharma, Metal, Energy, Realty, Media, Financial Services, PSU Bank) and the
+    bank sub-indices for BANK NIFTY, each with its level and change; the block can be
+    closed. The at-the-money strike moves into the details view.
+
+14. **Other markets in the view.** The dollar, the rupee, crude oil and gold count in the
+    index market view with a small weight, and the dollar in the bullion view; a price
+    that is not live carries no weight.
+
+15. **More evidence for gold and silver.** The bullion view also reads the future's open
+    interest build-up, its order flow (buying against selling volume, and which way the
+    order book leans) and the other metal's trend.
+
+16. **GIFT Nifty at the open.** NIFTY's market view takes GIFT Nifty's overnight move as
+    a vote at the open, fading out over the first half hour; whether to follow or fade
+    the gap is a setting.
+
+17. **Switching evidence off.** Each piece of evidence can be switched off for one index
+    or metal; it is still shown but carries no weight, from the next minute. Every
+    switch is part of the saved configuration, so each recommendation's version records
+    which were on, and the evidence breakdown shows each switch.
+
+18. **Configuration panel.** The configuration opens as a panel on the right of the
+    screen with three tabs: the values, each explained on the line below its name with
+    its allowed range; the evidence switches, each with a one-line explanation; and the
+    versions, with the one in force marked and a way back to any other. It closes with a
+    clear button, by clicking outside it, or with Escape.
 
 Considered and left for later: zoom-in and zoom-out buttons on the charts; showing one
 panel full screen (built, then removed at the owner's request); dragging panels to
@@ -297,7 +346,8 @@ These were set by the planner, not the trader, and can be changed:
 - The 52-week high and low are worked out from a year of daily prices from the broker and
   include today.
 - Bullion (enhancement 7): a recommendation needs a stronger view than for the indices
-  (0.60 against 0.50), because it rests on price trend alone; target and stop are 0.40 %
+  (0.60 against 0.50), set when it rested on price trend alone (kept since enhancements 14
+  and 15 added more evidence); target and stop are 0.40 %
   and 0.20 % of the future's price; recommendations from 09:15 to 22:45, square-off at
   23:00; the view is worked out 20 seconds after each minute so it never competes with the
   index work.
