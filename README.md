@@ -67,6 +67,11 @@ Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by
 - **E16:** the factor switches are part of the versioned config: flipped in Config →
   Factors, each flip its own version (`Factor NIFTY.pcr: off`), shown read only in the
   Evidence panel, and usable in `tools/score.py` trial files.
+- **E17:** a paper bank funds paper trades. Each trade blocks its premium (options) or
+  margin (futures, 10 % GOLD, 12 % SILVER) plus cost, and is refused if the bank can't
+  cover it. Closing settles its net P&L. The opening balance (₹25 lakh) is set in Config:
+  raising it deposits the difference, lowering it withdraws it, and the journal lists each
+  cash move.
 - **Config drawer** (19/11/2026): the Config button opens a drawer on the right with three
   tabs, Parameters, Factors and Versions. Each parameter and factor is explained on the
   line below its name; it closes from its header, a Close button, the backdrop or Escape;

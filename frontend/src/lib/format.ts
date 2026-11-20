@@ -74,6 +74,13 @@ export function fmtMoney(v: number | null | undefined): string {
   return v > 0 ? `+${body}` : `−${body}`
 }
 
+/** A rupee amount with no sign for gains: a balance, not a P&L. */
+export function fmtRupees(v: number | null | undefined): string {
+  if (v == null) return '—'
+  const body = `₹${rupees.format(Math.abs(Math.round(v)))}`
+  return Math.round(v) < 0 ? `−${body}` : body
+}
+
 /** Colour for a profit-or-loss figure. */
 export function pnlColour(v: number | null | undefined): string {
   if (v == null || Math.round(v) === 0) return 'text-fg-muted'

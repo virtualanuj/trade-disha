@@ -53,6 +53,8 @@ class PaperTradeOut(BaseModel):
     gross: float | None
     net: float | None
     warning: str | None
+    blocked: float  # held in the paper bank while open (E17)
+    banked: bool
     # live view of an open trade
     ltp: float | None = None
     ltp_ts: int | None = None
@@ -77,6 +79,34 @@ class JournalStatsOut(BaseModel):
 class JournalOut(BaseModel):
     stats: list[JournalStatsOut]
     open_trades: int
+
+
+class LedgerEntryOut(BaseModel):
+    id: int
+    ts: int
+    kind: str  # OPEN, DEPOSIT, WITHDRAW
+    amount: float
+    opening_balance: float
+    config_version: int | None
+
+
+class BankOut(BaseModel):
+    """The paper bank (spec §10.5): money held, blocked by open trades, and free."""
+
+    opening_balance: float
+    opened_ts: int
+    deposited: float
+    withdrawn: float
+    realised: float
+    balance: float
+    blocked: float
+    available: float
+    open_trades: int
+    ledger: list[LedgerEntryOut]
+
+
+def bank_out(state: AppState) -> BankOut:
+    return BankOut.model_validate(asdict(state.session.bank.summary()))
 
 
 class OpenRequest(BaseModel):
@@ -181,6 +211,11 @@ def list_trades(
     return [trade_out(state, t) for t in _read(state, start, end, index, status)]
 
 
+@router.get("/bank", response_model=BankOut)
+def bank(state: State) -> BankOut:
+    return bank_out(state)
+
+
 @router.get("/journal/stats", response_model=JournalOut)
 def stats(
     state: State,
@@ -195,4 +230,4 @@ def stats(
     )
 
 
-__all__ = ["JournalStats", "open_trades", "router", "today_trades", "trade_out"]
+__all__ = ["JournalStats", "bank_out", "open_trades", "router", "today_trades", "trade_out"]

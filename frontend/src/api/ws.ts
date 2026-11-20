@@ -83,6 +83,10 @@ export class MarketSocket {
         )
         s.applyBullion(frame.payload.bullion, frame.payload.bullion_candles)
         s.applyNews(frame.payload.news)
+        s.applyBank(frame.payload.bank)
+        break
+      case 'bank':
+        s.applyBank(frame.payload)
         break
       case 'news':
         s.applyNews(frame.payload)

@@ -550,6 +550,33 @@ Builder's calls (E16):
 - A test keeps the switch names equal to the factors the engines produce, so a new factor
   cannot ship without a switch.
 
+### 20. A paper bank account that funds paper trades
+
+Asked for (2026-11-20): a fake bank account that funds trades. On each paper trade, check
+the bank has the money and block it; on close, deduct the loss or deposit the profit. The
+initial money is configurable in the Config menu.
+
+Status: built in Milestone E17. Design in [spec.md](spec.md) §10.5; planned in
+[plan.md](plan.md) Milestone E17.
+
+Decided with the owner on 2026-11-20:
+- A future blocks a margin % per metal (GOLD 10 %, SILVER 12 %, both parameters). An option
+  blocks its premium. Both add the round-trip cost.
+- One account for index options and bullion, and no data is ever deleted.
+- Changing the opening balance is cash moving: a bigger amount deposits the difference,
+  a smaller one withdraws it. P&L made so far keeps counting. (First built as a fresh
+  account on each change; changed the same day.)
+- The default opening balance is ₹25 lakh.
+
+Builder's calls:
+- The balance is worked out from the trades each time, not stored, so it cannot drift.
+- A refused trade leaves the signal active, so it can be taken once money frees up.
+- A futures loss can exceed its margin, so the balance can go negative; no new trade opens
+  until money is deposited.
+- A withdrawal is not capped by the free money (a Config save is not refused over the
+  bank); available can go below zero, and new trades are refused until trades close.
+- Saving the same opening balance again moves no cash. The journal lists every cash move.
+
 ## Deferred
 
 ### Strike ladder (ATM ±3)

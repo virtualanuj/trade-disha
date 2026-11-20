@@ -880,6 +880,53 @@ read-only state is a flat label (a green ON, a grey OFF), unlike the Config tab'
 
 **Design:** spec §8.4; signal.md §4, §11.
 
+## Milestone E17 — Paper bank account
+
+**Goal:** paper trades are funded by a fake bank account. A trade opens only if the bank
+can block its money, and its net P&L is deposited or deducted when it closes. The opening
+balance is a parameter.
+
+- `parameters/model.py`: `bank.opening_balance` (₹25 lakh), plus `bullion.gold_margin_pct`
+  (10) and `bullion.silver_margin_pct` (12); seeded in `config/params.toml`, edited in
+  Config → Parameters.
+- `engine/bank.py:PaperBank`: one per `FeedSession` (shared by the index and bullion
+  managers, there before the feed starts). A changed opening balance is recorded in
+  `bank_ledger` as a deposit or withdrawal of the difference (the first read records the
+  opening deposit); `summary()` derives balance, blocked and available from the funded
+  trades; `reserve()` refuses a trade it cannot fund.
+- `engine/paper.py`: `PaperRules.block`: an option's premium × qty + cost, a future's
+  margin % of value + cost. `PaperTrade.blocked` and `.banked`. A refused open leaves the
+  signal active.
+- Migration 015: `bank_ledger`, plus `paper_trades.blocked` and `.banked`.
+- `GET /api/bank`; `bank` in `hello`; a `bank` frame after each trade change and each
+  parameters change.
+- Page: a Paper bank strip (balance, blocked, available, unrealised, P&L since the bank
+  opened) above the open trades and at the top of the journal, available in red at or
+  below zero; the journal also lists the cash ledger; a Blocked column on open trades. A refused open shows on the signal card as
+  "Not opened: not enough money in the paper bank…".
+- Tests: block amounts per market, refusal (and the signal staying active), settlement on
+  manual, target and stop exits, a deposit and a withdrawal on edit (P&L kept), revert and
+  same-amount save, a withdrawal beyond the free money, pre-bank trades, a futures loss
+  beyond margin, the shared account, a hypothesis property test of
+  the books, the API, `hello` and the frame; the strip and the store.
+
+**Demo:** the strip shows Available ₹25,00,000. Open a NIFTY option trade: Blocked rises
+by premium × qty + cost; close it and Blocked returns to zero while Balance moves by the
+net. Set the opening balance to ₹10,000 in Config: a withdrawal of ₹24,90,000 is recorded,
+the balance falls by that much, and the next trade is refused on its card. Set it back:
+a deposit, and the same signal can be traded.
+
+**Status (2026-11-20):** built, with unit tests; `make check` green. Checked end to end on
+the synthetic feed the same day (open, close, a refused open, the signal still tradable).
+Then changed with the owner: a change of the opening balance was first a fresh account
+(earlier P&L stopped counting); it is now a deposit or withdrawal of the difference.
+Checked end to end again: a +₹7.50 trade, then ₹25 lakh → ₹10,000 withdrew ₹24,90,000
+(balance ₹10,007.50, the next trade refused), then back to ₹25 lakh deposited it (balance
+₹25,00,007.50, the same signal traded); the journal lists the three cash moves, and the
+bank was unchanged across a restart.
+
+**Design:** spec §10.5.
+
 ## Config drawer (19/11/2026, not a milestone)
 
 **Goal:** the config is easier to read and edit: more room than a dropdown, and every

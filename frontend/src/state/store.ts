@@ -13,6 +13,7 @@ import type {
   IndexPrices,
   IndexStatsOut,
   NewsOut,
+  BankOut,
   OverlayOut,
   PaperTradeOut,
   ParametersOut,
@@ -72,6 +73,8 @@ interface MarketStore {
   bullionOverlays: Record<string, OverlayOut[]>
   /** headlines (spec §6.7); null until the first hello */
   news: NewsOut | null
+  /** the paper bank (spec §10.5); null until the first hello */
+  bank: BankOut | null
   /** an index, or BULLION_TAB */
   selectedIndex: string
 
@@ -97,6 +100,7 @@ interface MarketStore {
   applyBullion: (b: BullionOut, candles?: BullionCandlesOut[]) => void
   applyBullionCandle: (metal: string, c: CandleOut, o: OverlayOut) => void
   applyNews: (news: NewsOut) => void
+  applyBank: (bank: BankOut) => void
   applyTrades: (t: PaperTradeOut[]) => void
   applyTick: (p: IndexPrices, recvAt: number) => void
   applyHealth: (h: HealthResponse) => void
@@ -133,6 +137,7 @@ export const useMarketStore = create<MarketStore>((set) => ({
   bullionCandles: {},
   bullionOverlays: {},
   news: null,
+  bank: null,
   selectedIndex: 'NIFTY',
 
   setWs: (ws) => {
@@ -140,6 +145,9 @@ export const useMarketStore = create<MarketStore>((set) => ({
   },
   applyNews: (news) => {
     set({ news })
+  },
+  applyBank: (bank) => {
+    set({ bank })
   },
   applyHello: (
     health,

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 
 import { fetchJournal, fetchPaperTrades } from '../../api/client'
 import type { JournalQuery } from '../../api/client'
@@ -53,6 +54,8 @@ interface Props {
   indices: string[]
   /** bumps when a trade changes, so the page refetches */
   revision: number
+  /** the paper bank strip, shown above the filters */
+  bank?: ReactNode
   load?: (q: JournalQuery, signal: AbortSignal) => Promise<Loaded>
 }
 
@@ -64,7 +67,7 @@ async function loadFromApi(q: JournalQuery, signal: AbortSignal): Promise<Loaded
   return { trades, journal }
 }
 
-export function Journal({ indices, revision, load = loadFromApi }: Props) {
+export function Journal({ indices, revision, bank, load = loadFromApi }: Props) {
   const [index, setIndex] = useState('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -104,6 +107,7 @@ export function Journal({ indices, revision, load = loadFromApi }: Props) {
       className="flex min-w-0 flex-1 flex-col gap-3 overflow-auto p-4 text-xs"
       data-testid="journal"
     >
+      {bank ? <div className="rounded border border-border bg-bg-elev p-3">{bank}</div> : null}
       <div className="flex flex-wrap items-end gap-3">
         <h1 className="mr-4 text-base font-semibold">Paper-trade journal</h1>
         <label className="flex flex-col gap-1 text-fg-muted">

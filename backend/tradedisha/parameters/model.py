@@ -414,6 +414,22 @@ class Paper(BaseModel):
         return _time(v)
 
 
+class Bank(BaseModel):
+    """The paper bank that funds paper trades (Milestone E17). Spec §10.5."""
+
+    model_config = ConfigDict(extra="forbid")
+    opening_balance: float = Field(
+        2_500_000.0,
+        gt=0,
+        le=10_000_000_000,
+        description=(
+            "Rupees put into the paper bank. A paper trade opens only if the bank can block "
+            "its money (an option's premium, a future's margin, plus cost). Raising this "
+            "deposits the difference, lowering it withdraws it; P&L made so far is kept."
+        ),
+    )
+
+
 class Bullion(BaseModel):
     """MCX GOLD and SILVER near-month futures, long or short. Spec §9a.
 
@@ -581,6 +597,27 @@ class Bullion(BaseModel):
             "understates them."
         ),
     )
+    gold_margin_pct: float = Field(
+        10.0,
+        gt=0,
+        le=100,
+        description=(
+            "Margin a GOLD paper trade blocks in the paper bank, as % of the contract's "
+            "value (price x quantity). The round-trip cost is blocked on top."
+        ),
+    )
+    silver_margin_pct: float = Field(
+        12.0,
+        gt=0,
+        le=100,
+        description=(
+            "Margin a SILVER paper trade blocks in the paper bank, as % of the contract's "
+            "value (price x quantity). The round-trip cost is blocked on top."
+        ),
+    )
+
+    def margin_pct(self, metal: str) -> float:
+        return self.gold_margin_pct if metal == "GOLD" else self.silver_margin_pct
 
     @field_validator("first_signal_time", "last_signal_time", "square_off_time", mode="before")
     @classmethod
@@ -707,6 +744,7 @@ class ParameterSet(BaseModel):
     signal: Signal = Field(default_factory=Signal)
     chain: Chain = Field(default_factory=Chain)
     paper: Paper = Field(default_factory=Paper)
+    bank: Bank = Field(default_factory=Bank)
     bullion: Bullion = Field(default_factory=Bullion)
     news: News = Field(default_factory=News)
     macro: Macro = Field(default_factory=Macro)

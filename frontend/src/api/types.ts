@@ -122,6 +122,7 @@ export interface HelloFrame extends FrameBase {
     gates: GateOut[]
     flow: FlowOut[]
     paper_trades: PaperTradeOut[]
+    bank: BankOut
     stats: IndexStatsOut[]
     bullion: BullionOut
     bullion_candles: BullionCandlesOut[]
@@ -179,6 +180,7 @@ export type Frame =
   | BullionFrame
   | BullionCandleFrame
   | NewsFrame
+  | BankFrame
 
 export type BuildUp =
   'long_buildup' | 'short_buildup' | 'short_covering' | 'long_unwinding' | 'none'
@@ -438,6 +440,41 @@ export interface SignalFrame extends FrameBase {
 export type ExitReason = 'TARGET' | 'STOP' | 'SQUARE_OFF' | 'MANUAL'
 export type FillQuality = 'live' | 'after_gap' | 'stale'
 
+/** The paper bank that funds paper trades (spec §10.5). Mirrors api/paper.py BankOut. */
+/** One cash move in the paper bank: the opening deposit, then one per change of it. */
+export interface BankLedgerEntryOut {
+  id: number
+  /** epoch ms */
+  ts: number
+  kind: 'OPEN' | 'DEPOSIT' | 'WITHDRAW'
+  /** always positive */
+  amount: number
+  /** the opening balance after this entry */
+  opening_balance: number
+  config_version: number | null
+}
+
+export interface BankOut {
+  /** the parameter in force: cash put in, net of withdrawals */
+  opening_balance: number
+  /** epoch ms when the opening deposit was recorded */
+  opened_ts: number
+  /** cash deposited and withdrawn after the opening */
+  deposited: number
+  withdrawn: number
+  /** net of every closed trade the bank funded */
+  realised: number
+  /** opening balance plus realised */
+  balance: number
+  /** held by open trades */
+  blocked: number
+  /** balance minus blocked: what a new trade can draw on */
+  available: number
+  open_trades: number
+  /** oldest first */
+  ledger: BankLedgerEntryOut[]
+}
+
 export interface PaperTradeOut {
   id: string
   signal_id: string
@@ -467,6 +504,10 @@ export interface PaperTradeOut {
   gross: number | null
   net: number | null
   warning: 'bias_reversed' | null
+  /** money held in the paper bank while open (E17) */
+  blocked: number
+  /** funded by the paper bank; false for trades from before it */
+  banked: boolean
   /** live view while open */
   ltp: number | null
   ltp_ts: number | null
@@ -657,6 +698,12 @@ export interface NewsOut {
   items: HeadlineOut[]
   /** each listed stock's indices ('NIFTY', 'BANKNIFTY'), for the colour of its chip */
   stock_indices: Record<string, string[]>
+}
+
+/** Sent when a paper trade opens, closes or changes, and when the parameters change. */
+export interface BankFrame extends FrameBase {
+  type: 'bank'
+  payload: BankOut
 }
 
 export interface NewsFrame extends FrameBase {

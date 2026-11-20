@@ -1,4 +1,5 @@
 import type {
+  BankOut,
   BullionMetalOut,
   CandleOut,
   FlowOut,
@@ -149,5 +150,14 @@ describe('bullion in the store', () => {
     }
     useMarketStore.getState().applyNews(news)
     expect(useMarketStore.getState().news).toBe(news)
+  })
+
+  it('keeps the latest paper bank from a bank frame', () => {
+    const bank = { opening_balance: 100, available: 100, blocked: 0 } as BankOut
+    useMarketStore.getState().applyBank(bank)
+    expect(useMarketStore.getState().bank).toBe(bank)
+    const after = { ...bank, available: 40, blocked: 60 }
+    useMarketStore.getState().applyBank(after)
+    expect(useMarketStore.getState().bank?.available).toBe(40)
   })
 })

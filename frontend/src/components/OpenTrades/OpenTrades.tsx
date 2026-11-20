@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { closePaperTrade } from '../../api/client'
 import type { PaperTradeOut } from '../../api/types'
 import { instrumentLabel, isLong } from '../../lib/direction'
-import { fmtDuration, fmtIstTime, fmtMoney, fmtPrice, pnlColour } from '../../lib/format'
+import { fmtDuration, fmtIstTime, fmtMoney, fmtPrice, fmtRupees, pnlColour } from '../../lib/format'
 
 interface Props {
   /** open trades on the selected index */
@@ -49,6 +49,12 @@ export function OpenTrades({ trades, now, canClose, onClose = closePaperTrade }:
             <th className="text-right font-normal">Target</th>
             <th className="text-right font-normal">Stop</th>
             <th className="text-right font-normal">Net P&amp;L</th>
+            <th
+              className="text-right font-normal"
+              title="Held in the paper bank while open: premium or margin, plus cost"
+            >
+              Blocked
+            </th>
             <th className="text-right font-normal">Open for</th>
             <th />
           </tr>
@@ -80,6 +86,7 @@ export function OpenTrades({ trades, now, canClose, onClose = closePaperTrade }:
               >
                 {fmtMoney(t.live_net)}
               </td>
+              <td className="text-right text-fg-muted">{fmtRupees(t.blocked)}</td>
               <td className="text-right text-fg-muted">{fmtDuration(now - t.entry_ts)}</td>
               <td className="text-right font-sans">
                 <button

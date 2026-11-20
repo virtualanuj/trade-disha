@@ -707,6 +707,7 @@ values and highlights the ones that differ from the current config.
 | `paper.square_off_time` | 15:15 | open index paper trades close |
 | `paper.cost_per_trade` | ₹60 | round-trip cost per lot |
 | `paper.lots` | 1 | lots per paper trade |
+| `bank.opening_balance` | ₹25,00,000 | cash in the paper bank; raising it deposits the difference, lowering it withdraws (spec §10.5) |
 | `trend.ema_fast` / `ema_slow` / `ema_k` | 9 / 21 / 8 | EMA periods and the `tanh` scale of the crossover vote |
 | `trend.vwap_full_pct` | 0.3 | % above or below VWAP that counts as full strength |
 | `trend.supertrend_period` / `supertrend_mult` / `supertrend_ramp_bars` | 10 / 3.0 / 3 | supertrend ATR period and multiplier, and bars a fresh flip takes to count fully |
@@ -1026,6 +1027,10 @@ The same three endings as section 8:
 - **Cost**, fixed at entry: `cost_fixed_per_lot × lots + cost_pct_of_value / 100 × entry
   × quantity × 2` = ₹60 per lot + 0.012 % of the round-trip value. A GOLD lot at
   ₹1,35,000 is worth ₹1.35 crore, so 60 + 0.012 % × 2.7 crore = **₹3,300**.
+- **Paper bank** (E17, spec §10.5): the trade blocks its margin, `gold_margin_pct` (10) or
+  `silver_margin_pct` (12) of entry × quantity, plus the cost, from the account shared
+  with index options. That GOLD lot blocks ₹13.5 lakh + ₹3,300; if the bank cannot cover
+  it, the trade is refused.
 - A separate paper-trade manager owns bullion trades, so they square off on MCX time and
   survive a restart without touching the index trades. In the Journal they appear as
   GOLD, SILVER and a Bullion total; "Index options" (the overall line) leaves them out.
@@ -1047,6 +1052,7 @@ All in the `bullion` section of the Config drawer's Parameters tab:
 | `bullion.target_pct` / `stop_pct` | 0.40 / 0.20 | % of the future's price |
 | `bullion.lots` | 1 | lots per paper trade |
 | `bullion.cost_fixed_per_lot` / `cost_pct_of_value` | ₹60 / 0.012 % | paper-trade cost |
+| `bullion.gold_margin_pct` / `silver_margin_pct` | 10 / 12 | % of the future's value a paper trade blocks in the paper bank (spec §10.5) |
 | `bullion.macro_weight` | 0.10 | other markets' share: the dollar (E12) and the other metal (E13) |
 | `bullion.oi_weight` / `flow_weight` | 0.15 / 0.15 | the futures OI and order-flow shares (E13); trend has what the three leave, and they must leave it some |
 | `bullion.oi_window_minutes` | 15 | minutes over which price and OI changes are read |

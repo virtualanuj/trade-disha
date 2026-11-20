@@ -18,13 +18,16 @@ import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, fields, replace
 from datetime import datetime, time
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from tradedisha.clock import IST, MarketClock, ist_to_ms, ms_to_ist
 from tradedisha.engine.bias_engine import BiasComputed
 from tradedisha.engine.signals import Direction, Signal, SignalStore
 from tradedisha.feed.bus import StampedTick
 from tradedisha.parameters.model import ParameterSet
+
+if TYPE_CHECKING:
+    from tradedisha.engine.bank import PaperBank
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +58,8 @@ class PaperRules:
     lots: Callable[[ParameterSet], int]
     # round-trip cost for the whole trade, fixed at entry: (params, entry price, qty, lots)
     cost: Callable[[ParameterSet, float, int, int], float]
+    # money the paper bank blocks while the trade is open: (params, index, entry, qty, cost)
+    block: Callable[[ParameterSet, str, float, int, float], float]
 
 
 def index_rules() -> PaperRules:
@@ -64,6 +69,7 @@ def index_rules() -> PaperRules:
         square_off=lambda p: p.paper.square_off_time,
         lots=lambda p: p.paper.lots,
         cost=lambda p, _entry, _qty, lots: p.paper.cost_per_trade * lots,
+        block=lambda _p, _index, entry, qty, cost: entry * qty + cost,  # the premium paid
     )
 
 
@@ -80,6 +86,9 @@ def bullion_rules() -> PaperRules:
         square_off=lambda p: p.bullion.square_off_time,
         lots=lambda p: p.bullion.lots,
         cost=cost,
+        block=lambda p, metal, entry, qty, cost: (
+            p.bullion.margin_pct(metal) / 100 * entry * qty + cost
+        ),
     )
 
 
@@ -120,6 +129,8 @@ class PaperTrade:
     gross: float | None = None
     net: float | None = None
     warning: Warning | None = None
+    blocked: float = 0.0  # held in the paper bank while open (E17)
+    banked: bool = False  # funded by the paper bank, so its P&L settles there
 
     @property
     def is_open(self) -> bool:
@@ -191,7 +202,9 @@ class PaperTradeStore:
 
     @staticmethod
     def _row(r: sqlite3.Row) -> PaperTrade:
-        return PaperTrade(**{c: r[d] for c, d in zip(_COLS, _DB_COLS, strict=True)})
+        row = {c: r[d] for c, d in zip(_COLS, _DB_COLS, strict=True)}
+        row["banked"] = bool(row["banked"])
+        return PaperTrade(**row)
 
 
 @dataclass(frozen=True)
@@ -214,6 +227,7 @@ class PaperTradeManager:
         last_recorded: Callable[[str, int], Price | None] | None = None,
         on_trade: Callable[[PaperTrade], None] | None = None,
         rules: PaperRules | None = None,
+        bank: PaperBank | None = None,
     ) -> None:
         self._clock = clock
         self._params = params
@@ -225,6 +239,7 @@ class PaperTradeManager:
         self._last_recorded = last_recorded
         self._on_trade = on_trade
         self.rules = rules or index_rules()
+        self.bank = bank
         self.open_trades: dict[str, PaperTrade] = {}
         self._gap: set[str] = set()  # open trades that lived through a feed outage
         self._restore()
@@ -258,6 +273,10 @@ class PaperTradeManager:
         qty = signal.lot_size * lots
         # The live levels at the fill: what the signal panel showed when the trader clicked.
         target, stop = self._signals.levels_at(signal, price.ltp)
+        cost = round(self.rules.cost(p, price.ltp, qty, lots), 2)
+        blocked = round(self.rules.block(p, signal.index, price.ltp, qty, cost), 2)
+        if self.bank:
+            self.bank.reserve(blocked)
         trade = PaperTrade(
             id=uuid.uuid4().hex[:12],
             signal_id=signal.id,
@@ -275,7 +294,9 @@ class PaperTradeManager:
             slippage=round(price.ltp - signal.entry_price, 2),
             target_price=target,
             stop_price=stop,
-            cost=round(self.rules.cost(p, price.ltp, qty, lots), 2),
+            cost=cost,
+            blocked=blocked if self.bank else 0.0,
+            banked=self.bank is not None,
         )
         self._signals.mark_traded(signal.id, now)
         self.open_trades[trade.id] = trade

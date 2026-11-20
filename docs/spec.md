@@ -191,12 +191,14 @@ by section. Each field carries a one-line description, which the editor shows as
 | Paper | `square_off_time` | 15:15 |
 | Paper | `cost_per_trade` | ₹60 |
 | Paper | `lots` | 1 |
+| Bank | `opening_balance` | ₹25,00,000 (E17; raising it deposits the difference, lowering it withdraws, §10.5) |
 | Bullion | `signals` | `on` (`off` = no bullion signals) |
 | Bullion | `entry_threshold`, `neutral_band`, `rearm_hysteresis` | 0.60, 0.20, 0 |
 | Bullion | `signal_ttl_seconds`, `eval_offset_seconds` | 300, 20 |
 | Bullion | `first_signal_time`, `last_signal_time`, `square_off_time` | 09:15, 22:45, 23:00 |
 | Bullion | `target_pct`, `stop_pct` | 0.40, 0.20 (% of the future's price) |
 | Bullion | `lots`, `cost_fixed_per_lot`, `cost_pct_of_value` | 1, ₹60, 0.012 % |
+| Bullion | `gold_margin_pct`, `silver_margin_pct` | 10, 12 (E17: % of value a future blocks in the paper bank, §10.5) |
 | Bullion | `macro_weight` | 0.10 (E12, E13: other markets' share, the dollar and the other metal) |
 | Bullion | `oi_weight`, `flow_weight` | 0.15, 0.15 (E13; trend has what OI, flow and macro leave) |
 | Bullion | `oi_window_minutes`, `oi_full_pct`, `oi_price_flat_pct`, `oi_unwind_factor` | 15, 0.50 %, 0.02 %, 0.5 |
@@ -1012,12 +1014,14 @@ POST /paper-trades {signal_id}
   → open at current LTP of signal.instrument_key (not signal.entry_price)
   → slippage = fill − signal.entry_price
   → quantity = lot_size × lots (bullion: point value × bullion.lots)
+  → the paper bank blocks the trade's money, or refuses (409) if it cannot (§10.5)
   → status OPEN; target/stop = the signal's live levels at the fill price (§9.3), so the
     trade gets what the card's Live row showed; signal_entry keeps the fired entry
 ```
 
 No cap on concurrent open paper trades per index or direction *(my call, follows from
-"always allow")*.
+"always allow")*. The paper bank (§10.5) is the only limit: a trade it cannot fund is
+refused with a 409, and the signal stays active.
 
 On every tick for an open trade's instrument (for a short future, `SELL_FUT`, the
 comparisons are mirrored: the target is below the entry):
@@ -1074,6 +1078,47 @@ yielding to the event loop between batches so the feed keeps flowing, followed b
 current day while the feed is live is allowed; the tick store simply continues appending.
 A `feed_events` row (`ticks_pruned`, with the date and row count) is written.
 
+### 10.5 Paper bank
+A fake bank account funds paper trades (Milestone E17). There is one account for every
+market: NIFTY, BANK NIFTY, GOLD and SILVER draw on the same money. Nothing is ever deleted.
+
+```
+blocked   = entry × quantity + cost                                index option (premium paid)
+blocked   = margin_pct(metal) / 100 × entry × quantity + cost      bullion future
+balance   = opening balance + Σ net of every closed trade the bank funded
+held      = Σ blocked of open trades
+available = balance − held
+```
+
+- **Entry.** After the usual checks (§10.1), a trade opens only if `blocked ≤ available`;
+  otherwise 409 `not enough money in the paper bank: needs ₹X, ₹Y available`. The signal is
+  not marked traded, so it can still be taken once money frees up. The trade stores
+  `blocked` and `banked = 1`.
+- **Exit.** Closing releases the block and settles net P&L into the balance: profit is
+  deposited, loss deducted, cost always deducted. A futures loss can exceed the margin it
+  blocked, so the balance can go negative; every new trade is then refused.
+- **Parameters.** `bank.opening_balance` (default ₹25 lakh), `bullion.gold_margin_pct` (10)
+  and `bullion.silver_margin_pct` (12), edited in Config → Parameters.
+- **Deposits and withdrawals.** The opening balance is the cash put in. Its first read
+  records an `OPEN` row in `bank_ledger`. When the parameter changes, the difference is
+  recorded as a `DEPOSIT` (new amount bigger) or a `WITHDRAW` (smaller), and the balance
+  moves by exactly that amount. P&L made so far keeps counting, and open trades are
+  untouched. Each save is recorded at once, because the `bank` frame pushed on a
+  parameters change reads the bank. An edit made while the app was down is recorded on
+  the next read. Saving the same amount moves no cash. A withdrawal is not capped by the
+  free money: it can leave available below zero, and then new trades are refused until
+  trades close.
+- **Derived, not stored.** No running balance is kept: each read sums the funded trades
+  in `paper_trades` (`banked = 1`). Trades from before E17 were not funded and never
+  count.
+- **API.** `GET /api/bank` → opening balance, when the bank opened, deposited, withdrawn,
+  realised, balance, blocked, available, open trades and the ledger (oldest first). The
+  same object is in `hello` (`bank`) and in a `bank` frame after any paper-trade change
+  and after a parameters change. The page shows it as a strip above the open trades and
+  at the top of the journal, with unrealised P&L (the open trades' live net) beside it.
+  The journal also lists the ledger: date, time, kind, amount and the cash in after it.
+  Each open trade shows what it blocks.
+
 ---
 
 ## 11. Persistence (SQLite)
@@ -1094,7 +1139,8 @@ applied in order at startup and tracked by `PRAGMA user_version`.
 | `signals` | the `Signal` fields (§9.2), with `index` stored as `idx` | every signal, live and shadow, index and bullion |
 | `signal_outcomes` | signal_id, end_ts, result, result_ts, best/worst price and ts, px_1m/5m/15m, spot_at_fire, spot_pre_move, spot_best_move, final | what each index signal's option did next (§9.5) |
 | `config_versions` | version, tag, created_ts, source, reverted_from, params_json | every saved parameter set (§3.2) |
-| `paper_trades` | id, signal_id, idx, instrument_key, trading_symbol, direction, strike, expiry, lots, qty, signal_entry, entry_price, entry_ts, slippage, target_price, stop_price, cost, status, exit_price, exit_ts, exit_reason, exit_fill_quality, exit_price_age_ms, gross, net, warning | index and bullion paper trades |
+| `paper_trades` | id, signal_id, idx, instrument_key, trading_symbol, direction, strike, expiry, lots, qty, signal_entry, entry_price, entry_ts, slippage, target_price, stop_price, cost, status, exit_price, exit_ts, exit_reason, exit_fill_quality, exit_price_age_ms, gross, net, warning, blocked, banked | index and bullion paper trades; `blocked` and `banked` are the paper bank's (§10.5) |
+| `bank_ledger` | id, ts, kind, amount, opening_balance, config_version | one cash move in the paper bank: the opening deposit, then a deposit or withdrawal per change of the opening balance (§10.5) |
 | `app_state` | key, value | small application state; unused since migration 014 removed E15's `factors_off` |
 | `gift_nifty` | day, ref_ts, ref_close, preopen_ts, preopen_price, fetched_at | GIFT Nifty's previous-close and pre-open prices per NSE day (E14, §6.8); read by replay and `tools/score.py` |
 | `feed_events` | ts, kind, detail | session starts, disconnects, gaps, bullion gaps, recentres, backfills, tick prunes |

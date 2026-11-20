@@ -29,7 +29,7 @@ from tradedisha.market.chain import ChainState
 from tradedisha.parameters import ParameterService, ParameterSet, ParameterValidationError
 from tradedisha.parameters.model import BullionFactors, IndexFactors, NiftyFactors
 from tradedisha.parameters.schema import describe
-from tradedisha.store.db import connect
+from tradedisha.store.db import MIGRATIONS_DIR, connect
 
 SHIPPED = REPO_ROOT / "config" / "params.toml"
 
@@ -192,7 +192,8 @@ def test_the_next_bias_leaves_out_a_factor_switched_off(client: TestClient) -> N
 def test_the_old_switch_store_is_cleared(tmp_path: Path) -> None:
     db = tmp_path / "old.sqlite"
     conn = sqlite3.connect(db)
-    conn.execute("CREATE TABLE app_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    for sql_file in sorted(MIGRATIONS_DIR.glob("*.sql"))[:13]:  # a database at version 13
+        conn.executescript(sql_file.read_text())
     conn.execute("INSERT INTO app_state VALUES ('factors_off', '{\"NIFTY\":[\"pcr\"]}')")
     conn.execute("PRAGMA user_version = 13")
     conn.commit()

@@ -11,6 +11,7 @@ import sqlite3
 from collections.abc import Callable
 
 from tradedisha.clock import MarketClock
+from tradedisha.engine.bank import PaperBank
 from tradedisha.engine.bias_engine import BiasComputed
 from tradedisha.engine.bullion_bias import BullionBiasEngine
 from tradedisha.engine.bullion_signals import BullionSignalEngine
@@ -40,6 +41,7 @@ class BullionDesk:
         on_trade: Callable[[PaperTrade], None] | None = None,
         config_version: Callable[[], int | None] | None = None,
         macro: Callable[[int], list[IndicatorResult]] | None = None,
+        bank: PaperBank | None = None,
     ) -> None:
         self._clock = clock
         self._on_bias_out = on_bias
@@ -67,6 +69,7 @@ class BullionDesk:
             last_recorded=last_recorded,
             on_trade=on_trade,
             rules=bullion_rules(),
+            bank=bank,
         )
         self.bias.attach()
         self.eval_lags_ms: list[int] = []  # since the last `housekeeping` call

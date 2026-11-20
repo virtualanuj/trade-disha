@@ -26,7 +26,7 @@ from tradedisha.api.chain import chain_out
 from tradedisha.api.health import build_health
 from tradedisha.api.instruments import resolved_out
 from tradedisha.api.news import news_out
-from tradedisha.api.paper import open_trades, today_trades, trade_out
+from tradedisha.api.paper import bank_out, open_trades, today_trades, trade_out
 from tradedisha.api.signals import (
     active_signals,
     flow_out,
@@ -157,6 +157,12 @@ class WsHub:
     def _on_trade(self, t: PaperTrade) -> None:
         payload = {"trades": [trade_out(self._state, t).model_dump()]}
         self._immediate.append(self._frame("paper_trade", payload, t_src=None, t_in=None))
+        self._push_bank()
+
+    def _push_bank(self) -> None:
+        """The paper bank moves when a trade opens or closes, or the opening balance changes."""
+        payload = bank_out(self._state).model_dump()
+        self._immediate.append(self._frame("bank", payload, t_src=None, t_in=None))
 
     def _on_health(self, _: FeedHealthChanged | AuthChanged) -> None:
         self._health_dirty = True
@@ -170,6 +176,7 @@ class WsHub:
             "effective_from_minute_ts": ev.effective_from_minute_ts,
         }
         self._immediate.append(self._frame("parameters", payload, t_src=None, t_in=None))
+        self._push_bank()  # a new opening balance is a deposit or withdrawal: record it now
 
     def _on_news(self, _: NewsChanged) -> None:
         news = self._state.news
@@ -231,6 +238,7 @@ class WsHub:
             "gates": [g.model_dump() for g in gates(s)],
             "flow": [f.model_dump() for f in flow_readings(s)],
             "paper_trades": [t.model_dump() for t in today_trades(s)],
+            "bank": bank_out(s).model_dump(),
             "stats": [x.model_dump() for x in all_stats(s)],
             "bullion": bullion_out(s).model_dump(mode="json"),
             "bullion_candles": [x.model_dump() for x in all_bullion_candles(s, 900)],

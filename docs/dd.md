@@ -163,6 +163,7 @@ ones: nothing of bullion feeds the index market view or recommendations.
 
 | Term | Meaning |
 |---|---|
+| **Blocked** | The money a paper trade holds in the paper bank while open: an option's premium × quantity, or a future's margin (`gold_margin_pct` / `silver_margin_pct` of price × quantity), plus the round-trip cost. Released when the trade closes. |
 | **Cost per trade** | The round-trip cost deducted from a paper trade, fixed at entry. Index options: a flat ₹60 per lot (brokerage, STT, exchange charges, GST). Bullion: ₹60 per lot plus 0.012 % of the round-trip value (CTT and charges scale with value). Configurable. |
 | **Exit reason** | Why a paper trade closed: `TARGET`, `STOP`, `SQUARE_OFF`, `MANUAL`. |
 | **Fill** | The price at which a paper trade is recorded as opened or closed. Entry fill is the LTP at the moment of the click (a live feed is required); exit fill is the LTP that triggered the exit. |
@@ -172,6 +173,7 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Journal** | The list of all paper trades with their outcomes, plus summary statistics. |
 | **Net P&L** | Gross P&L minus cost per trade. The figure hit rate and summaries are based on. |
 | **Open trade** | A paper trade not yet closed. Tracked tick by tick for target/stop. |
+| **Paper bank** | The fake bank account that funds paper trades, one for every market. Balance = opening balance + net of every closed trade it funded; available = balance − blocked. A trade opens only if available covers its block. The opening balance (`bank.opening_balance`, default ₹25 lakh) is the cash put in: raising it is a deposit of the difference, lowering it a withdrawal, each a row in `bank_ledger`. Nothing is deleted. |
 | **Paper trade** | A simulated trade opened by the trader clicking "Paper trade" on an active signal. Never placed with the broker. |
 | **Quantity** | Lot size × lots (default 1 lot). For bullion, the point value × lots (GOLD 100, SILVER 30 per lot). |
 | **Slippage** | Entry fill minus the signal's entry price: how far the price moved between the signal firing and the click. Recorded per trade. |
@@ -297,7 +299,8 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | `signals` | one signal (index or bullion) with its evidence, final status and the config version it fired under |
 | `signal_outcomes` | what one index signal's option did next: result, best/worst price, spot moves |
 | `config_versions` | one saved set of tunable parameters, numbered and tagged |
-| `paper_trades` | one paper trade from open to close, including exit fill quality |
+| `paper_trades` | one paper trade from open to close, including exit fill quality, the money it blocked and whether the paper bank funded it |
+| `bank_ledger` | one paper bank cash move: the opening deposit, a deposit or a withdrawal |
 | `app_state` | one key/value of application state; unused since migration 014 removed E15's `factors_off` (the schema version itself is SQLite's `PRAGMA user_version`) |
 | `bullion_ticks` | one bullion (MCX) tick: the `ticks` columns plus the feed's day open, high and low |
 | `gift_nifty` | one NSE trading day's GIFT Nifty reading: its close before the previous 15:30 and before 09:15 |

@@ -26,6 +26,7 @@ from tradedisha.clock import (
     ms_to_ist,
 )
 from tradedisha.config import Settings, hours_enforced
+from tradedisha.engine.bank import PaperBank
 from tradedisha.engine.bias_engine import BiasComputed, BiasEngine
 from tradedisha.engine.bullion_desk import BullionDesk
 from tradedisha.engine.outcomes import Outcome, OutcomeTracker
@@ -272,6 +273,7 @@ class FeedSession:
             enforce_hours=enforce,
             last_recorded=self._last_recorded,
             on_trade=self._on_trade,
+            bank=self.bank,
         )
         self.tick_bus.subscribe(self.paper.on_tick)
         self.bias_listeners.append(self.paper.on_bias)
@@ -327,6 +329,12 @@ class FeedSession:
         )
 
     # -- internals ---------------------------------------------------------
+
+    @functools.cached_property
+    def bank(self) -> PaperBank:
+        """One paper bank funds every market's trades; it needs no feed (E17, §10.5)."""
+        # late-bound: main.py replaces `config_version` after the session is built
+        return PaperBank(self._conn, self.params, lambda: self.config_version())  # noqa: PLW0108
 
     def _replay_day(self) -> date:
         if self.settings.replay_date:
@@ -790,6 +798,7 @@ class FeedSession:
             on_trade=self._on_trade,
             config_version=self.config_version,
             macro=self.bullion_macro,
+            bank=self.bank,
         )
         self.bullion_desk = desk
         self.tick_bus.subscribe(desk.on_tick)

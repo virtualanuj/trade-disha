@@ -78,6 +78,9 @@ square_off_time = "15:15"
 cost_per_trade = 60.0          # rupees per round trip per lot
 lots = 1
 
+[bank]                         # the paper bank that funds paper trades (E17, spec §10.5)
+opening_balance = 2500000.0    # rupees; more later is a deposit, less a withdrawal
+
 [bullion]                      # MCX GOLD / SILVER near-month futures, long or short (spec §9a)
 signals = "on"
 entry_threshold = 0.60
@@ -93,6 +96,8 @@ stop_pct = 0.20
 lots = 1
 cost_fixed_per_lot = 60.0      # rupees per round trip per lot
 cost_pct_of_value = 0.012      # % of round-trip turnover (CTT, exchange, stamp, GST)
+gold_margin_pct = 10.0         # a GOLD paper trade blocks this % of its value in the bank (E17)
+silver_margin_pct = 12.0
 macro_weight = 0.10            # share of the bias for other markets: the dollar and the other metal (E12, E13)
 oi_weight = 0.15               # share for the future's open-interest build-up (E13); trend has the rest
 flow_weight = 0.15             # share for order flow: net traded volume and the book's lean (E13)

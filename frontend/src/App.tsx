@@ -15,6 +15,7 @@ import { FlowLine } from './components/FlowLine/FlowLine'
 import { Headlines } from './components/Headlines/Headlines'
 import { IndexTabs } from './components/IndexTabs/IndexTabs'
 import { IndexTiles } from './components/IndexTiles/IndexTiles'
+import { Bank } from './components/Bank/Bank'
 import { Journal } from './components/Journal/Journal'
 import { OpenTrades } from './components/OpenTrades/OpenTrades'
 import { OptionChain } from './components/OptionChain/OptionChain'
@@ -145,6 +146,7 @@ export default function App() {
   const parametersEffectiveFrom = useMarketStore((s) => s.parametersEffectiveFrom)
   const applyParameters = useMarketStore((s) => s.applyParameters)
   const trades = useMarketStore((s) => s.trades)
+  const bank = useMarketStore((s) => s.bank)
   const stats = useMarketStore((s) => s.stats)
   const bullion = useMarketStore((s) => s.bullion)
   const bullionCandles = useMarketStore((s) => s.bullionCandles)
@@ -355,7 +357,10 @@ export default function App() {
         summary={tradesSummary(openOnIndex)}
         border={openOnIndex.length > 0 ? 'border-accent/50' : 'border-border'}
       >
-        <OpenTrades trades={openOnIndex} now={now} canClose={tradeLive} />
+        <div className="flex flex-col gap-2">
+          <Bank bank={bank} openTrades={openTrades} />
+          <OpenTrades trades={openOnIndex} now={now} canClose={tradeLive} />
+        </div>
       </PanelFrame>
     ),
     history: (
@@ -402,7 +407,11 @@ export default function App() {
       <StatusBanner banner={banner} />
       <main className="flex min-h-0 flex-1">
         {view === 'journal' ? (
-          <Journal indices={instruments.map((i) => i.index)} revision={journalRevision} />
+          <Journal
+            indices={instruments.map((i) => i.index)}
+            revision={journalRevision}
+            bank={<Bank bank={bank} openTrades={openTrades} showLedger />}
+          />
         ) : (
           <>
             <section
