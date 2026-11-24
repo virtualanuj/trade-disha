@@ -927,6 +927,42 @@ bank was unchanged across a restart.
 
 **Design:** spec §10.5.
 
+## Milestone E18 — Pause bullion around US data releases
+
+**Goal:** no GOLD or SILVER signal fires in a window around a US data release (CPI,
+payrolls), where a 1-minute trend signal is mostly noise. The releases are a hand-kept
+file; the window and what else it stops are parameters.
+
+- `config/us-events.txt`: `YYYY-MM-DD HH:MM label` per line, IST, read at start
+  (`us_events_file` setting). Ships with the format and no events.
+- `market/us_events.py`: `load_us_events()` (sorted; a bad line raises with its line
+  number) and `event_in_window()`. `FeedSession.us_events` loads it soft: a bad file is
+  logged and bullion runs without a pause.
+- `parameters/model.py`: `bullion.event_pause_before_minutes` (15),
+  `event_pause_after_minutes` (15), `event_end_waiting` (off), `event_block_trades`
+  (off); seeded in `config/params.toml`.
+- `engine/bullion_signals.py`: gate `event_pause` after `outside_hours`, before
+  `feed_down`; with `event_end_waiting` on, a waiting signal lapses when the window opens
+  (evaluation or housekeeping). `trade_block()` gives the refusal reason.
+- `engine/paper.py`: `PaperRules.entry_block`; `bullion_rules(entry_block=...)` refuses an
+  open with "paused around US data: CPI 19:00" when `event_block_trades` is on.
+- Page: the signal card's reason "paused around a US data release".
+- Tests: file parsing and the window bounds as a table; gate placement and order; the
+  waiting signal kept or lapsed by the switch; a manual open allowed or refused by the
+  switch; an open trade still reaching its target in the window; a stored version without
+  the new fields; the session reading the file, and a bad file leaving bullion running.
+
+**Demo:** add a line for a release a few minutes ahead and restart. From 15 minutes
+before it the GOLD and SILVER cards read "paused around a US data release" while the bias
+still updates. Turn on `event_block_trades`: Paper trade on a waiting signal is refused
+with the release named. After the window, signals fire again.
+
+**Status (2026-11-24):** built, with unit tests; `make check` green apart from an
+existing flaky websocket test (`tests/test_net_volume.py`, about 1 run in 5 on `main`
+too). Not yet checked end to end with the owner.
+
+**Design:** spec §9a; signal.md §13.6, §13.8–13.10.
+
 ## Config drawer (19/11/2026, not a milestone)
 
 **Goal:** the config is easier to read and edit: more room than a dropdown, and every

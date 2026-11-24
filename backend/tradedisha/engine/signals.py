@@ -50,6 +50,7 @@ NoFireReason = Literal[
     "flow_not_confirmed",
     "spread_wide",
     "disabled",
+    "event_pause",
 ]
 
 

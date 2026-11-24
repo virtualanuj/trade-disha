@@ -424,6 +424,7 @@ export type GateReason =
   | 'flow_not_confirmed'
   | 'spread_wide'
   | 'disabled'
+  | 'event_pause'
 
 export interface GateOut {
   index: string

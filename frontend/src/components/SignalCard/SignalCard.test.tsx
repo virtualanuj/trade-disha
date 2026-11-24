@@ -113,6 +113,17 @@ describe('SignalCard', () => {
     expect(screen.getByTestId('signal-card')).toHaveTextContent('switched off')
   })
 
+  it('says when bullion signals are paused for a US data release', () => {
+    render(
+      <SignalCard
+        signal={undefined}
+        gate={{ index: 'GOLD', minute_ts: 0, fired: false, reason: 'event_pause' }}
+        now={0}
+      />,
+    )
+    expect(screen.getByTestId('signal-card')).toHaveTextContent('paused around a US data release')
+  })
+
   it('shows the option, levels, countdown and reasons', () => {
     render(<SignalCard signal={signal} gate={undefined} now={1_700_000_100_000} />)
     const card = screen.getByTestId('signal-card')

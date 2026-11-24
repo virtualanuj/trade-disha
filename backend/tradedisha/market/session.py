@@ -10,6 +10,7 @@ import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
+from pathlib import Path
 from typing import Literal
 
 import httpx
@@ -76,6 +77,7 @@ from tradedisha.market.stats import (
     market_wide_keys,
     sector_quotes,
 )
+from tradedisha.market.us_events import UsEvent, load_us_events
 from tradedisha.metrics.latency import LatencyTracker
 from tradedisha.parameters.model import ParameterSet
 from tradedisha.store.gift import GiftStore
@@ -114,6 +116,18 @@ def parse_drop_ranges(specs: list[str], day: date) -> list[tuple[int, int]]:
             )
         )
     return out
+
+
+def _load_us_events(path: Path) -> tuple[UsEvent, ...]:
+    """The US data releases that pause bullion (E18). Fails soft, like every bullion load
+    step: a bad file is logged and bullion runs with no pause."""
+    try:
+        events = load_us_events(path)
+    except (OSError, ValueError):
+        log.exception("us events file not loaded; bullion runs without a release pause")
+        return ()
+    log.info("us events: %d releases from %s", len(events), path.name)
+    return events
 
 
 def _spot_key(master: list[Instrument], index: str) -> str:
@@ -799,9 +813,15 @@ class FeedSession:
             config_version=self.config_version,
             macro=self.bullion_macro,
             bank=self.bank,
+            events=self.us_events,
         )
         self.bullion_desk = desk
         self.tick_bus.subscribe(desk.on_tick)
+
+    @functools.cached_property
+    def us_events(self) -> tuple[UsEvent, ...]:
+        """The US data releases that pause bullion (E18), read once."""
+        return _load_us_events(self.settings.us_events_file)
 
     @functools.cached_property
     def bullion_tick_store(self) -> TickStore:

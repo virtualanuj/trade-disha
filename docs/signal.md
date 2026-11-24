@@ -943,8 +943,17 @@ in order, and the first failure is the reason shown on the card:
 | 3 | No signal is active on this metal | `active_exists` |
 | 4 | Not blocked by re-arm (`bullion.rearm_hysteresis`, off by default) | `rearm` |
 | 5 | MCX is open, and the time is from `first_signal_time` (09:15) to before `last_signal_time` (22:45) | `outside_hours` |
-| 6 | Bullion is live (connected, MCX open, a bullion tick in the last 15 s) | `feed_down` |
-| 7 | The near future has a price | `no_price` |
+| 6 | No US data release is near: not from `event_pause_before_minutes` (15) before a release in `config/us-events.txt` to `event_pause_after_minutes` (15) after it | `event_pause` |
+| 7 | Bullion is live (connected, MCX open, a bullion tick in the last 15 s) | `feed_down` |
+| 8 | The near future has a price | `no_price` |
+
+**The US data-release pause** (gate 6, Milestone E18). US releases such as CPI and
+payrolls (08:30 New York: 19:00 IST in US standard time, 18:00 in daylight time) move gold
+and silver sharply, and a 1-minute trend vote just before one, or in the whipsaw after
+it, is mostly noise. The releases are kept by hand in `config/us-events.txt`, one per line
+in IST (`2026-12-10 19:00  CPI`), and read at start. With the defaults a 19:00 release
+pauses signals from 18:45 to before 19:15. The bias is still worked out and shown; only
+firing stops. Two switches, off by default, stop more (sections 13.8 and 13.9).
 
 Direction is the sign of the bias: positive fires `BUY_FUT`, negative fires `SELL_FUT`.
 GOLD and SILVER are independent: each has its own bias, active signal and gates. Hours
@@ -1011,13 +1020,19 @@ The same three endings as section 8:
 | `lapsed` | 300 s pass since it fired (checked at each evaluation and twice a second) |
 | `reversed` | at an evaluation the bias has the opposite sign, or \|bias\| < 0.20 |
 
+With `bullion.event_end_waiting = on`, a signal still waiting when a US-release pause
+starts also ends as `lapsed` (at the next evaluation or housekeeping pass, so within half
+a second), so it is not traded into the release.
+
 ### 13.9 Paper trades on bullion
 
 > **Note:** **CTT** (Commodity Transaction Tax) is charged on the sale value of commodity
 > futures; with exchange charges, stamp duty and GST it scales with the value traded.
 
 - **Opening** is refused unless MCX is open, the time is before the 23:00 square-off and
-  bullion is live. The trade fills at the future's price at your click, with the live
+  bullion is live. With `bullion.event_block_trades = on` it is also refused during a
+  US-release pause ("paused around US data: CPI 19:00"). Open trades are never touched by
+  the pause: target, stop and square-off carry on. The trade fills at the future's price at your click, with the live
   target and stop at that price.
 - **Quantity** = point value × lots (`bullion.lots`, default 1).
 - **P&L** = side × (exit − entry) × quantity, where side is +1 for a long and −1 for a
@@ -1051,6 +1066,9 @@ All in the `bullion` section of the Config drawer's Parameters tab:
 | `bullion.square_off_time` | 23:00 | open bullion paper trades close |
 | `bullion.target_pct` / `stop_pct` | 0.40 / 0.20 | % of the future's price |
 | `bullion.lots` | 1 | lots per paper trade |
+| `bullion.event_pause_before_minutes` / `event_pause_after_minutes` | 15 / 15 | the pause around each US data release in `config/us-events.txt`; both 0 = no pause (E18) |
+| `bullion.event_end_waiting` | `off` | `on` ends a signal still waiting when a pause starts |
+| `bullion.event_block_trades` | `off` | `on` refuses opening a bullion paper trade during a pause |
 | `bullion.cost_fixed_per_lot` / `cost_pct_of_value` | ₹60 / 0.012 % | paper-trade cost |
 | `bullion.gold_margin_pct` / `silver_margin_pct` | 10 / 12 | % of the future's value a paper trade blocks in the paper bank (spec §10.5) |
 | `bullion.macro_weight` | 0.10 | other markets' share: the dollar (E12) and the other metal (E13) |
@@ -1082,8 +1100,9 @@ parameters.
 | Futures OI build-up, net volume, book lean | `backend/tradedisha/indicators/futures.py`; the per-minute readings from `BullionTracker.minute_book()` |
 | Group weights and idle groups | `backend/tradedisha/engine/aggregator.py` (`bullion_weights`, `BULLION_IDLE`) |
 | Gates, building the signal, its life cycle, live levels | `backend/tradedisha/engine/bullion_signals.py` |
+| US data releases and the pause window | `backend/tradedisha/market/us_events.py`; the file is `config/us-events.txt` |
 | Bias, signals and paper trades wired together | `backend/tradedisha/engine/bullion_desk.py` |
 | Side-aware P&L, bullion cost and square-off rules | `backend/tradedisha/engine/paper.py` (`bullion_rules`) |
 | Bullion liveness, recording, replay | `backend/tradedisha/market/session.py` |
-| Tests | `backend/tests/test_bullion_trading.py`, `test_live_levels.py`, `tests/market/test_bullion_replay.py`, `tests/indicators/test_futures.py` |
+| Tests | `backend/tests/test_bullion_trading.py`, `test_live_levels.py`, `tests/market/test_bullion_replay.py`, `tests/market/test_us_events.py`, `tests/indicators/test_futures.py` |
 

@@ -1,0 +1,14 @@
+# US data releases that pause bullion signals (Milestone E18, spec §9a). Read at start:
+# restart the app after editing. One release per line, in IST:
+#   YYYY-MM-DD HH:MM  label        # comment
+# The pause runs from bullion.event_pause_before_minutes before each release to
+# bullion.event_pause_after_minutes after it; what else it stops is set by
+# bullion.event_end_waiting and bullion.event_block_trades (Config drawer, bullion).
+#
+# Convert US times by hand. 08:30 New York (CPI, payrolls, jobless claims, retail sales) is
+# 19:00 IST in US standard time (about November to March) and 18:00 IST in US daylight
+# time. FOMC decisions (14:00 New York) are 00:30 / 23:30 IST, after the 22:45 end of
+# bullion signal hours, so they need no line. Take the dates from the BLS release calendar.
+#
+# Example (not a real schedule):
+#   2026-12-10 19:00  CPI

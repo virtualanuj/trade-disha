@@ -60,6 +60,8 @@ class PaperRules:
     cost: Callable[[ParameterSet, float, int, int], float]
     # money the paper bank blocks while the trade is open: (params, index, entry, qty, cost)
     block: Callable[[ParameterSet, str, float, int, float], float]
+    # why no trade may be opened now, if anything: (now, params) -> reason (E18)
+    entry_block: Callable[[int, ParameterSet], str | None] | None = None
 
 
 def index_rules() -> PaperRules:
@@ -73,9 +75,12 @@ def index_rules() -> PaperRules:
     )
 
 
-def bullion_rules() -> PaperRules:
+def bullion_rules(
+    entry_block: Callable[[int, ParameterSet], str | None] | None = None,
+) -> PaperRules:
     """MCX GOLD / SILVER futures: the `bullion` section; cost has a part that scales with
-    value, because a GOLD lot is worth over a crore."""
+    value, because a GOLD lot is worth over a crore. `entry_block` refuses an entry during
+    a US data-release pause (E18)."""
 
     def cost(p: ParameterSet, entry: float, qty: int, lots: int) -> float:
         b = p.bullion
@@ -89,6 +94,7 @@ def bullion_rules() -> PaperRules:
         block=lambda p, metal, entry, qty, cost: (
             p.bullion.margin_pct(metal) / 100 * entry * qty + cost
         ),
+        entry_block=entry_block,
     )
 
 
@@ -263,6 +269,9 @@ class PaperTradeManager:
                 raise PaperError("market is not open")
             if ms_to_ist(now).time() >= self.rules.square_off(p):
                 raise PaperError("past the square-off time")
+        blocked_by = self.rules.entry_block(now, p) if self.rules.entry_block else None
+        if blocked_by:
+            raise PaperError(blocked_by)
         if not self._feed_live():
             raise PaperError("feed is not live, so there is no price to trade at")
         price = self._price(signal.instrument_key)

@@ -101,6 +101,7 @@ TradeDisha/
 │   ├── params.toml              # starting parameters for a new database
 │   ├── nse-holidays.txt         # NSE trading holidays
 │   ├── mcx-holidays.txt         # MCX holidays and evening-only days
+│   ├── us-events.txt            # US data releases that pause bullion signals (E18)
 │   └── news-stocks.txt          # stocks whose news fills the Headlines panel (E10)
 ├── data/                        # SQLite files, instrument caches (gitignored)
 ├── scripts/check.sh             # every gate, run by `make check`
@@ -135,6 +136,7 @@ Fields of `config.py:Settings`, set as `TRADEDISHA_<NAME>` in the environment or
 | `holidays_file` | `config/nse-holidays.txt` | |
 | `mcx_open`, `mcx_close` | 09:00, 23:30 | MCX; set the close to 23:55 while the US is on standard time |
 | `mcx_holidays_file` | `config/mcx-holidays.txt` | `YYYY-MM-DD` closed, `YYYY-MM-DD HH:MM` opens late |
+| `us_events_file` | `config/us-events.txt` | `YYYY-MM-DD HH:MM label`, IST: US data releases that pause bullion signals (§9a) |
 | `news_stocks_file` | `config/news-stocks.txt` | headlines (§6.7); how often is the `news.poll_seconds` parameter (§3.2) |
 | `enforce_signal_hours` | unset | unset = enforce unless the feed is synthetic |
 | `feed_live_max_tick_age_ms` | 5000 | index liveness (§14) |
@@ -990,8 +992,20 @@ GOLD and SILVER MCX near-month futures, run by `engine/bullion_desk.py:BullionDe
   as §9.1.
 - **Gates**, in order: `disabled` (`bullion.signals = off`), `below_threshold`,
   `active_exists`, `rearm`, `outside_hours` (MCX open and `first_signal_time` <= t <
-  `last_signal_time`, 09:15–22:45 by default), `feed_down` (bullion status not `live`),
-  `no_price`.
+  `last_signal_time`, 09:15–22:45 by default), `event_pause` (a US data release is near,
+  below), `feed_down` (bullion status not `live`), `no_price`.
+- **US data-release pause (Milestone E18).** CPI, payrolls and similar releases move gold
+  and silver sharply, so a 1-minute trend signal around one is mostly noise. The releases
+  are hand-kept in `config/us-events.txt` (`YYYY-MM-DD HH:MM label`, IST, read at start;
+  `us_events_file`). From `bullion.event_pause_before_minutes` (15) before a release to
+  `bullion.event_pause_after_minutes` (15) after it, `[release − before, release + after)`
+  on the MCX clock, no bullion signal fires (gate `event_pause`); both 0 turn it off. Two
+  switches set what else stops: `bullion.event_end_waiting = on` ends a signal still
+  waiting when the window opens (`lapsed`, at the next evaluation or housekeeping pass),
+  and `bullion.event_block_trades = on` refuses opening a bullion paper trade in the window
+  (409, "paused around US data: CPI 19:00"). Both are off by default. Open trades are never
+  touched. A missing file means no pause; a malformed one is logged and bullion runs
+  without a pause (the load fails soft). The index engines never read it.
 - **Stored** in `signals`: `index` is the metal, `strike` 0, `expiry` the future's, and
   `lot_size` the rupees per point per lot (the MCX file's `qty_multiplier`: GOLD 100,
   SILVER 30). Bullion signals skip the outcome yardstick and the scorecard (they score NSE
@@ -1010,7 +1024,8 @@ GOLD and SILVER MCX near-month futures, run by `engine/bullion_desk.py:BullionDe
 ```
 POST /paper-trades {signal_id}
   → validate signal is ACTIVE (and not shadow), its market open (NSE, or MCX for
-    bullion), before its square-off time, its feed live (else 409 with reason)
+    bullion), before its square-off time, not in a US-release pause when
+    `bullion.event_block_trades` is on (§9a), its feed live (else 409 with reason)
   → open at current LTP of signal.instrument_key (not signal.entry_price)
   → slippage = fill − signal.entry_price
   → quantity = lot_size × lots (bullion: point value × bullion.lots)

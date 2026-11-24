@@ -5,8 +5,8 @@ a long (`BUY_FUT`) or short (`SELL_FUT`) signal fires at the future's latest pri
 target and stop a percentage of that price either side. One active signal per metal; it
 lapses after its TTL, reverses when the bias flips sign or falls inside the neutral band,
 or ends when it is paper-traded. Gates: signals switched on, MCX open and inside the
-bullion signal hours, and bullion prices live. The index engines and NSE hours play no
-part, and nothing here sends an order: paper only.
+bullion signal hours, no US data release near (E18), and bullion prices live. The index
+engines and NSE hours play no part, and nothing here sends an order: paper only.
 
 Rows go to the shared `signals` table: `index` is the metal, `strike` 0, `expiry` the
 future's expiry, and `lot_size` the rupees per point per lot (`qty_multiplier`).
@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 
 from tradedisha.clock import MarketClock, ms_to_ist
@@ -33,13 +33,14 @@ from tradedisha.engine.signals import (
     rescale_levels,
 )
 from tradedisha.market.bullion import BullionTracker
+from tradedisha.market.us_events import UsEvent, event_in_window
 from tradedisha.parameters.model import ParameterSet
 
 log = logging.getLogger(__name__)
 
 
 class BullionSignalEngine:
-    def __init__(
+    def __init__(  # noqa: PLR0913 -- injected collaborators
         self,
         *,
         tracker: BullionTracker,
@@ -50,8 +51,10 @@ class BullionSignalEngine:
         enforce_hours: bool,
         on_signal: Callable[[Signal], None] | None = None,
         config_version: Callable[[], int | None] | None = None,
+        events: Sequence[UsEvent] = (),
     ) -> None:
         self._tracker = tracker
+        self._events = events
         self._clock = clock
         self._params = params
         self.store = SignalStore(conn)
@@ -72,6 +75,7 @@ class BullionSignalEngine:
         bias = b.bias.bias
         threshold = p.bullion.entry_threshold
         self._expire_lapsed(now)
+        self._end_waiting_for_event(now, p)
 
         current = self.active.get(metal)
         if current is not None and self._reversed(current, bias, p):
@@ -93,6 +97,7 @@ class BullionSignalEngine:
 
     def tick(self, now_ms: int) -> None:
         self._expire_lapsed(now_ms)
+        self._end_waiting_for_event(now_ms, self._params())
 
     def live(self, s: Signal) -> LiveLevels | None:
         """The future's price now, and target and stop worked out from it."""
@@ -122,6 +127,22 @@ class BullionSignalEngine:
             return True
         return self._direction(bias) != s.direction
 
+    def paused_by(self, now: int, p: ParameterSet) -> UsEvent | None:
+        """The US data release whose pause window holds `now`, if any (E18)."""
+        b = p.bullion
+        return event_in_window(
+            self._events, now, b.event_pause_before_minutes, b.event_pause_after_minutes
+        )
+
+    def trade_block(self, now: int, p: ParameterSet) -> str | None:
+        """Why a paper trade may not be opened now, when `event_block_trades` is on."""
+        if p.bullion.event_block_trades == "off":
+            return None
+        event = self.paused_by(now, p)
+        if event is None:
+            return None
+        return f"paused around US data: {event.label} {ms_to_ist(event.ts_ms):%H:%M}"
+
     def within_hours(self, now: int, p: ParameterSet) -> bool:
         if not self._enforce_hours:
             return True
@@ -140,6 +161,7 @@ class BullionSignalEngine:
             (current is not None, "active_exists"),
             (rearm and p.bullion.rearm_hysteresis > 0, "rearm"),
             (not self.within_hours(now, p), "outside_hours"),
+            (self.paused_by(now, p) is not None, "event_pause"),
             (not self._feed_live(), "feed_down"),
         ]
         return next((reason for failed, reason in checks if failed), None)
@@ -205,6 +227,11 @@ class BullionSignalEngine:
     def _expire_lapsed(self, now: int) -> None:
         for s in list(self.active.values()):
             if now >= s.expires_at:
+                self._end(s, "lapsed", now)
+
+    def _end_waiting_for_event(self, now: int, p: ParameterSet) -> None:
+        if self.active and p.bullion.event_end_waiting == "on" and self.paused_by(now, p):
+            for s in list(self.active.values()):
                 self._end(s, "lapsed", now)
 
     def _end(self, s: Signal, status: Status, now: int) -> Signal:

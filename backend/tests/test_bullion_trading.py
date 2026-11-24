@@ -34,8 +34,10 @@ from tradedisha.feed.bus import StampedTick
 from tradedisha.feed.provider import Tick
 from tradedisha.indicators import IndicatorResult
 from tradedisha.instruments.models import Instrument
+from tradedisha.main import create_app
 from tradedisha.market.bullion import BullionContract, BullionTracker
 from tradedisha.market.candles import Candle
+from tradedisha.market.us_events import UsEvent
 from tradedisha.parameters import ParameterService
 from tradedisha.parameters.model import Bullion, ParameterSet
 from tradedisha.parameters.schema import describe
@@ -374,7 +376,12 @@ def _b(metal: str, minute_ts: int, value: float) -> BiasComputed:
 
 class SignalHarness:
     def __init__(
-        self, tmp_path: Path, *, now: int, holidays: frozenset[date] = frozenset()
+        self,
+        tmp_path: Path,
+        *,
+        now: int,
+        holidays: frozenset[date] = frozenset(),
+        events: tuple[UsEvent, ...] = (),
     ) -> None:
         self.now = now
         self.live = True
@@ -399,6 +406,12 @@ class SignalHarness:
             enforce_hours=True,
             on_signal=self.fired.append,
             config_version=lambda: 1,
+            events=events,
+        )
+
+    def bullion(self, **update: object) -> None:
+        self.params = self.params.model_copy(
+            update={"bullion": self.params.bullion.model_copy(update=update)}
         )
 
     def price(self, key: str, ltp: float) -> None:
@@ -514,12 +527,110 @@ def test_rearm_needs_a_dip_before_the_same_side_fires_again(tmp_path: Path) -> N
     assert h.engine.active["GOLD"].direction == "BUY_FUT"
 
 
+# -- the US data-release pause (E18) -----------------------------------------------------------
+
+CPI = UsEvent(at(20, 0), "CPI")  # the window is 19:45 to 20:15 at the default 15 / 15
+
+
+def test_event_pause_parameters_default_to_signals_only() -> None:
+    b = ParameterSet().bullion
+    assert (b.event_pause_before_minutes, b.event_pause_after_minutes) == (15, 15)
+    assert (b.event_end_waiting, b.event_block_trades) == ("off", "off")
+    specs = {s.path: s for s in describe(ParameterSet())}
+    assert specs["bullion.event_end_waiting"].kind == "choice"
+    assert specs["bullion.event_pause_before_minutes"].kind == "integer"
+
+
+def test_a_stored_version_without_the_event_fields_loads_with_the_defaults() -> None:
+    stored = ParameterSet().model_dump(mode="json")
+    for name in (
+        "event_pause_before_minutes",
+        "event_pause_after_minutes",
+        "event_end_waiting",
+        "event_block_trades",
+    ):
+        del stored["bullion"][name]
+    assert ParameterSet.model_validate(stored).bullion == Bullion()
+
+
+@pytest.mark.parametrize(
+    ("now", "before", "after", "reason"),
+    [
+        (at(19, 44, 59), 15, 15, None),  # fires: the window opens at 19:45
+        (at(19, 45), 15, 15, "event_pause"),
+        (at(20, 14, 59), 15, 15, "event_pause"),
+        (at(20, 15), 15, 15, None),  # the window has closed
+        (at(20, 0), 0, 0, None),  # both zero: no pause
+        (at(20, 5), 0, 30, "event_pause"),
+    ],
+)
+def test_a_us_release_pauses_bullion_signals(
+    tmp_path: Path, now: int, before: int, after: int, reason: str | None
+) -> None:
+    h = SignalHarness(tmp_path, now=now, events=(CPI,))
+    h.bullion(event_pause_before_minutes=before, event_pause_after_minutes=after)
+    h.price(GOLD_KEY, 135_000.0)
+    h.evaluate("GOLD", 0.8)
+    assert h.engine.gates["GOLD"].reason == reason
+    assert ("GOLD" in h.engine.active) is (reason is None)
+
+
+def test_the_event_pause_sits_between_hours_and_the_feed(tmp_path: Path) -> None:
+    late = UsEvent(at(22, 50), "Late release")
+    h = SignalHarness(tmp_path, now=at(22, 46), events=(late,))
+    h.price(GOLD_KEY, 135_000.0)
+    h.evaluate("GOLD", 0.8)
+    assert h.engine.gates["GOLD"].reason == "outside_hours"  # past 22:45, pause or not
+
+    h = SignalHarness(tmp_path, now=at(20, 1), events=(CPI,))
+    h.live = False
+    h.evaluate("GOLD", 0.8)
+    assert h.engine.gates["GOLD"].reason == "event_pause"  # named before the stale feed
+
+
+@pytest.mark.parametrize(("end_waiting", "kept"), [("off", True), ("on", False)])
+def test_a_waiting_signal_ends_at_the_window_only_when_switched_on(
+    tmp_path: Path, end_waiting: str, kept: bool
+) -> None:
+    h = SignalHarness(tmp_path, now=at(19, 42), events=(CPI,))
+    h.bullion(event_end_waiting=end_waiting)
+    h.price(GOLD_KEY, 135_000.0)
+    h.price(SILVER_KEY, 170_000.0)
+    h.evaluate("GOLD", 0.8)
+    h.evaluate("SILVER", -0.8)
+    h.now = at(19, 44, 59)
+    h.engine.tick(h.now)
+    assert set(h.engine.active) == {"GOLD", "SILVER"}  # not yet
+
+    h.now = at(19, 45)
+    h.engine.tick(h.now)
+    assert ("GOLD" in h.engine.active) is kept
+    assert ("SILVER" in h.engine.active) is kept
+    if not kept:
+        assert {(s.index, s.status, s.status_ts) for s in h.fired[-2:]} == {
+            ("GOLD", "lapsed", at(19, 45)),
+            ("SILVER", "lapsed", at(19, 45)),
+        }
+
+
+def test_an_evaluation_in_the_window_also_ends_a_waiting_signal(tmp_path: Path) -> None:
+    h = SignalHarness(tmp_path, now=at(19, 42), events=(CPI,))
+    h.bullion(event_end_waiting="on")
+    h.price(GOLD_KEY, 135_000.0)
+    h.evaluate("GOLD", 0.8)
+    h.now = at(19, 45, 20)
+    h.evaluate("GOLD", 0.8)
+    assert "GOLD" not in h.engine.active
+    assert h.fired[-1].status == "lapsed"
+    assert h.engine.gates["GOLD"].reason == "event_pause"  # and nothing new fires
+
+
 # -- paper trades ------------------------------------------------------------------------------
 
 
 class PaperHarness(SignalHarness):
-    def __init__(self, tmp_path: Path, *, now: int) -> None:
-        super().__init__(tmp_path, now=now)
+    def __init__(self, tmp_path: Path, *, now: int, events: tuple[UsEvent, ...] = ()) -> None:
+        super().__init__(tmp_path, now=now, events=events)
         self.trades: list[PaperTrade] = []
         self.prices: dict[str, Price] = {}
         self.paper = self._manager()
@@ -534,7 +645,7 @@ class PaperHarness(SignalHarness):
             feed_live=lambda: self.live,
             enforce_hours=True,
             on_trade=self.trades.append,
-            rules=bullion_rules(),
+            rules=bullion_rules(entry_block=self.engine.trade_block),
         )
 
     def quote(self, key: str, ltp: float) -> None:
@@ -638,6 +749,34 @@ def test_an_opposing_bullion_bias_flags_the_trade(tmp_path: Path) -> None:
     h.paper.on_bias(_b("GOLD", at(20, 2), -0.5))  # the other metal: no effect
     h.paper.on_bias(_b("SILVER", at(20, 3), -0.5))
     assert h.paper.open_trades[t.id].warning is None
+
+
+@pytest.mark.parametrize("block", ["off", "on"])
+def test_opening_a_trade_in_the_window_is_refused_only_when_switched_on(
+    tmp_path: Path, block: str
+) -> None:
+    h = PaperHarness(tmp_path, now=at(19, 40), events=(CPI,))
+    h.bullion(event_block_trades=block, signal_ttl_seconds=3600)  # it waits to 20:40
+    h.quote(GOLD_KEY, 135_000.0)
+    h.evaluate("GOLD", 0.7)
+    signal_id = h.engine.active["GOLD"].id
+    h.now = at(19, 50)
+    if block == "on":
+        with pytest.raises(PaperError, match="paused around US data: CPI 20:00"):
+            h.paper.open(signal_id)
+        h.now = at(20, 15)  # the window has closed
+    assert h.paper.open(signal_id).index == "GOLD"
+
+
+def test_an_open_trade_runs_to_its_target_inside_the_window(tmp_path: Path) -> None:
+    h = PaperHarness(tmp_path, now=at(19, 40), events=(CPI,))
+    h.bullion(event_end_waiting="on", event_block_trades="on")
+    t = h.short_silver()
+    h.now = at(20, 0)
+    h.paper.tick(h.now)
+    h.tick(SILVER_KEY, 169_320.0)
+    closed = h.trades[-1]
+    assert (closed.id, closed.exit_reason) == (t.id, "TARGET")
 
 
 # -- journal -----------------------------------------------------------------------------------
@@ -770,3 +909,36 @@ def test_index_engines_ignore_bullion_bias(client: TestClient) -> None:
         assert "GOLD" not in engine.active
     gates = [g["index"] for g in client.get("/api/signals/gates").json()]
     assert gates.count("GOLD") == 1
+
+
+def _events_client(settings: Settings, tmp_path: Path, text: str) -> TestClient:
+    f = tmp_path / "us-events.txt"
+    f.write_text(text)
+    return TestClient(create_app(settings.model_copy(update={"us_events_file": f})))
+
+
+def test_the_session_reads_the_us_events_file(settings: Settings, tmp_path: Path) -> None:
+    now = epoch_ms_now()
+    release = ms_to_ist(now).strftime("%Y-%m-%d %H:%M")
+    with _events_client(settings, tmp_path, f"{release}  CPI\n") as client:
+        td, desk = _desk(client)
+        assert [e.label for e in td.session.us_events] == ["CPI"]
+        assert client.portal is not None
+        tick = Tick(key=GOLD_KEY, ts=now, ltp=135_000.0)
+        client.portal.call(td.session.tick_bus.publish, StampedTick(tick, now))
+        desk.signals.on_bias(_b("GOLD", now - M, 0.8), now)
+        assert desk.signals.gates["GOLD"].reason == "event_pause"
+
+
+def test_a_bad_us_events_file_leaves_bullion_running_without_a_pause(
+    settings: Settings, tmp_path: Path
+) -> None:
+    with _events_client(settings, tmp_path, "tomorrow at seven: CPI\n") as client:
+        td, desk = _desk(client)
+        assert td.session.us_events == ()
+        now = epoch_ms_now()
+        assert client.portal is not None
+        tick = Tick(key=GOLD_KEY, ts=now, ltp=135_000.0)
+        client.portal.call(td.session.tick_bus.publish, StampedTick(tick, now))
+        desk.signals.on_bias(_b("GOLD", now - M, 0.8), now)
+        assert desk.signals.gates["GOLD"].fired

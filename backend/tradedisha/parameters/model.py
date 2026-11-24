@@ -499,6 +499,35 @@ class Bullion(BaseModel):
         description="Stop, as % of the future's price against the signal.",
     )
     lots: int = Field(1, ge=1, le=100, description="Lots per bullion paper trade.")
+    event_pause_before_minutes: int = Field(
+        15,
+        ge=0,
+        le=120,
+        description=(
+            "Minutes before each US data release in config/us-events.txt (CPI, payrolls, "
+            "Fed) from which no bullion signal fires. 0 with the after value 0 = no pause."
+        ),
+    )
+    event_pause_after_minutes: int = Field(
+        15,
+        ge=0,
+        le=120,
+        description="Minutes after each US data release for which bullion signals stay paused.",
+    )
+    event_end_waiting: Literal["on", "off"] = Field(
+        "off",
+        description=(
+            "On: a bullion signal still waiting when a US-release pause starts is ended "
+            "(lapsed), so it is not traded into the release."
+        ),
+    )
+    event_block_trades: Literal["on", "off"] = Field(
+        "off",
+        description=(
+            "On: opening a bullion paper trade by hand is refused during a US-release pause. "
+            "Open trades are never touched."
+        ),
+    )
     macro_weight: float = Field(
         0.10,
         ge=0,

@@ -60,7 +60,8 @@ A milestone is not done while `make check` is red. The pre-commit hook runs ruff
   re-record ticks.
 - `upstox`: live feed; needs API key/secret and a daily login through the app. MCX hours
   are `TRADEDISHA_MCX_OPEN` / `TRADEDISHA_MCX_CLOSE` (23:30, or 23:55 while the US is on
-  standard time; changed by hand) and `config/mcx-holidays.txt`.
+  standard time; changed by hand) and `config/mcx-holidays.txt`. US data releases that
+  pause bullion signals are hand-kept in `config/us-events.txt` (IST; E18).
 
 Live recordings are kept in a separate file (`TRADEDISHA_DB_PATH=data/live.sqlite`)
 because synthetic and live data use the same instrument keys. `data/` is gitignored.

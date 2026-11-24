@@ -577,6 +577,42 @@ Builder's calls:
   bank); available can go below zero, and new trades are refused until trades close.
 - Saving the same opening balance again moves no cash. The journal lists every cash move.
 
+### 21. Pause bullion signals around US data releases
+
+Asked for (2026-11-23): what could be added to the bullion signal beyond the Upstox data
+it already reads; then the owner chose a pause around US data releases as the first part.
+
+Status: built in Milestone E18. Design in [spec.md](spec.md) §9a and [signal.md](signal.md)
+§13.6; planned in [plan.md](plan.md) Milestone E18.
+
+Decided with the owner on 2026-11-23:
+- US data releases come from a hand-kept file, `config/us-events.txt`, no API.
+- What the pause stops is configurable: new signals always; ending a waiting signal and
+  refusing a manual paper trade are each a switch in Config.
+
+Builder's calls:
+- 15 minutes before and after each release by default; both 0 turns the pause off.
+  Both extra switches are off by default.
+- Times in the file are IST, converted by hand (08:30 New York is 19:00 IST in US
+  standard time, 18:00 in daylight time), as MCX's close is changed by hand. FOMC
+  decisions fall after the 22:45 end of bullion signal hours, so they need no line.
+- The file is read at start, like the holiday files; a bad file is logged and bullion runs
+  without a pause rather than not starting.
+- A waiting signal ended by the pause is `lapsed`, not a new status.
+- The bias is still worked out and stored during the pause; only firing stops. Open
+  trades are never touched.
+
+What else could be added to the bullion signal (listed on 2026-11-23, not built):
+- Already on hand: MCX crude (subscribed for the index bias, unused by bullion), the
+  gold/silver ratio trend, the calendar spread, day levels (opening range, previous close).
+- On Upstox, needing new calls: MCX options on GOLD and SILVER (PCR, OI walls, implied
+  volatility); daily candles with OI (previous-day high and low, pivots, an ATR-sized
+  target and stop); the mini contracts; the MCX bullion index; NSE gold and silver ETFs.
+- From data already recorded: a volatility regime; a 5- and 15-minute trend.
+- Not on Upstox: international gold and silver (spot, COMEX), likely the strongest single
+  input; US real yields, the actual dollar index, S&P futures, VIX; slow data (ETF
+  holdings, CFTC positioning).
+
 ## Deferred
 
 ### Strike ladder (ATM ±3)

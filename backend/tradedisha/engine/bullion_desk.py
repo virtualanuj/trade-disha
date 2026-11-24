@@ -8,7 +8,7 @@ bullion liveness, never on NSE's, and it shares only the stores and the listener
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from tradedisha.clock import MarketClock
 from tradedisha.engine.bank import PaperBank
@@ -21,6 +21,7 @@ from tradedisha.feed.bus import StampedTick
 from tradedisha.indicators import IndicatorResult
 from tradedisha.market.bullion import BullionTracker
 from tradedisha.market.candles import MINUTE_MS
+from tradedisha.market.us_events import UsEvent
 from tradedisha.parameters.model import ParameterSet
 
 
@@ -42,6 +43,7 @@ class BullionDesk:
         config_version: Callable[[], int | None] | None = None,
         macro: Callable[[int], list[IndicatorResult]] | None = None,
         bank: PaperBank | None = None,
+        events: Sequence[UsEvent] = (),
     ) -> None:
         self._clock = clock
         self._on_bias_out = on_bias
@@ -57,6 +59,7 @@ class BullionDesk:
             enforce_hours=enforce_hours,
             on_signal=on_signal,
             config_version=config_version,
+            events=events,
         )
         self.paper = PaperTradeManager(
             clock=clock,
@@ -68,7 +71,7 @@ class BullionDesk:
             enforce_hours=enforce_hours,
             last_recorded=last_recorded,
             on_trade=on_trade,
-            rules=bullion_rules(),
+            rules=bullion_rules(entry_block=self.signals.trade_block),
             bank=bank,
         )
         self.bias.attach()

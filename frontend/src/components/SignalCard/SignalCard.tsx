@@ -25,6 +25,7 @@ const REASON_TEXT: Record<NonNullable<GateOut['reason']>, string> = {
   flow_not_confirmed: 'setup in place, waiting for order flow to agree',
   spread_wide: 'setup and order flow agree, but bid-ask spread too wide',
   disabled: 'bullion signals are switched off in the config',
+  event_pause: 'paused around a US data release',
 }
 
 function topReasons(s: SignalOut, n = 3): string[] {
