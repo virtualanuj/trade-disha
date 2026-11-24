@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { openPaperTrade } from './api/client'
+import { logout, openPaperTrade } from './api/client'
 import type { SignalOut } from './api/types'
 import { MarketSocket } from './api/ws'
 import { BiasMeter } from './components/BiasMeter/BiasMeter'
@@ -395,6 +395,7 @@ export default function App() {
         onToggleNews={() => {
           panels.setNewsHidden(!panels.newsHidden)
         }}
+        onLogout={logout}
         dataControl={<DataPanel />}
         configControl={
           <ConfigControl

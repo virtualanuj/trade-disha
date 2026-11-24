@@ -89,3 +89,14 @@ def test_without_a_build_nothing_is_served_at_the_root(tmp_path: Path) -> None:
     )
     with TestClient(create_app(settings)) as c:
         assert c.get("/").status_code == 404
+
+
+def test_logout_without_a_login_leaves_it_missing(live_client: TestClient) -> None:
+    r = live_client.post("/api/auth/logout")
+    assert r.status_code == 200
+    assert r.json() == {"auth": "missing"}
+    assert live_client.get("/api/health").json()["auth"] == "missing"
+
+
+def test_synthetic_feed_has_no_logout(client: TestClient) -> None:
+    assert client.post("/api/auth/logout").status_code == 400

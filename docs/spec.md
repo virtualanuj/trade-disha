@@ -258,6 +258,15 @@ manual step.
   `AuthChanged("valid")`; starts the feed (`FeedSession.start()`, 502 if it fails); then
   redirects to `/` when the backend serves the frontend, else to `frontend_url`. (Both
   routes sit under `/api`, like every REST route.)
+- `POST /auth/logout` (24/11/2026) ends the login before 03:30: the token is revoked at
+  Upstox (`DELETE /v2/logout`, best effort: a failure is logged and the local logout
+  still happens), every `sessions` row is deleted, `AuthChanged("missing")` is published,
+  and the Upstox socket is closed (`FeedSession.drop_feed()` → `UpstoxProvider.drop()`).
+  Nothing else is torn down: the feed reads as down (degraded mode, §14) and the provider
+  keeps polling once a second for a token, so the next login reconnects and re-subscribes
+  without a restart. 400 when the feed needs no login. The top bar's rightmost control is
+  **Login** while there is no valid login and **Logout** once there is (a second click
+  confirms); the "Login: …" status stays beside the feed pill.
 - `AuthState` is one of `missing | valid | expired`. Computed from `expires_at` and
   confirmed by a cheap profile call at startup.
 - When `AuthState != valid`, the feed adapter does not connect, the top bar shows
@@ -1180,6 +1189,7 @@ is reclaimable without a full rewrite.
 | GET | `/health` | app, auth state, feed health, NSE market status, feed live, the banner, and the `bullion` status (§6.6) |
 | GET | `/auth/login` | 302 to Upstox |
 | GET | `/auth/callback` | handles code, starts the feed, 302 to `/` or `frontend_url` (§4) |
+| POST | `/auth/logout` | revokes and forgets the token, closes the feed socket (§4) |
 | GET | `/instruments` | resolved spot/futures/expiry/window per index |
 | GET | `/chain/{index}` | current `ChainState` snapshot + derived values |
 | GET | `/stats/{index}` | `IndexStats` for the details view (§7.4) |

@@ -76,6 +76,9 @@ Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by
   `config/us-events.txt` (15 minutes either side by default; gate "paused around a US data
   release"). Two switches in Config, both off by default, also end a waiting signal when
   the pause starts and refuse opening a bullion paper trade during it.
+- **Logout** (24/11/2026): the rightmost top-bar button is Login, then Logout once logged
+  in. Logout (click twice) revokes the Upstox token and stops the live feed until the next
+  login, which reconnects without a restart.
 - **Config drawer** (19/11/2026): the Config button opens a drawer on the right with three
   tabs, Parameters, Factors and Versions. Each parameter and factor is explained on the
   line below its name; it closes from its header, a Close button, the backdrop or Escape;
@@ -134,7 +137,7 @@ Set `TRADEDISHA_FEED_PROVIDER` in `.env`:
 |---|---|
 | `synthetic` (default) | Random-walk prices for both indices, ticking regardless of market hours. Ticks are recorded to SQLite. `TRADEDISHA_SYNTHETIC_TREND_PER_TICK=0.02` adds an upward drift (in strike steps per spot tick) to exercise re-centring. |
 | `replay` | Replays a recorded day from SQLite, driving the app clock from tick timestamps. `TRADEDISHA_REPLAY_DATE=YYYY-MM-DD` picks the day (default: latest); `TRADEDISHA_REPLAY_SPEED=0` runs as fast as possible. `TRADEDISHA_REPLAY_DROP='["10:05:00-10:07:30"]'` withholds the ticks in those IST time ranges, to see how the app behaves through a feed outage. |
-| `upstox` | Live market data. Needs `TRADEDISHA_UPSTOX_API_KEY` / `_SECRET` in `.env` and an Upstox app whose redirect URL is `http://127.0.0.1:8000/api/auth/callback`. Press **Login** in the top bar once a day (the token ends at 03:30 IST). Set `TRADEDISHA_DB_PATH=data/live.sqlite` so live recordings stay apart from synthetic ones; replay with the same path replays a live day against that day's real instruments. The BULLION tab (MCX gold and silver) comes from this feed; a replay shows it only with `TRADEDISHA_REPLAY_BULLION=true`, which also replays that day's recorded bullion ticks. The macro ticks (currency futures, crude) are recorded with the bullion ticks, so a replay has macro evidence only with that flag too; NIFTY's GIFT Nifty gap replays either way. MCX closes at 23:30, or 23:55 while the US is on standard time: set `TRADEDISHA_MCX_CLOSE=23:55` for those months. |
+| `upstox` | Live market data. Needs `TRADEDISHA_UPSTOX_API_KEY` / `_SECRET` in `.env` and an Upstox app whose redirect URL is `http://127.0.0.1:8000/api/auth/callback`. Press **Login** in the top bar once a day (the token ends at 03:30 IST); **Logout** ends it sooner. Set `TRADEDISHA_DB_PATH=data/live.sqlite` so live recordings stay apart from synthetic ones; replay with the same path replays a live day against that day's real instruments. The BULLION tab (MCX gold and silver) comes from this feed; a replay shows it only with `TRADEDISHA_REPLAY_BULLION=true`, which also replays that day's recorded bullion ticks. The macro ticks (currency futures, crude) are recorded with the bullion ticks, so a replay has macro evidence only with that flag too; NIFTY's GIFT Nifty gap replays either way. MCX closes at 23:30, or 23:55 while the US is on standard time: set `TRADEDISHA_MCX_CLOSE=23:55` for those months. |
 
 Trading holidays are read from `config/nse-holidays.txt`, and MCX's (which differ, and
 include evening-only days) from `config/mcx-holidays.txt`. US data releases (CPI, payrolls)

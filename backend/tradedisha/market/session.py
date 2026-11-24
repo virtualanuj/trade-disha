@@ -342,6 +342,16 @@ class FeedSession:
             epoch_ms_now(), "session_stop", f"ticks_written={self.tick_store.written}"
         )
 
+    async def drop_feed(self) -> None:
+        """After a logout: close the Upstox socket and wait for the next login (spec §4).
+
+        Everything else stays wired; with no ticks the feed reads as down (degraded mode,
+        §14), and the provider reconnects by itself once a new token exists.
+        """
+        if isinstance(self.provider, UpstoxProvider):
+            await self.provider.drop()
+            self.feed_log.write(epoch_ms_now(), "logout", "socket closed until the next login")
+
     # -- internals ---------------------------------------------------------
 
     @functools.cached_property

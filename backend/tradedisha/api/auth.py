@@ -47,3 +47,13 @@ async def callback(
         ) from exc
     home = "/" if serves_frontend(app.settings) else app.settings.frontend_url
     return RedirectResponse(home, status_code=302)
+
+
+@router.post("/auth/logout")
+async def logout(app: State) -> dict[str, str]:
+    """End the Upstox login now rather than at 03:30; the feed waits for the next login."""
+    if not app.auth.required:
+        raise HTTPException(status_code=400, detail="This feed needs no login.")
+    await app.auth.logout()
+    await app.session.drop_feed()
+    return {"auth": app.auth.state()}

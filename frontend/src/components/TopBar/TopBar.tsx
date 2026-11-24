@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 
 import type { HealthResponse } from '../../api/types'
 import { fmtAge, fmtDate, fmtIstTime, tickAgeColour } from '../../lib/format'
@@ -30,6 +30,8 @@ interface Props {
   newsHidden?: boolean
   /** shows the Headlines toggle on the dashboard */
   onToggleNews?: () => void
+  /** ends the Upstox login; resolves once the server has done it. Omitted hides Logout. */
+  onLogout?: (() => Promise<void>) | undefined
 }
 
 const MARKET_LABEL: Record<HealthResponse['market_status'], string> = {
@@ -115,6 +117,8 @@ function FeedPill({
   )
 }
 
+const CONFIRM_MS = 4000
+
 function AuthPill({ health }: { health: HealthResponse | null }) {
   const auth = health?.auth
   if (auth === 'not_required') {
@@ -123,19 +127,82 @@ function AuthPill({ health }: { health: HealthResponse | null }) {
   if (auth === 'valid') {
     return <span className="text-bull">Login: valid</span>
   }
+  return <span className="text-warn">Login: {auth ?? '…'}</span>
+}
+
+/** The rightmost control: Login while there is no valid login, Logout once there is. */
+function AuthButton({
+  health,
+  onLogout,
+}: {
+  health: HealthResponse | null
+  onLogout?: (() => Promise<void>) | undefined
+}) {
+  const auth = health?.auth
+  if (auth === 'valid') {
+    return onLogout ? <LogoutButton onLogout={onLogout} /> : null
+  }
+  if (auth === 'missing' || auth === 'expired') {
+    return (
+      <a
+        href="/api/auth/login"
+        className="rounded border border-border px-2 py-0.5 text-fg hover:border-accent hover:text-accent"
+        title="Sign in to Upstox to start the live feed (needed once a day)"
+      >
+        Login
+      </a>
+    )
+  }
+  return null
+}
+
+/** Two clicks: the first asks, the second logs out. The ask lapses after a few seconds. */
+function LogoutButton({ onLogout }: { onLogout: () => Promise<void> }) {
+  const [step, setStep] = useState<'idle' | 'confirm' | 'busy'>('idle')
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (step !== 'confirm') return
+    const t = setTimeout(() => {
+      setStep('idle')
+    }, CONFIRM_MS)
+    return () => {
+      clearTimeout(t)
+    }
+  }, [step])
+
+  const click = () => {
+    if (step === 'idle') {
+      setError(null)
+      setStep('confirm')
+      return
+    }
+    setStep('busy')
+    onLogout()
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : 'logout failed')
+      })
+      .finally(() => {
+        setStep('idle')
+      })
+  }
+
+  const label = step === 'confirm' ? 'Confirm logout?' : step === 'busy' ? 'Logging out…' : 'Logout'
   return (
-    <span className="flex items-center gap-2 text-warn">
-      Login: {auth ?? '…'}
-      {auth === 'missing' || auth === 'expired' ? (
-        <a
-          href="/api/auth/login"
-          className="rounded border border-border px-2 py-0.5 text-fg hover:border-accent hover:text-accent"
-          title="Sign in to Upstox to start the live feed (needed once a day)"
-        >
-          Login
-        </a>
-      ) : null}
-    </span>
+    <>
+      <button
+        type="button"
+        onClick={click}
+        disabled={step === 'busy'}
+        className={`rounded border px-2 py-0.5 hover:border-accent hover:text-accent disabled:opacity-60 ${
+          step === 'confirm' ? 'border-warn text-warn' : 'border-border text-fg'
+        }`}
+        title="End the Upstox login now; the live feed stops until you log in again"
+      >
+        {label}
+      </button>
+      {error ? <span className="text-bear">{error}</span> : null}
+    </>
   )
 }
 
@@ -144,6 +211,7 @@ export function TopBar(props: Props) {
     props
   const { view, onToggleView, openTradeCount = 0, dataControl, bullionTab = false } = props
   const { panelsChanged = false, onRestorePanels, newsHidden = false, onToggleNews } = props
+  const { onLogout } = props
   return (
     <header className="flex h-11 items-center gap-4 border-b border-border bg-bg-elev px-4 text-xs whitespace-nowrap">
       <span className="font-semibold tracking-wide">TradeDisha</span>
@@ -208,6 +276,7 @@ export function TopBar(props: Props) {
       >
         {theme === 'dark' ? 'Light' : 'Dark'}
       </button>
+      <AuthButton health={health} onLogout={onLogout} />
     </header>
   )
 }

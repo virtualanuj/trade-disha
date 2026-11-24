@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { HealthResponse } from '../../api/types'
 import { tickAgeColour } from '../../lib/format'
@@ -79,7 +80,9 @@ describe('TopBar', () => {
         onToggleDebug={noop}
       />,
     )
-    expect(screen.getByRole('link', { name: 'Login' })).toHaveAttribute('href', '/api/auth/login')
+    const login = screen.getByRole('link', { name: 'Login' })
+    expect(login).toHaveAttribute('href', '/api/auth/login')
+    expect(login.parentElement?.lastElementChild).toBe(login)
   })
 
   it('hides the login once it is valid', () => {
@@ -97,6 +100,91 @@ describe('TopBar', () => {
     )
     expect(screen.getByText('Login: valid')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Login' })).not.toBeInTheDocument()
+  })
+
+  it('logs out after a confirm and waits for the server', async () => {
+    let finish: () => void = noop
+    const onLogout = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        }),
+    )
+    render(
+      <TopBar
+        health={{ ...health, auth: 'valid' }}
+        ws="open"
+        now={0}
+        lastTickTs={null}
+        theme="dark"
+        onToggleTheme={noop}
+        debug={false}
+        onToggleDebug={noop}
+        onLogout={onLogout}
+      />,
+    )
+    const button = screen.getByRole('button', { name: 'Logout' })
+    expect(button.parentElement?.lastElementChild).toBe(button)
+    fireEvent.click(button)
+    expect(onLogout).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm logout?' }))
+    expect(onLogout).toHaveBeenCalledOnce()
+    expect(screen.getByRole('button', { name: 'Logging out…' })).toBeDisabled()
+    await act(async () => {
+      finish()
+      await Promise.resolve()
+    })
+    expect(screen.getByRole('button', { name: 'Logout' })).toBeEnabled()
+  })
+
+  it('shows why a logout failed', async () => {
+    const onLogout = vi.fn(() => Promise.reject(new Error('Upstox is down')))
+    render(
+      <TopBar
+        health={{ ...health, auth: 'valid' }}
+        ws="open"
+        now={0}
+        lastTickTs={null}
+        theme="dark"
+        onToggleTheme={noop}
+        debug={false}
+        onToggleDebug={noop}
+        onLogout={onLogout}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Logout' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm logout?' }))
+    expect(await screen.findByText('Upstox is down')).toBeInTheDocument()
+  })
+
+  it('offers no logout without a valid login or a handler', () => {
+    const { rerender } = render(
+      <TopBar
+        health={{ ...health, auth: 'missing' }}
+        ws="open"
+        now={0}
+        lastTickTs={null}
+        theme="dark"
+        onToggleTheme={noop}
+        debug={false}
+        onToggleDebug={noop}
+        onLogout={() => Promise.resolve()}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: 'Logout' })).not.toBeInTheDocument()
+    rerender(
+      <TopBar
+        health={{ ...health, auth: 'valid' }}
+        ws="open"
+        now={0}
+        lastTickTs={null}
+        theme="dark"
+        onToggleTheme={noop}
+        debug={false}
+        onToggleDebug={noop}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: 'Logout' })).not.toBeInTheDocument()
   })
 
   it('colours tick age green, amber, red', () => {

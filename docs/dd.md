@@ -290,7 +290,7 @@ ones: nothing of bullion feeds the index market view or recommendations.
 
 | Table | One row is |
 |---|---|
-| `sessions` | one Upstox login (token, obtained, expires) |
+| `sessions` | one Upstox login (token, obtained, expires); a logout deletes every row |
 | `instruments` | one tradable instrument from the daily master subset |
 | `ticks` | one tick for one instrument |
 | `candles_1m` | one 1-minute candle for one instrument, with its buyer- and seller-initiated volume where known |

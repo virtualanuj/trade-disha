@@ -963,6 +963,26 @@ too). Not yet checked end to end with the owner.
 
 **Design:** spec §9a; signal.md §13.6, §13.8–13.10.
 
+## Logout (24/11/2026, not a milestone)
+
+**Goal:** end the Upstox login on demand instead of waiting for the 03:30 expiry, and log
+in again without restarting the app.
+
+- `POST /api/auth/logout`: revokes the token at Upstox (best effort), deletes it from
+  `sessions`, publishes `AuthChanged("missing")` and closes the feed socket. The rest of
+  the session stays wired; the feed is down (degraded mode) until the next login, which
+  reconnects within about a second (no backoff while waiting for a token).
+- Top bar: the rightmost control is **Login** before login and **Logout** after; the
+  "Login: …" status stays beside the feed pill. Logout's first click asks "Confirm logout?" (lapses
+  after 4 s), the second logs out and waits for the server.
+- Tests: revoke call and local logout, local logout when Upstox fails or is unreachable,
+  no call without a token; provider drop → wait → reconnect and re-subscribe; the endpoint
+  (400 on synthetic); the top-bar confirm, busy and error states.
+
+**Status (2026-11-24):** built, with unit tests; `make check` green.
+
+**Design:** spec §4, §12.
+
 ## Config drawer (19/11/2026, not a milestone)
 
 **Goal:** the config is easier to read and edit: more room than a dropdown, and every

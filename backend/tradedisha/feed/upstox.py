@@ -316,6 +316,14 @@ class UpstoxProvider:
 
     async def close(self) -> None:
         self._closed = True
+        await self.drop()
+
+    async def drop(self) -> None:
+        """Close the socket but keep the provider alive (logout, spec §4).
+
+        `ticks()` goes on retrying; with no token it waits, and a new login reconnects and
+        re-subscribes everything.
+        """
         self._state = "disconnected"
         ws, self._ws = self._ws, None
         if ws is not None:
@@ -335,7 +343,10 @@ class UpstoxProvider:
             ws = self._ws
             if ws is None:
                 await self._sleep(delay)
-                delay = min(delay * 2, BACKOFF_CAP_S)
+                # Waiting for a login is not a failure: poll at the start rate so a new
+                # login reconnects within a second instead of after a long backoff.
+                waiting = self._token() is None
+                delay = BACKOFF_START_S if waiting else min(delay * 2, BACKOFF_CAP_S)
                 if self._closed or not await self._try_open():
                     continue
                 ws = self._ws

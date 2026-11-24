@@ -6,6 +6,7 @@ never logged and never leaves this machine except in requests to Upstox.
 
 from __future__ import annotations
 
+import logging
 import secrets
 import sqlite3
 from collections.abc import Callable
@@ -23,8 +24,11 @@ AuthState = Literal["missing", "valid", "expired", "not_required"]
 
 DIALOG_URL = "https://api.upstox.com/v2/login/authorization/dialog"
 TOKEN_URL = "https://api.upstox.com/v2/login/authorization/token"
+LOGOUT_URL = "https://api.upstox.com/v2/logout"
 TOKEN_EXPIRY_IST = time(3, 30)  # Upstox invalidates every token at 03:30 IST
 MAX_PENDING_LOGINS = 16
+
+log = logging.getLogger(__name__)
 
 
 class AuthError(RuntimeError):
@@ -147,6 +151,28 @@ class AuthService:
             (token, now, token_expiry_ms(now)),
         )
         await self._events.publish(AuthChanged("valid"))
+
+    async def logout(self) -> None:
+        """End the login: revoke the token at Upstox (best effort) and forget it here.
+
+        The local logout always happens, so a network or Upstox failure cannot leave the
+        app holding a token the trader asked it to drop.
+        """
+        token = self.token
+        if token is not None:
+            try:
+                async with httpx.AsyncClient(transport=self._transport, timeout=15) as client:
+                    resp = await client.delete(
+                        LOGOUT_URL,
+                        headers={"Authorization": f"Bearer {token}", "accept": "application/json"},
+                    )
+                if resp.status_code != 200:
+                    log.warning("Upstox refused the logout (HTTP %s)", resp.status_code)
+            except httpx.HTTPError as exc:
+                log.warning("Could not reach Upstox to log out: %s", type(exc).__name__)
+        self._conn.execute("DELETE FROM sessions")
+        self._pending = []
+        await self._events.publish(AuthChanged("missing"))
 
 
 def _reason(resp: httpx.Response) -> str:

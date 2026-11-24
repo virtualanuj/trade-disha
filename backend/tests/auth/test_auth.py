@@ -133,3 +133,58 @@ async def test_mark_expired_ends_a_valid_login() -> None:
     await auth.complete_login("code", state)
     await auth.mark_expired()
     assert auth.state() == "expired"
+
+
+def _upstox(seen: list[httpx.Request], logout: int | Exception = 200) -> httpx.MockTransport:
+    """Token exchange, then the logout call answering with `logout`."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path.endswith("/logout"):
+            if isinstance(logout, Exception):
+                raise logout
+            return httpx.Response(logout, json={"status": "success", "data": True})
+        return httpx.Response(200, json={"access_token": "tok-123", "user_id": "X"})
+
+    return httpx.MockTransport(handle)
+
+
+async def _logged_in(transport: httpx.MockTransport, events: EventBus) -> AuthService:
+    auth = _service(transport, events=events)
+    state = parse_qs(urlparse(auth.begin_login()).query)["state"][0]
+    await auth.complete_login("code", state)
+    return auth
+
+
+async def test_logout_revokes_the_token_at_upstox_and_forgets_it() -> None:
+    seen: list[httpx.Request] = []
+    events = EventBus()
+    changes: list[str] = []
+    events.subscribe(AuthChanged, lambda e: changes.append(e.state))
+    auth = await _logged_in(_upstox(seen), events)
+
+    await auth.logout()
+
+    call = seen[-1]
+    assert (call.method, str(call.url)) == ("DELETE", "https://api.upstox.com/v2/logout")
+    assert call.headers["authorization"] == "Bearer tok-123"
+    assert auth.state() == "missing"
+    assert auth.token is None
+    assert changes == ["valid", "missing"]
+
+
+@pytest.mark.parametrize("answer", [500, 401, httpx.ConnectError("down")])
+async def test_logout_still_ends_the_local_login_when_upstox_fails(
+    answer: int | Exception,
+) -> None:
+    auth = await _logged_in(_upstox([], logout=answer), EventBus())
+    await auth.logout()
+    assert auth.state() == "missing"
+
+
+async def test_logout_without_a_token_calls_nobody() -> None:
+    seen: list[httpx.Request] = []
+    auth = _service(_upstox(seen))
+    await auth.logout()
+    assert seen == []
+    assert auth.state() == "missing"

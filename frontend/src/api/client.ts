@@ -135,6 +135,11 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
   return (await res.json()) as T
 }
 
+/** End the Upstox login; the server revokes the token and the feed waits for a new login. */
+export async function logout(): Promise<void> {
+  await postJson<{ auth: string }>('/api/auth/logout')
+}
+
 export function openPaperTrade(signalId: string): Promise<PaperTradeOut> {
   return postJson<PaperTradeOut>('/api/paper-trades', { signal_id: signalId })
 }

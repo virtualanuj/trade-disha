@@ -120,6 +120,24 @@ class FakeSocket:
         raise ConnectionError("dropped")
 
 
+class HeldSocket(FakeSocket):
+    """Stays open, sending nothing, until closed: a quiet live feed."""
+
+    def __init__(self) -> None:
+        super().__init__([])
+        self._shut = asyncio.Event()
+
+    async def close(self) -> None:
+        await super().close()
+        self._shut.set()
+
+    async def __aiter__(self) -> AsyncIterator[str | bytes]:
+        await self._shut.wait()
+        for f in self.frames:  # none; keeps this an async generator
+            yield f
+        raise ConnectionError("closed")
+
+
 def _authorize(status: int = 200) -> httpx.MockTransport:
     def handle(request: httpx.Request) -> httpx.Response:
         assert request.headers["authorization"] == "Bearer tok"
@@ -310,3 +328,41 @@ async def test_fetch_news_401_is_unauthorized_and_500_raises() -> None:
         async with httpx.AsyncClient(transport=transport) as client:
             with pytest.raises(exc):
                 await fetch_news(client, "tok", ["NSE_EQ|A"])
+
+
+async def test_drop_waits_for_a_new_login_then_reconnects_and_resubscribes() -> None:
+    token: list[str | None] = ["tok"]
+    sockets: list[HeldSocket] = []
+    sleeps: list[float] = []
+    reopened = asyncio.Event()
+
+    async def factory(_: str) -> HeldSocket:
+        sockets.append(HeldSocket())
+        if len(sockets) == 2:
+            reopened.set()
+        return sockets[-1]
+
+    async def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        if len(sleeps) == 5:  # the trader logs in again while the provider waits
+            token[0] = "tok"
+        await asyncio.sleep(0)
+
+    p = UpstoxProvider(
+        token=lambda: token[0], transport=_authorize(), socket_factory=factory, sleep=sleep
+    )
+    await p.connect()
+    await p.subscribe(["A"])
+    pump = asyncio.create_task(anext(p.ticks(), None))
+    await asyncio.sleep(0)
+
+    token[0] = None
+    await p.drop()
+    assert sockets[0].closed
+    await asyncio.wait_for(reopened.wait(), timeout=1)
+    assert p.health().state == "connected"
+
+    await p.close()
+    await pump
+    assert set(sleeps[:5]) == {1.0}  # waiting for a login does not back off
+    assert sockets[1].sent[0]["data"] == {"mode": "full", "instrumentKeys": ["A"]}
