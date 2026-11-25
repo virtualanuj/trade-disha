@@ -407,9 +407,9 @@ export default function App() {
         openTradeCount={openTrades.length}
         panelsChanged={panels.changed}
         onRestorePanels={panels.restoreAll}
-        newsHidden={panels.newsHidden}
+        newsHidden={!panels.newsShown}
         onToggleNews={() => {
-          panels.setNewsHidden(!panels.newsHidden)
+          panels.showNews(!panels.newsShown)
         }}
         onLogout={logout}
         dataControl={<DataPanel />}

@@ -1,8 +1,27 @@
 import { useEffect, useState, type ReactNode } from 'react'
 
 import type { HealthResponse } from '../../api/types'
-import { fmtAge, fmtDate, fmtIstTime, tickAgeColour } from '../../lib/format'
+import { fmtDate, fmtIstTime, fmtTickAge, tickAgeColour } from '../../lib/format'
+import { toolClass } from '../../lib/toolbar'
 import { VIEW_LABEL, VIEWS, type View } from '../../lib/view'
+import {
+  DashboardIcon,
+  JournalIcon,
+  LatencyIcon,
+  LoginIcon,
+  LogoutIcon,
+  MoonIcon,
+  NewsIcon,
+  RestoreIcon,
+  SunIcon,
+  TradesIcon,
+} from '../Icons/Icons'
+
+const VIEW_ICON: Record<View, () => ReactNode> = {
+  dashboard: DashboardIcon,
+  journal: JournalIcon,
+  trades: TradesIcon,
+}
 import type { WsState } from '../../state/store'
 import type { Theme } from '../../theme/useTheme'
 
@@ -27,7 +46,7 @@ interface Props {
   /** a panel is minimised */
   panelsChanged?: boolean
   onRestorePanels?: () => void
-  /** the headlines are taken out of the right-hand column (E10) */
+  /** the headlines are not on show: taken out of the right-hand column, or minimised */
   newsHidden?: boolean
   /** shows the Headlines toggle on the dashboard */
   onToggleNews?: () => void
@@ -67,13 +86,13 @@ function MarketPill({
   const colour =
     status === 'live' ? 'text-bull' : status === 'pre_open' ? 'text-warn' : 'text-fg-muted'
   return (
-    <span className={`flex items-center gap-2 ${colour}`} data-testid="market-pill">
+    <span className={`flex items-center gap-1.5 ${colour}`} data-testid="market-pill">
       <span aria-hidden="true">●</span>
       <span className="font-medium">
         {bullionTab ? 'MCX ' : ''}
         {status ? MARKET_LABEL[status] : '…'}
       </span>
-      <span className="font-mono text-fg-muted">{fmtIstTime(now)} IST</span>
+      <span className="font-mono tabular-nums text-fg-muted">{fmtIstTime(now)} IST</span>
     </span>
   )
 }
@@ -93,8 +112,9 @@ function FeedPill({
 }) {
   if (ws !== 'open') {
     return (
-      <span className="text-bear" data-testid="feed-pill">
-        ● Backend: {ws === 'connecting' ? 'connecting…' : 'disconnected, retrying'}
+      <span className="flex items-center gap-1.5 text-bear" data-testid="feed-pill">
+        <span aria-hidden="true">●</span>
+        Backend: {ws === 'connecting' ? 'connecting…' : 'disconnected, retrying'}
       </span>
     )
   }
@@ -107,13 +127,20 @@ function FeedPill({
   const colour = state !== 'connected' ? 'text-bear' : quietOk ? 'text-fg-muted' : ageColour
   return (
     <span
-      className={colour}
+      className={`flex items-center gap-1.5 ${colour}`}
       data-testid="feed-pill"
-      title={`${String(feed?.subscribed ?? 0)} instruments`}
+      title={
+        `${feed?.provider ?? 'no'} feed, ${state}, ${String(feed?.subscribed ?? 0)} instruments` +
+        '; the number is the age of the newest tick'
+      }
     >
-      ● Feed: {state}
-      {feed ? <span className="text-fg-muted"> ({feed.provider})</span> : null}
-      <span className="ml-2 font-mono">{fmtAge(age)}</span>
+      <span aria-hidden="true">●</span>
+      {/* the dot's colour says connected; any other state is spelled out */}
+      {state === 'connected' ? 'Feed' : `Feed: ${state}`}
+      {/* fixed width and even digits, so a changing age never moves what follows */}
+      <span className="inline-block w-[5ch] text-right font-mono tabular-nums">
+        {fmtTickAge(age)}
+      </span>
     </span>
   )
 }
@@ -125,10 +152,13 @@ function AuthPill({ health }: { health: HealthResponse | null }) {
   if (auth === 'not_required') {
     return <span className="text-fg-muted">No login needed</span>
   }
-  if (auth === 'valid') {
-    return <span className="text-bull">Login: valid</span>
-  }
-  return <span className="text-warn">Login: {auth ?? '…'}</span>
+  const colour = auth === 'valid' ? 'text-bull' : 'text-warn'
+  return (
+    <span className={`flex items-center gap-1.5 ${colour}`}>
+      <span aria-hidden="true">●</span>
+      Login: {auth ?? '…'}
+    </span>
+  )
 }
 
 /** The rightmost control: Login while there is no valid login, Logout once there is. */
@@ -147,9 +177,10 @@ function AuthButton({
     return (
       <a
         href="/api/auth/login"
-        className="rounded border border-border px-2 py-0.5 text-fg hover:border-accent hover:text-accent"
+        className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1 font-medium whitespace-nowrap text-bg hover:opacity-90"
         title="Sign in to Upstox to start the live feed (needed once a day)"
       >
+        <LoginIcon />
         Login
       </a>
     )
@@ -195,11 +226,12 @@ function LogoutButton({ onLogout }: { onLogout: () => Promise<void> }) {
         type="button"
         onClick={click}
         disabled={step === 'busy'}
-        className={`rounded border px-2 py-0.5 hover:border-accent hover:text-accent disabled:opacity-60 ${
+        className={`inline-flex items-center gap-1.5 rounded-md border bg-bg px-2.5 py-1 whitespace-nowrap hover:border-bear hover:text-bear disabled:opacity-60 ${
           step === 'confirm' ? 'border-warn text-warn' : 'border-border text-fg'
         }`}
         title="End the Upstox login now; the live feed stops until you log in again"
       >
+        <LogoutIcon />
         {label}
       </button>
       {error ? <span className="text-bear">{error}</span> : null}
@@ -207,6 +239,66 @@ function LogoutButton({ onLogout }: { onLogout: () => Promise<void> }) {
   )
 }
 
+/** A thin rule between groups of the bar. */
+function Rule() {
+  return <span className="mx-0.5 h-5 w-px shrink-0 bg-border" aria-hidden="true" />
+}
+
+/** The pages as tabs: the one place in the bar that changes what the page shows. */
+function PageTabs({
+  view,
+  onView,
+  openTradeCount,
+}: {
+  view: View
+  onView: (view: View) => void
+  openTradeCount: number
+}) {
+  return (
+    <nav
+      className="flex items-center gap-0.5 rounded-md border border-border bg-bg p-0.5"
+      aria-label="Pages"
+    >
+      {VIEWS.map((v) => {
+        const Icon = VIEW_ICON[v]
+        return (
+          <button
+            key={v}
+            type="button"
+            onClick={() => {
+              onView(v)
+            }}
+            className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded px-2 py-0.5 ${
+              view === v
+                ? 'bg-accent/15 font-medium text-accent'
+                : 'text-fg-muted hover:bg-bg-row hover:text-fg'
+            }`}
+            aria-pressed={view === v}
+          >
+            <Icon />
+            {VIEW_LABEL[v]}
+            {v === 'trades' && openTradeCount > 0 && view !== 'trades' ? (
+              <span
+                className="min-w-4 rounded-full bg-accent px-1 text-center text-[10px] leading-4 font-semibold text-bg"
+                title={`${String(openTradeCount)} open paper trade${openTradeCount === 1 ? '' : 's'}`}
+                aria-label={`${String(openTradeCount)} open`}
+              >
+                {openTradeCount}
+              </span>
+            ) : null}
+          </button>
+        )
+      })}
+    </nav>
+  )
+}
+
+/**
+ * Left: the brand (a link home, to the dashboard) and a status strip (read only, no
+ * borders). Right: the page tabs, the dashboard's view tools, the app's tools, then Login
+ * or Logout on its own. The bar wraps
+ * onto a second line rather than scroll, so nothing is ever hidden off the edge.
+ */
 export function TopBar(props: Props) {
   const { health, ws, now, lastTickTs, theme, onToggleTheme, debug, onToggleDebug, configControl } =
     props
@@ -215,78 +307,119 @@ export function TopBar(props: Props) {
   const { onLogout } = props
   /** panel controls only mean something on the dashboard; no view given is the dashboard */
   const onDashboard = (view ?? 'dashboard') === 'dashboard'
+  const restore = panelsChanged && onRestorePanels && onDashboard
+  const news = onToggleNews && onDashboard
   return (
-    <header className="flex h-11 items-center gap-4 border-b border-border bg-bg-elev px-4 text-xs whitespace-nowrap">
-      <span className="font-semibold tracking-wide">TradeDisha</span>
-      <MarketPill health={health} now={now} bullionTab={bullionTab} />
-      <FeedPill health={health} ws={ws} now={now} lastTickTs={lastTickTs} bullionTab={bullionTab} />
-      <AuthPill health={health} />
-      {health?.replay_day ? (
-        <span className="text-accent">Replay: {fmtDate(health.replay_day)}</span>
-      ) : null}
-      <span className="ml-auto" />
-      {panelsChanged && onRestorePanels && onDashboard ? (
+    <header className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-bg-elev px-4 py-1.5 text-xs">
+      {/* a real link home: a plain click switches page in place, a new tab opens the app */}
+      <a
+        href="/"
+        className="font-semibold tracking-wide whitespace-nowrap hover:text-accent"
+        title="Go to the dashboard"
+        onClick={(e) => {
+          if (!onView || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
+          e.preventDefault()
+          onView('dashboard')
+        }}
+      >
+        TradeDisha
+      </a>
+      <div
+        className="flex items-center gap-2.5 rounded-md bg-bg px-2.5 py-1 whitespace-nowrap"
+        role="group"
+        aria-label="Status"
+      >
+        <MarketPill health={health} now={now} bullionTab={bullionTab} />
+        <span className="h-3 w-px bg-border" aria-hidden="true" />
+        <FeedPill
+          health={health}
+          ws={ws}
+          now={now}
+          lastTickTs={lastTickTs}
+          bullionTab={bullionTab}
+        />
+        <span className="h-3 w-px bg-border" aria-hidden="true" />
+        <AuthPill health={health} />
+        {health?.replay_day ? (
+          <>
+            <span className="h-3 w-px bg-border" aria-hidden="true" />
+            <span className="text-accent">Replay: {fmtDate(health.replay_day)}</span>
+          </>
+        ) : null}
+      </div>
+      <div className="ml-auto flex flex-wrap items-center gap-x-1 gap-y-1.5">
+        {view && onView ? (
+          <>
+            <PageTabs view={view} onView={onView} openTradeCount={openTradeCount} />
+            <Rule />
+          </>
+        ) : null}
+        {restore ? (
+          <button
+            type="button"
+            onClick={onRestorePanels}
+            className={toolClass(true)}
+            title="Expand every minimised panel"
+          >
+            <RestoreIcon />
+            Restore panels
+          </button>
+        ) : null}
+        {news ? (
+          <button
+            type="button"
+            onClick={onToggleNews}
+            className={toolClass(!newsHidden)}
+            aria-pressed={!newsHidden}
+            title={newsHidden ? 'Show the headlines' : 'Hide the headlines'}
+          >
+            <NewsIcon />
+            Headlines
+          </button>
+        ) : null}
+        {restore || news ? <Rule /> : null}
+        {dataControl}
+        {configControl}
         <button
           type="button"
-          onClick={onRestorePanels}
-          className="rounded border border-border px-2 py-0.5 text-accent hover:text-fg"
-          title="Expand every minimised panel"
+          onClick={onToggleDebug}
+          className={toolClass(debug)}
+          aria-pressed={debug}
+          title="Show the latency overlay"
         >
-          Restore panels
+          <LatencyIcon />
+          Latency
         </button>
-      ) : null}
-      {onToggleNews && onDashboard ? (
         <button
           type="button"
-          onClick={onToggleNews}
-          className={`rounded border border-border px-2 py-0.5 ${newsHidden ? 'text-fg-muted' : 'text-accent'} hover:text-fg`}
-          aria-pressed={!newsHidden}
-          title={newsHidden ? 'Show the headlines' : 'Hide the headlines'}
+          onClick={onToggleTheme}
+          className={toolClass()}
+          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
         >
-          Headlines
+          {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
         </button>
-      ) : null}
-      {view && onView ? (
-        <nav className="flex items-center gap-1" aria-label="Pages">
-          {VIEWS.map((v) => (
-            <button
-              key={v}
-              type="button"
-              onClick={() => {
-                onView(v)
-              }}
-              className={`rounded border border-border px-2 py-0.5 ${view === v ? 'text-accent' : 'text-fg-muted'} hover:text-fg`}
-              aria-pressed={view === v}
-            >
-              {VIEW_LABEL[v]}
-              {v === 'journal' && openTradeCount > 0 && view !== 'journal' ? (
-                <span className="ml-1 text-accent" title="open paper trades">
-                  {openTradeCount} open
-                </span>
-              ) : null}
-            </button>
-          ))}
-        </nav>
-      ) : null}
-      {dataControl}
-      {configControl}
-      <button
-        type="button"
-        onClick={onToggleDebug}
-        className={`rounded border border-border px-2 py-0.5 ${debug ? 'text-accent' : 'text-fg-muted'} hover:text-fg`}
-        aria-pressed={debug}
-      >
-        Latency
-      </button>
-      <button
-        type="button"
-        onClick={onToggleTheme}
-        className="rounded border border-border px-2 py-0.5 text-fg-muted hover:text-fg"
-        aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-      >
-        {theme === 'dark' ? 'Light' : 'Dark'}
-      </button>
-      <AuthButton health={health} onLogout={onLogout} />
+        <AuthSlot health={health} onLogout={onLogout} />
+      </div>
     </header>
+  )
+}
+
+/** Login or Logout, set apart from the tools by a rule; nothing when neither applies. */
+function AuthSlot({
+  health,
+  onLogout,
+}: {
+  health: HealthResponse | null
+  onLogout?: (() => Promise<void>) | undefined
+}) {
+  const auth = health?.auth
+  const shown = auth === 'valid' ? onLogout !== undefined : auth === 'missing' || auth === 'expired'
+  if (!shown) return null
+  return (
+    <>
+      <Rule />
+      <AuthButton health={health} onLogout={onLogout} />
+    </>
   )
 }

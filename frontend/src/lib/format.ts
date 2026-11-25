@@ -25,6 +25,15 @@ export function fmtMs(v: number): string {
   return v >= 100 ? v.toFixed(0) : v.toFixed(1)
 }
 
+/** The newest tick's age in at most five characters: 400ms, 12.3s, 14m, 3h. */
+export function fmtTickAge(ms: number | null): string {
+  if (ms == null) return '—'
+  if (ms < 1000) return `${String(Math.round(ms))}ms`
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
+  if (ms < 3_600_000) return `${String(Math.floor(ms / 60_000))}m`
+  return `${String(Math.floor(ms / 3_600_000))}h`
+}
+
 /** Tailwind colour class for a tick age: green under 2 s, amber under 10 s, red beyond. */
 export function tickAgeColour(ageMs: number | null): string {
   if (ageMs == null) return 'text-fg-muted'

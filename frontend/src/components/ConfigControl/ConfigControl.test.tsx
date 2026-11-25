@@ -93,7 +93,9 @@ describe('ConfigControl', () => {
     setup()
     const button = screen.getByRole('button', { name: /^Config/ })
     expect(button).toHaveTextContent('v1')
-    expect(button).toHaveTextContent('initial')
+    // the tag is in the tooltip, not the bar, so a long one cannot push the bar wide
+    expect(button).not.toHaveTextContent('initial')
+    expect(button).toHaveAttribute('title', 'Config version 1: initial')
     expect(screen.queryByTestId('config-panel')).not.toBeInTheDocument()
   })
 

@@ -163,34 +163,69 @@ describe('usePanels', () => {
     expect(NONE_MINIMISED.news).toBe(false)
   })
 
-  it('hides and shows headlines, remembers it, and counts it as a change', () => {
+  it('hides and shows headlines and remembers it; the Headlines button owns it, not Restore', () => {
     const { result } = renderHook(() => usePanels())
     expect(result.current.newsHidden).toBe(false)
+    expect(result.current.newsShown).toBe(true)
     act(() => {
       result.current.setNewsHidden(true)
     })
     expect(result.current.newsHidden).toBe(true)
-    expect(result.current.changed).toBe(true)
+    expect(result.current.newsShown).toBe(false)
+    expect(result.current.changed).toBe(false) // no "Restore panels" for the headlines
     expect(localStorage.getItem(NEWS_HIDDEN_KEY)).toBe('true')
     expect(renderHook(() => usePanels()).result.current.newsHidden).toBe(true)
     act(() => {
       result.current.setNewsHidden(false)
     })
     expect(result.current.newsHidden).toBe(false)
+  })
+
+  it('a minimised headlines panel is not on show, and is no change either', () => {
+    const { result } = renderHook(() => usePanels())
+    act(() => {
+      result.current.toggleMinimise('news')
+    })
+    expect(result.current.newsShown).toBe(false)
     expect(result.current.changed).toBe(false)
   })
 
-  it('restoreAll shows hidden headlines again', () => {
+  it.each([
+    ['shown', false, false, true, false],
+    ['hidden', true, false, false, false],
+    ['minimised', false, true, false, false],
+    ['hidden and minimised', true, true, false, false],
+  ] as const)(
+    'showNews from %s: shows it expanded, or takes it off the page',
+    (_label, hidden, minimised, wantHidden, wantMinimised) => {
+      const { result } = renderHook(() => usePanels())
+      act(() => {
+        result.current.setNewsHidden(hidden)
+        if (minimised) result.current.toggleMinimise('news')
+      })
+      act(() => {
+        result.current.showNews(!result.current.newsShown)
+      })
+      expect(result.current.newsHidden).toBe(wantHidden)
+      expect(result.current.minimised.news).toBe(wantMinimised)
+      expect(result.current.newsShown).toBe(!wantHidden && !wantMinimised)
+    },
+  )
+
+  it('restoreAll leaves the headlines as they are', () => {
     const { result } = renderHook(() => usePanels())
     act(() => {
       result.current.setNewsHidden(true)
       result.current.toggleMinimise('news')
+      result.current.toggleMinimise('chart')
     })
+    expect(result.current.changed).toBe(true)
     act(() => {
       result.current.restoreAll()
     })
-    expect(result.current.newsHidden).toBe(false)
-    expect(result.current.minimised.news).toBe(false)
+    expect(result.current.minimised.chart).toBe(false)
+    expect(result.current.newsHidden).toBe(true)
+    expect(result.current.minimised.news).toBe(true)
     expect(result.current.changed).toBe(false)
   })
 

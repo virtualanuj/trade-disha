@@ -1013,6 +1013,44 @@ in the app.
 
 **Design:** spec §13.2 (Trades page), §12 (API).
 
+## Top bar redesign (25/11/2026, not a milestone)
+
+**Goal:** the owner found the top bar scrolling sideways (Logout hidden off the edge at
+1440 px), the items after the feed's tick age jumping as the number changed width, and
+every control looking the same.
+
+- Groups, left to right: the brand, a link home (`/`, the dashboard; a plain click
+  switches page in place, a modified click opens a new tab); a borderless status strip
+  (market and clock, feed, login, replay day); then on the right, each after a rule, the
+  pages as a tab strip (Dashboard · Journal · Trades, the open-trade count now on Trades,
+  where open trades are listed), the dashboard's view tools (Restore panels, Headlines),
+  the app's tools (Data, Config, Latency, theme) and Login (filled) or Logout (outlined,
+  red on hover). Tools are borderless
+  with an icon (`components/Icons/`, `lib/toolbar.ts:toolClass`), lit when on; the page
+  tabs have icons too, and the open-trade count is a small bubble on Trades (the words in
+  its tooltip). One line at 1280 px; "Restore panels", when shown, may wrap it there.
+- Headlines opens and closes the headlines panel: lit while it is on the page and
+  expanded (`usePanels().newsShown`); a click takes it off, or brings it back expanded
+  whether it was hidden or minimised (`showNews`). The headlines no longer count towards
+  "Restore panels" (`changed`), and Restore leaves them alone, so turning them off adds no
+  second button.
+- The feed's tick age is a fixed five characters wide in even-width digits
+  (`fmtTickAge`: 400ms, 12.3s, 14m, 3h), so nothing after it moves. The feed reads "Feed"
+  when connected (the dot's colour says so) and spells out any other state; provider and
+  instrument count are in its tooltip.
+- The Config button shows `v10` only; the tag, which can be long, is in its tooltip and
+  the drawer.
+- The bar wraps onto a second line instead of scrolling.
+- Tests: the fixed-width age across a change, the age formatter's bounds, a non-connected
+  feed spelled out, Logout last, the badge on Trades, the Config tag in the tooltip, the
+  brand going home and the tabs placed after the status strip; Headlines from shown,
+  hidden, minimised, and Restore leaving them.
+
+**Status (2026-11-25):** built, with unit tests; `make check` green; checked by screenshot
+at 1440, 1280 and 1024 px, dark and light.
+
+**Design:** spec §13.1, §13.2.
+
 ## Logout (24/11/2026, not a milestone)
 
 **Goal:** end the Upstox login on demand instead of waiting for the 03:30 expiry, and log

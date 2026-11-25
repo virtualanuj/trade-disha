@@ -1264,7 +1264,7 @@ On reconnect the client receives a fresh `hello`, so no event replay is needed.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ TradeDisha  ● LIVE 11:42:07  Feed: connected   [Dashboard][Journal][Trades]  │
+│ TradeDisha ● LIVE 11:42:07 ● Feed 0.4s ● Login  [Dashboard|Journal|Trades] │
 ├────────────────────────────────────────────────┬─────────────────────────────┤
 │  [NIFTY]  [BANKNIFTY]                          │ OPTION CHAIN             [–]│
 │  ┌ INDEX ─────────────────────────────── [–] ┐ │ NIFTY  17/11/2026           │
@@ -1326,17 +1326,21 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
 - Both expanded: the chain fills, headlines take the remembered height.
 - One minimised: it is its title bar and the other fills the column.
 - Headlines hidden (×, or the top bar's Headlines toggle): the column is the chain alone,
-  as before E10.
+  as before E10. The toggle is lit while the headlines are on the page and expanded; a
+  click when lit hides them, otherwise it shows them expanded, minimised or not.
 - Nothing expanded (chain minimised or absent, headlines minimised or hidden): the column
   becomes the 28 px strip; its button expands both and shows headlines again.
 - BULLION tab: there is no chain, so the column shows headlines alone (it was absent
   before E10); with headlines hidden there is no column.
 
 ### 13.2 Components
-- **TopBar**: market status pill (pre-open / live / closed / holiday, with clock), feed
-  health with tick age colour (green < 2 s, amber < 10 s, red otherwise), auth state with
-  Login button, and Dashboard · Journal · Trades buttons for the three pages (`#journal`,
-  `#trades`; E19). Both pills follow the tab (E5): on an index tab they read NSE
+- **TopBar** (regrouped 25/11/2026): the brand, a link home to the dashboard; a
+  borderless status strip with the market status (pre-open / live / closed / holiday,
+  with clock), feed health with tick age colour (green < 2 s, amber < 10 s, red otherwise)
+  and the login state; on the right the pages as tabs, Dashboard · Journal · Trades
+  (`#journal`, `#trades`; E19) with icons, the open-trade count on Trades, then icon tools (Restore panels and Headlines on the dashboard;
+  Data, Config with its version, Latency, theme) and Login or Logout last. The tick age is
+  fixed-width so nothing moves as it changes; the bar wraps instead of scrolling. Both pills follow the tab (E5): on an index tab they read NSE
   status and the newest index tick; on BULLION they read `MCX LIVE` / `MCX CLOSED` and the
   newest bullion tick. While that market is closed, a quiet feed is shown muted instead of
   amber or red; a dropped connection is always red.
@@ -1410,7 +1414,9 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
 
   The bias meter and signal card share a row; when either is minimised the row becomes
   one column. The chart-height divider is rendered only while the chart is expanded. A
-  "Restore panels" button in the TopBar appears while any panel is minimised and expands them all; E1's sizes are
+  "Restore panels" button in the TopBar appears while any panel but the headlines is
+  minimised (or the order is changed) and expands them; the headlines are left to their
+  own Headlines toggle (25/11/2026); E1's sizes are
   untouched. State is shared across the index tabs. *(These are the builder's calls.)*
   A minimised `signal` panel opens itself when an active signal id not seen in this page
   load arrives, and `trades` likewise for an open trade id; minimised again, it stays

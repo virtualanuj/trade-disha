@@ -117,11 +117,18 @@ export interface Panels {
   minimised: Minimised
   /** the left column's units, top to bottom */
   order: Order
-  /** true when any panel is minimised, headlines are hidden, or the order is not the default */
+  /**
+   * true when a panel other than the headlines is minimised, or the order is not the
+   * default: what "Restore panels" undoes. The headlines have their own button.
+   */
   changed: boolean
   /** headlines taken out of the right-hand column (E10) */
   newsHidden: boolean
   setNewsHidden: (hidden: boolean) => void
+  /** the headlines are on the page and expanded: what the Headlines button shows as on */
+  newsShown: boolean
+  /** the Headlines button: show them expanded, or take them off the page */
+  showNews: (shown: boolean) => void
   toggleMinimise: (id: PanelId) => void
   /** expand a minimised panel; does nothing to one that is already showing */
   open: (id: PanelId) => void
@@ -129,9 +136,12 @@ export interface Panels {
   canMove: (id: PanelId, dir: -1 | 1) => boolean
   /** move a panel's unit one place; market view and signal go together */
   move: (id: PanelId, dir: -1 | 1) => void
-  /** every panel expanded again, headlines shown, in the default order */
+  /** every panel but the headlines expanded again, in the default order */
   restoreAll: () => void
 }
+
+/** What "Restore panels" expands: every panel but the headlines, which have their own button. */
+const RESTORED = PANEL_IDS.filter((id) => id !== 'news')
 
 /** Which panels are minimised and what order they are in, remembered in this browser. */
 export function usePanels(): Panels {
@@ -194,26 +204,46 @@ export function usePanels(): Panels {
     [storeNewsHidden],
   )
 
+  const showNews = useCallback(
+    (shown: boolean) => {
+      storeNewsHidden(!shown)
+      if (shown) open('news')
+    },
+    [storeNewsHidden, open],
+  )
+
   const restoreAll = useCallback(() => {
-    write((m) => (PANEL_IDS.some((id) => m[id]) ? NONE_MINIMISED : m))
+    write((m) => (RESTORED.some((id) => m[id]) ? { ...NONE_MINIMISED, news: m.news } : m))
     writeOrder(DEFAULT_ORDER)
-    storeNewsHidden(false)
-  }, [write, writeOrder, storeNewsHidden])
+  }, [write, writeOrder])
 
   return useMemo(
     () => ({
       minimised,
       order,
-      changed: PANEL_IDS.some((id) => minimised[id]) || order !== DEFAULT_ORDER || newsHidden,
+      changed: RESTORED.some((id) => minimised[id]) || order !== DEFAULT_ORDER,
       newsHidden,
       setNewsHidden,
+      newsShown: !newsHidden && !minimised.news,
+      showNews,
       toggleMinimise,
       open,
       canMove,
       move,
       restoreAll,
     }),
-    [minimised, order, newsHidden, setNewsHidden, toggleMinimise, open, canMove, move, restoreAll],
+    [
+      minimised,
+      order,
+      newsHidden,
+      setNewsHidden,
+      showNews,
+      toggleMinimise,
+      open,
+      canMove,
+      move,
+      restoreAll,
+    ],
   )
 }
 

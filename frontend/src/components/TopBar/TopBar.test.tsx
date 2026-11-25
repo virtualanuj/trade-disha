@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { HealthResponse } from '../../api/types'
-import { tickAgeColour } from '../../lib/format'
+import { fmtTickAge, tickAgeColour } from '../../lib/format'
 import { TopBar } from './TopBar'
 
 const health: HealthResponse = {
@@ -45,10 +45,119 @@ describe('TopBar', () => {
       />,
     )
     expect(screen.getByTestId('market-pill')).toHaveTextContent('LIVE')
-    expect(screen.getByTestId('feed-pill')).toHaveTextContent(
-      /Feed: connected \(synthetic\)\s*400ms/,
-    )
+    const feed = screen.getByTestId('feed-pill')
+    expect(feed).toHaveTextContent(/Feed\s*400ms/)
+    expect(feed).not.toHaveTextContent('connected')
+    expect(feed).toHaveAttribute('title', expect.stringContaining('synthetic feed, connected'))
     expect(screen.getByText('No login needed')).toBeInTheDocument()
+  })
+
+  it('keeps the tick age a fixed width, so a changing number never moves what follows', () => {
+    const bar = (now: number) => (
+      <TopBar
+        health={health}
+        ws="open"
+        now={now}
+        lastTickTs={1000}
+        theme="dark"
+        onToggleTheme={noop}
+        debug={false}
+        onToggleDebug={noop}
+      />
+    )
+    const { rerender } = render(bar(1400))
+    const age = () => screen.getByText(/^(\d+ms|[\d.]+s|\d+[mh])$/)
+    expect(age()).toHaveTextContent('400ms')
+    expect(age()).toHaveClass('w-[5ch]', 'tabular-nums')
+    rerender(bar(13_400))
+    expect(age()).toHaveTextContent('12.4s')
+    expect(age()).toHaveClass('w-[5ch]', 'tabular-nums')
+  })
+
+  it.each([
+    [null, '—'],
+    [0, '0ms'],
+    [999, '999ms'],
+    [1_000, '1.0s'],
+    [59_949, '59.9s'],
+    [60_000, '1m'],
+    [3_599_999, '59m'],
+    [3_600_000, '1h'],
+    [86_400_000, '24h'],
+  ] as const)('writes a tick age of %s ms as %s, never wider than five', (ms, text) => {
+    expect(fmtTickAge(ms)).toBe(text)
+    expect(fmtTickAge(ms).length).toBeLessThanOrEqual(5)
+  })
+
+  it('takes the brand home to the dashboard, and puts the page tabs on the right', () => {
+    const onView = vi.fn()
+    render(
+      <TopBar
+        health={health}
+        ws="open"
+        now={1400}
+        lastTickTs={1000}
+        theme="dark"
+        onToggleTheme={noop}
+        debug={false}
+        onToggleDebug={noop}
+        view="journal"
+        onView={onView}
+      />,
+    )
+    const home = screen.getByRole('link', { name: 'TradeDisha' })
+    expect(home).toHaveAttribute('href', '/')
+    fireEvent.click(home)
+    expect(onView).toHaveBeenCalledWith('dashboard')
+
+    // the tabs come after the status strip, with the tools
+    const status = screen.getByRole('group', { name: 'Status' })
+    const pages = screen.getByRole('navigation', { name: 'Pages' })
+    const latency = screen.getByRole('button', { name: 'Latency' })
+    const follows = (a: Element, b: Element) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(follows(status, pages)).toBe(true)
+    expect(follows(pages, latency)).toBe(true)
+  })
+
+  it('puts Logout last, after the tools, and offers the theme by name', () => {
+    render(
+      <TopBar
+        health={{ ...health, auth: 'valid' }}
+        ws="open"
+        now={1400}
+        lastTickTs={1000}
+        theme="dark"
+        onToggleTheme={noop}
+        debug={false}
+        onToggleDebug={noop}
+        view="dashboard"
+        onView={noop}
+        onLogout={() => Promise.resolve()}
+      />,
+    )
+    const buttons = screen.getAllByRole('button')
+    expect(buttons.at(-1)).toHaveTextContent('Logout')
+    expect(screen.getByRole('button', { name: 'Switch to light theme' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Status' })).toHaveTextContent('Login: valid')
+  })
+
+  it('spells out a feed state other than connected', () => {
+    const down: HealthResponse = { ...health, feed: { ...health.feed, state: 'disconnected' } }
+    render(
+      <TopBar
+        health={down}
+        ws="open"
+        now={1400}
+        lastTickTs={1000}
+        theme="dark"
+        onToggleTheme={noop}
+        debug={false}
+        onToggleDebug={noop}
+      />,
+    )
+    expect(screen.getByTestId('feed-pill')).toHaveTextContent('Feed: disconnected')
+    expect(screen.getByTestId('feed-pill')).toHaveClass('text-bear')
   })
 
   it('reports a dropped backend socket', () => {
@@ -282,8 +391,10 @@ describe('TopBar', () => {
     const { rerender } = render(<TopBar {...base} view="dashboard" />)
     const pages = within(screen.getByRole('navigation', { name: 'Pages' }))
     expect(pages.getByRole('button', { name: 'Dashboard' })).toHaveAttribute('aria-pressed', 'true')
-    expect(pages.getByRole('button', { name: /Journal/ })).toHaveTextContent('Journal2 open')
-    fireEvent.click(pages.getByRole('button', { name: 'Trades' }))
+    const trades = pages.getByRole('button', { name: /Trades/ })
+    expect(trades).toHaveTextContent('Trades2')
+    expect(within(trades).getByTitle('2 open paper trades')).toHaveTextContent('2')
+    fireEvent.click(pages.getByRole('button', { name: /Trades/ }))
     expect(onView).toHaveBeenLastCalledWith('trades')
 
     rerender(<TopBar {...base} view="trades" />)

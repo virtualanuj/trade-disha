@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react'
 import { fetchUsage, pruneTicks } from '../../api/client'
 import type { PruneOut, UsageOut } from '../../api/types'
 import { fmtBytes, fmtCount, fmtDate } from '../../lib/format'
+import { toolClass } from '../../lib/toolbar'
+import { DataIcon } from '../Icons/Icons'
 
 interface Props {
   usage?: (untilDate?: string, signal?: AbortSignal) => Promise<UsageOut>
@@ -60,12 +62,14 @@ export function DataPanel({ usage = fetchUsage, prune = pruneTicks }: Props) {
     <div className="relative text-xs">
       <button
         type="button"
-        className="rounded border border-border px-2 py-0.5 text-fg-muted hover:text-fg"
+        className={toolClass(open)}
         aria-expanded={open}
+        title="Recorded ticks: how much is held, and deleting old days"
         onClick={() => {
           setOpen((o) => !o)
         }}
       >
+        <DataIcon />
         Data
       </button>
       {open ? (

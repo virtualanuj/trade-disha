@@ -81,6 +81,9 @@ Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by
   risk : reward, net and result in R, the signal it was taken on, what the instrument did
   after, and the evidence at the minute it fired. The Journal no longer lists trades; it
   keeps the paper bank, its ledger and the summary figures.
+- **Top bar** (25/11/2026): grouped into page tabs, a status strip, icon tools and
+  Login/Logout last; the feed's tick age no longer shifts the bar, and the bar wraps
+  instead of scrolling, so Logout is always on screen.
 - **Logout** (24/11/2026): the rightmost top-bar button is Login, then Logout once logged
   in. Logout (click twice) revokes the Upstox token and stops the live feed until the next
   login, which reconnects without a restart.

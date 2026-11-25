@@ -21,6 +21,8 @@ import {
 import { fmtDate, fmtIstTime } from '../../lib/format'
 import { useNow } from '../../lib/useNow'
 import { FactorSwitch } from '../FactorSwitch/FactorSwitch'
+import { toolClass } from '../../lib/toolbar'
+import { ConfigIcon } from '../Icons/Icons'
 
 export interface ConfigApi {
   schema: () => Promise<ParameterField[]>
@@ -113,24 +115,18 @@ export function ConfigControl({ parameters, effectiveFrom, onSaved, api = API }:
     <div className="relative flex items-center gap-2 text-xs">
       <button
         type="button"
-        className={`${BUTTON} ${open ? 'relative z-50 bg-bg-elev text-fg' : ''}`}
+        className={`${toolClass(open)} ${open ? 'relative z-50 bg-bg-elev' : ''}`}
         aria-expanded={open}
         title={parameters ? `Config version ${String(parameters.version)}: ${parameters.tag}` : ''}
         onClick={() => {
           setOpen((o) => !o)
         }}
       >
-        Config{' '}
-        {parameters ? (
-          <>
-            <span className="font-mono text-fg">v{parameters.version}</span>
-            <span className="ml-1 inline-block max-w-40 truncate align-bottom">
-              {parameters.tag}
-            </span>
-          </>
-        ) : (
-          '—'
-        )}
+        <ConfigIcon />
+        Config {/* the tag is in the title and the drawer: a long one would push the bar wide */}
+        <span className="font-mono text-fg">
+          {parameters ? `v${String(parameters.version)}` : '—'}
+        </span>
       </button>
       {pending && pending > now ? (
         <span className="text-fg-muted" role="status">
