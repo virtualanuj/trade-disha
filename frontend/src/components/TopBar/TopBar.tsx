@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 
 import type { HealthResponse } from '../../api/types'
 import { fmtAge, fmtDate, fmtIstTime, tickAgeColour } from '../../lib/format'
+import { VIEW_LABEL, VIEWS, type View } from '../../lib/view'
 import type { WsState } from '../../state/store'
 import type { Theme } from '../../theme/useTheme'
 
@@ -19,9 +20,9 @@ interface Props {
   onToggleDebug: () => void
   configControl?: ReactNode
   dataControl?: ReactNode
-  /** which page is showing; omitted hides the Journal button */
-  view?: 'dashboard' | 'journal'
-  onToggleView?: () => void
+  /** which page is showing; with `onView`, draws the Dashboard · Journal · Trades buttons */
+  view?: View
+  onView?: (view: View) => void
   openTradeCount?: number
   /** a panel is minimised */
   panelsChanged?: boolean
@@ -209,9 +210,11 @@ function LogoutButton({ onLogout }: { onLogout: () => Promise<void> }) {
 export function TopBar(props: Props) {
   const { health, ws, now, lastTickTs, theme, onToggleTheme, debug, onToggleDebug, configControl } =
     props
-  const { view, onToggleView, openTradeCount = 0, dataControl, bullionTab = false } = props
+  const { view, onView, openTradeCount = 0, dataControl, bullionTab = false } = props
   const { panelsChanged = false, onRestorePanels, newsHidden = false, onToggleNews } = props
   const { onLogout } = props
+  /** panel controls only mean something on the dashboard; no view given is the dashboard */
+  const onDashboard = (view ?? 'dashboard') === 'dashboard'
   return (
     <header className="flex h-11 items-center gap-4 border-b border-border bg-bg-elev px-4 text-xs whitespace-nowrap">
       <span className="font-semibold tracking-wide">TradeDisha</span>
@@ -222,7 +225,7 @@ export function TopBar(props: Props) {
         <span className="text-accent">Replay: {fmtDate(health.replay_day)}</span>
       ) : null}
       <span className="ml-auto" />
-      {panelsChanged && onRestorePanels && view !== 'journal' ? (
+      {panelsChanged && onRestorePanels && onDashboard ? (
         <button
           type="button"
           onClick={onRestorePanels}
@@ -232,7 +235,7 @@ export function TopBar(props: Props) {
           Restore panels
         </button>
       ) : null}
-      {onToggleNews && view !== 'journal' ? (
+      {onToggleNews && onDashboard ? (
         <button
           type="button"
           onClick={onToggleNews}
@@ -243,20 +246,27 @@ export function TopBar(props: Props) {
           Headlines
         </button>
       ) : null}
-      {view && onToggleView ? (
-        <button
-          type="button"
-          onClick={onToggleView}
-          className={`rounded border border-border px-2 py-0.5 ${view === 'journal' ? 'text-accent' : 'text-fg-muted'} hover:text-fg`}
-          aria-pressed={view === 'journal'}
-        >
-          {view === 'journal' ? 'Dashboard' : 'Journal'}
-          {openTradeCount > 0 && view !== 'journal' ? (
-            <span className="ml-1 text-accent" title="open paper trades">
-              {openTradeCount} open
-            </span>
-          ) : null}
-        </button>
+      {view && onView ? (
+        <nav className="flex items-center gap-1" aria-label="Pages">
+          {VIEWS.map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => {
+                onView(v)
+              }}
+              className={`rounded border border-border px-2 py-0.5 ${view === v ? 'text-accent' : 'text-fg-muted'} hover:text-fg`}
+              aria-pressed={view === v}
+            >
+              {VIEW_LABEL[v]}
+              {v === 'journal' && openTradeCount > 0 && view !== 'journal' ? (
+                <span className="ml-1 text-accent" title="open paper trades">
+                  {openTradeCount} open
+                </span>
+              ) : null}
+            </button>
+          ))}
+        </nav>
       ) : null}
       {dataControl}
       {configControl}

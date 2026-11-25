@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from tradedisha.api.deps import State
+from tradedisha.api.signals import SignalOut, signal_out
 from tradedisha.app_state import AppState
 from tradedisha.engine.paper import (
     METALS,
@@ -107,6 +108,13 @@ class BankOut(BaseModel):
 
 def bank_out(state: AppState) -> BankOut:
     return BankOut.model_validate(asdict(state.session.bank.summary()))
+
+
+class PaperTradeDetailOut(BaseModel):
+    """One trade and the signal it was taken from, for the Trades page (E19)."""
+
+    trade: PaperTradeOut
+    signal: SignalOut | None
 
 
 class OpenRequest(BaseModel):
@@ -209,6 +217,22 @@ def list_trades(
     end: Annotated[date | None, Query(alias="to")] = None,
 ) -> list[PaperTradeOut]:
     return [trade_out(state, t) for t in _read(state, start, end, index, status)]
+
+
+@router.get("/paper-trades/{trade_id}", response_model=PaperTradeDetailOut)
+def get_trade(trade_id: str, state: State) -> PaperTradeDetailOut:
+    """An open trade comes from its manager (live P&L), a closed one from the store."""
+    live = next(
+        (m.open_trades[trade_id] for m in _managers(state) if trade_id in m.open_trades), None
+    )
+    t = live or PaperTradeStore(state.conn).get(trade_id)
+    if t is None:
+        raise HTTPException(status_code=404, detail="unknown trade")
+    # one signals table serves index and bullion, and is there before the feed starts
+    s = SignalStore(state.conn).get(t.signal_id)
+    return PaperTradeDetailOut(
+        trade=trade_out(state, t), signal=signal_out(state, s) if s is not None else None
+    )
 
 
 @router.get("/bank", response_model=BankOut)

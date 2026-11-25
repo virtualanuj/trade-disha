@@ -76,6 +76,11 @@ Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by
   `config/us-events.txt` (15 minutes either side by default; gate "paused around a US data
   release"). Two switches in Config, both off by default, also end a waiting signal when
   the pause starts and refuse opening a bullion paper trade during it.
+- **E19:** a Trades page (TopBar: Dashboard · Journal · Trades) lists closed paper trades
+  by day with each day's net. A trade opens to its fill and slippage, target and stop,
+  risk : reward, net and result in R, the signal it was taken on, what the instrument did
+  after, and the evidence at the minute it fired. The Journal no longer lists trades; it
+  keeps the paper bank, its ledger and the summary figures.
 - **Logout** (24/11/2026): the rightmost top-bar button is Login, then Logout once logged
   in. Logout (click twice) revokes the Upstox token and stops the live feed until the next
   login, which reconnects without a restart.

@@ -1205,6 +1205,7 @@ is reclaimable without a full rewrite.
 | POST | `/paper-trades` | body `{signal_id}` → trade |
 | POST | `/paper-trades/{id}/close` | manual close |
 | GET | `/paper-trades?index=&status=&from=&to=` | trades |
+| GET | `/paper-trades/{id}` | one trade (live P&L while open) and the signal it was taken on, with breakdown and outcome (E19) |
 | GET | `/journal/stats?from=&to=&index=` | summary stats: overall (index options), per index, `bullion` and per metal |
 | GET | `/bullion` | the GOLD / SILVER snapshot (§6.6) |
 | GET | `/bullion/{metal}/candles` | today's bullion candles with VWAP |
@@ -1263,7 +1264,7 @@ On reconnect the client receives a fresh `hello`, so no event replay is needed.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ TradeDisha  ● LIVE 11:42:07  Feed: connected (0.4s)  Login: valid  [Journal] │
+│ TradeDisha  ● LIVE 11:42:07  Feed: connected   [Dashboard][Journal][Trades]  │
 ├────────────────────────────────────────────────┬─────────────────────────────┤
 │  [NIFTY]  [BANKNIFTY]                          │ OPTION CHAIN             [–]│
 │  ┌ INDEX ─────────────────────────────── [–] ┐ │ NIFTY  17/11/2026           │
@@ -1334,7 +1335,8 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
 ### 13.2 Components
 - **TopBar**: market status pill (pre-open / live / closed / holiday, with clock), feed
   health with tick age colour (green < 2 s, amber < 10 s, red otherwise), auth state with
-  Login button, Journal link. Both pills follow the tab (E5): on an index tab they read NSE
+  Login button, and Dashboard · Journal · Trades buttons for the three pages (`#journal`,
+  `#trades`; E19). Both pills follow the tab (E5): on an index tab they read NSE
   status and the newest index tick; on BULLION they read `MCX LIVE` / `MCX CLOSED` and the
   newest bullion tick. While that market is closed, a quiet feed is shown muted instead of
   amber or red; a dropped connection is always red.
@@ -1496,9 +1498,19 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
 - **OptionChain**: virtualised table, ATM centred and highlighted, OI build-up heat
   shading (log scale of ΔOI), build-up class badge on hover, header with expiry, PCR,
   max pain, last update time.
-- **Journal page**: filterable trade table (index, date range, exit reason, fill
-  quality); non-`live` fills badged; summary cards (hit rate, net P&L, avg win/loss,
-  trades) overall and per index; click-through to the originating signal's breakdown.
+- **Journal page**: the paper bank and its ledger (§10.5), and summary cards (hit rate,
+  net P&L, avg win/loss, exits by reason, exits not on a live price) overall, per index
+  and for bullion, filtered by index and date range. It lists no trades: since E19 each
+  trade is on the Trades page, which it links to.
+- **Trades page** (E19, `#trades`): closed paper trades, index options and bullion, by IST
+  entry day (count, won/lost by net, net), filtered by market and dates on the server and
+  by exit reason and fill quality on the page; non-`live` fills badged. A trade's row
+  opens its detail from `GET /paper-trades/{id}`: signal price, fill and slippage; target
+  and stop; risk : reward from the fill; exit with reason and fill quality; gross, cost,
+  net and the result in R (net over the money from fill to stop); the money held in the
+  bank; the signal (time, call, bias and strength, entry rule, order flow, spread, expiry,
+  config version chip); what its instrument did after (§9.5 outcome); and the evidence
+  table rebuilt from the signal's stored breakdown. Open trades stay on the dashboard.
 - **Data panel** (drawer from the TopBar): DB size, tick days held, oldest/newest tick
   date; a date picker for "delete ticks up to and including"; a preview line ("N days,
   M rows, ~X MB") fetched from `/data/usage`; a confirm step that requires typing the date;

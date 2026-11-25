@@ -613,6 +613,38 @@ What else could be added to the bullion signal (listed on 2026-11-23, not built)
   input; US real yields, the actual dollar index, S&P futures, VIX; slow data (ETF
   holdings, CFTC positioning).
 
+### 22. A page of executed paper trades
+
+Asked for (2026-11-25): a view for executed paper trades.
+
+Status: built in Milestone E19. Design in [spec.md](spec.md) §13.2 ("Trades page");
+planned in [plan.md](plan.md) Milestone E19.
+
+Decided with the owner on 2026-11-25:
+- A separate page, not a dashboard panel or a change to the Journal: the TopBar has
+  Dashboard · Journal · Trades, and the page is `#trades`.
+- Each trade opens to its detail: levels, fills, P&L, the signal it was taken on and the
+  evidence at that minute.
+
+Builder's calls:
+- Closed trades only; open trades stay on the dashboard, where they have live P&L and the
+  Close button. Index options and bullion together, filtered by market and dates.
+- Grouped by IST entry day, newest first, each day with its trade count, won/lost
+  (net-positive) and net.
+- The detail is fetched when a trade is first opened (`GET /api/paper-trades/{id}`) and
+  kept while the page is open. It shows risk : reward from the fill and the result in R
+  (net over the money between fill and stop), and what the signal's instrument did next
+  (the outcome the scorecard uses).
+- The evidence is the breakdown stored with the signal, shown in the same table as the
+  dashboard's Market view panel; a factor switched off then reads "off".
+- This is the "click-through to the originating signal's breakdown" the Journal page
+  promised in the first spec and never had.
+
+Follow-up from the owner (2026-11-25): remove from the Journal what the Trades page already
+shows. The Journal's trade table is gone; it keeps the bank, the ledger and the summary
+cards, and links to the Trades page. The table's Exit and Fill filters moved to the Trades
+page.
+
 ## Deferred
 
 ### Strike ladder (ATM ±3)

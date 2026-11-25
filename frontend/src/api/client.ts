@@ -4,6 +4,7 @@ import type {
   HealthResponse,
   JournalOut,
   MetricsResponse,
+  PaperTradeDetailOut,
   PaperTradeOut,
   ParameterField,
   ParametersOut,
@@ -152,6 +153,8 @@ export interface JournalQuery {
   index?: string
   from?: string
   to?: string
+  /** 'open' or 'closed'; both when left out */
+  status?: 'open' | 'closed'
 }
 
 function query(q: JournalQuery): string {
@@ -165,6 +168,13 @@ function query(q: JournalQuery): string {
 
 export function fetchPaperTrades(q: JournalQuery, signal?: AbortSignal): Promise<PaperTradeOut[]> {
   return getJson<PaperTradeOut[]>(`/api/paper-trades${query(q)}`, signal)
+}
+
+export function fetchPaperTradeDetail(
+  tradeId: string,
+  signal?: AbortSignal,
+): Promise<PaperTradeDetailOut> {
+  return getJson<PaperTradeDetailOut>(`/api/paper-trades/${encodeURIComponent(tradeId)}`, signal)
 }
 
 export function fetchJournal(q: JournalQuery, signal?: AbortSignal): Promise<JournalOut> {

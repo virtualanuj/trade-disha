@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from tradedisha.api.deps import State
 from tradedisha.app_state import AppState
-from tradedisha.engine.outcomes import Outcome, scorecard
+from tradedisha.engine.outcomes import Outcome, OutcomeStore, scorecard
 from tradedisha.engine.paper import METALS
 from tradedisha.engine.signals import Gate, Signal
 from tradedisha.market.flow import FlowReading
@@ -143,7 +143,8 @@ def outcome_out(s: Signal, o: Outcome) -> OutcomeOut:
 
 def signal_out(state: AppState, s: Signal) -> SignalOut:
     tracker = state.session.outcomes
-    o = tracker.get(s.id) if tracker is not None else None
+    # before the feed starts there is no tracker, but past outcomes are stored
+    o = tracker.get(s.id) if tracker is not None else OutcomeStore(state.conn).get(s.id)
     fields = asdict(s)
     return SignalOut(
         **{k: v for k, v in fields.items() if k != "breakdown_json"},

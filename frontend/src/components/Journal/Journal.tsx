@@ -1,53 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { fetchJournal, fetchPaperTrades } from '../../api/client'
+import { fetchJournal } from '../../api/client'
 import type { JournalQuery } from '../../api/client'
-import type {
-  ExitReason,
-  FillQuality,
-  JournalOut,
-  JournalStatsOut,
-  PaperTradeOut,
-} from '../../api/types'
-import {
-  fmtDuration,
-  fmtDate,
-  fmtIstTime,
-  fmtMoney,
-  fmtPrice,
-  fmtSigned,
-  pnlColour,
-} from '../../lib/format'
-import { instrumentLabel, isLong } from '../../lib/direction'
+import type { ExitReason, JournalOut, JournalStatsOut } from '../../api/types'
+import { fmtDuration, fmtMoney, pnlColour } from '../../lib/format'
+import { REASON_TEXT } from '../../lib/tradeText'
 
 /** "overall" is index options only; bullion has its own total (spec §10). */
 const SCOPE_LABEL: Partial<Record<string, string>> = {
   overall: 'Index options',
   bullion: 'Bullion',
-}
-
-const REASON_TEXT: Record<ExitReason, string> = {
-  TARGET: 'Target',
-  STOP: 'Stop',
-  SQUARE_OFF: 'Square-off',
-  MANUAL: 'Manual',
-}
-
-const QUALITY_TEXT: Record<Exclude<FillQuality, 'live'>, { label: string; title: string }> = {
-  after_gap: {
-    label: 'after gap',
-    title: 'The feed was down; this exit used the first price after it came back.',
-  },
-  stale: {
-    label: 'stale price',
-    title: 'Squared off while the feed was down, at the last price the app had seen.',
-  },
-}
-
-interface Loaded {
-  trades: PaperTradeOut[]
-  journal: JournalOut
 }
 
 interface Props {
@@ -56,31 +19,22 @@ interface Props {
   revision: number
   /** the paper bank strip, shown above the filters */
   bank?: ReactNode
-  load?: (q: JournalQuery, signal: AbortSignal) => Promise<Loaded>
+  load?: (q: JournalQuery, signal: AbortSignal) => Promise<JournalOut>
 }
 
-async function loadFromApi(q: JournalQuery, signal: AbortSignal): Promise<Loaded> {
-  const [trades, journal] = await Promise.all([
-    fetchPaperTrades(q, signal),
-    fetchJournal(q, signal),
-  ])
-  return { trades, journal }
-}
-
-export function Journal({ indices, revision, bank, load = loadFromApi }: Props) {
+/** The paper bank and the summary figures; each trade is on the Trades page (E19). */
+export function Journal({ indices, revision, bank, load = fetchJournal }: Props) {
   const [index, setIndex] = useState('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
-  const [reason, setReason] = useState<ExitReason | ''>('')
-  const [quality, setQuality] = useState<FillQuality | ''>('')
-  const [data, setData] = useState<Loaded | null>(null)
+  const [journal, setJournal] = useState<JournalOut | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const ctl = new AbortController()
     load({ index, from, to }, ctl.signal)
-      .then((d) => {
-        setData(d)
+      .then((j) => {
+        setJournal(j)
         setError(null)
       })
       .catch((e: unknown) => {
@@ -90,16 +44,6 @@ export function Journal({ indices, revision, bank, load = loadFromApi }: Props) 
       ctl.abort()
     }
   }, [index, from, to, revision, load])
-
-  const rows = useMemo(
-    () =>
-      (data?.trades ?? []).filter(
-        (t) =>
-          (reason === '' || t.exit_reason === reason) &&
-          (quality === '' || t.exit_fill_quality === quality),
-      ),
-    [data, reason, quality],
-  )
 
   const field = 'rounded border border-border bg-bg px-2 py-1 text-fg'
   return (
@@ -149,38 +93,13 @@ export function Journal({ indices, revision, bank, load = loadFromApi }: Props) 
             }}
           />
         </label>
-        <label className="flex flex-col gap-1 text-fg-muted">
-          Exit
-          <select
-            className={field}
-            value={reason}
-            onChange={(e) => {
-              setReason(e.target.value as ExitReason | '')
-            }}
-          >
-            <option value="">Any</option>
-            {Object.entries(REASON_TEXT).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-fg-muted">
-          Fill
-          <select
-            className={field}
-            value={quality}
-            onChange={(e) => {
-              setQuality(e.target.value as FillQuality | '')
-            }}
-          >
-            <option value="">Any</option>
-            <option value="live">Live</option>
-            <option value="after_gap">After gap</option>
-            <option value="stale">Stale price</option>
-          </select>
-        </label>
+        <span className="pb-1 text-fg-muted">
+          Each trade, with its signal and evidence, is on the{' '}
+          <a href="#trades" className="text-accent hover:underline">
+            Trades page
+          </a>
+          .
+        </span>
       </div>
 
       {error ? (
@@ -189,52 +108,18 @@ export function Journal({ indices, revision, bank, load = loadFromApi }: Props) 
         </div>
       ) : null}
 
+      {journal ? null : <div className="text-fg-muted">Loading…</div>}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {(data?.journal.stats ?? []).map((s) => (
+        {(journal?.stats ?? []).map((s) => (
           <StatsCard key={s.scope} stats={s} />
         ))}
       </div>
-      {data && data.journal.open_trades > 0 ? (
+      {journal && journal.open_trades > 0 ? (
         <div className="text-fg-muted">
-          {data.journal.open_trades} trade{data.journal.open_trades === 1 ? ' is' : 's are'} still
-          open and not counted above.
+          {journal.open_trades} trade{journal.open_trades === 1 ? ' is' : 's are'} still open and
+          not counted above.
         </div>
       ) : null}
-
-      <div className="rounded border border-border bg-bg-elev p-3">
-        <div className="mb-2 text-[10px] uppercase tracking-wide text-fg-muted">
-          Trades · {rows.length}
-        </div>
-        {rows.length === 0 ? (
-          <div className="text-fg-muted">{data ? 'No paper trades match.' : 'Loading…'}</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full font-mono whitespace-nowrap">
-              <thead className="text-fg-muted">
-                <tr className="h-6 font-sans">
-                  <th className="text-left font-normal">Date</th>
-                  <th className="text-left font-normal">Option</th>
-                  <th className="text-right font-normal">Qty</th>
-                  <th className="text-right font-normal">In</th>
-                  <th className="text-right font-normal">Entry</th>
-                  <th className="text-right font-normal">Slip</th>
-                  <th className="text-right font-normal">Out</th>
-                  <th className="text-right font-normal">Exit</th>
-                  <th className="text-left font-normal pl-3">Reason</th>
-                  <th className="text-right font-normal">Held</th>
-                  <th className="text-right font-normal">Gross</th>
-                  <th className="text-right font-normal">Net</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((t) => (
-                  <TradeRow key={t.id} t={t} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
     </section>
   )
 }
@@ -299,50 +184,5 @@ function Figure({
       <div className={`font-mono text-sm ${cls}`}>{value}</div>
       {sub ? <div className="text-[10px] text-fg-muted">{sub}</div> : null}
     </div>
-  )
-}
-
-function TradeRow({ t }: { t: PaperTradeOut }) {
-  const open = t.status === 'open'
-  const badge =
-    t.exit_fill_quality && t.exit_fill_quality !== 'live' ? QUALITY_TEXT[t.exit_fill_quality] : null
-  return (
-    <tr className="h-7 border-t border-border/60">
-      <td className="text-fg-muted">{fmtDate(t.entry_ts)}</td>
-      <td className={isLong(t.direction) ? 'text-bull' : 'text-bear'}>
-        {t.index} {instrumentLabel(t)}
-      </td>
-      <td className="text-right">{t.qty}</td>
-      <td className="text-right">{fmtIstTime(t.entry_ts)}</td>
-      <td className="text-right">{fmtPrice(t.entry_price)}</td>
-      <td
-        className="text-right text-fg-muted"
-        title={`signal entry ${fmtPrice(t.signal_entry)}; fill minus signal price`}
-      >
-        {fmtSigned(t.slippage, 2)}
-      </td>
-      <td className="text-right">{t.exit_ts == null ? '—' : fmtIstTime(t.exit_ts)}</td>
-      <td className="text-right">{fmtPrice(t.exit_price)}</td>
-      <td className="pl-3 font-sans">
-        {open ? (
-          <span className="text-accent">open</span>
-        ) : (
-          ((t.exit_reason && REASON_TEXT[t.exit_reason]) ?? '—')
-        )}
-        {badge ? (
-          <span className="ml-2 rounded bg-warn/20 px-1 text-warn" title={badge.title}>
-            {badge.label}
-            {t.exit_price_age_ms != null ? ` ${fmtDuration(t.exit_price_age_ms)} old` : ''}
-          </span>
-        ) : null}
-      </td>
-      <td className="text-right text-fg-muted">
-        {t.exit_ts == null ? '—' : fmtDuration(t.exit_ts - t.entry_ts)}
-      </td>
-      <td className={`text-right ${pnlColour(t.gross)}`}>{fmtMoney(t.gross)}</td>
-      <td className={`text-right ${pnlColour(t.net)}`} title={`cost ₹${String(t.cost)}`}>
-        {fmtMoney(t.net)}
-      </td>
-    </tr>
   )
 }

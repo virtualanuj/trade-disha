@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { HealthResponse } from '../../api/types'
@@ -259,8 +259,41 @@ describe('TopBar', () => {
     }
     const { rerender } = render(<TopBar {...base} view="dashboard" />)
     expect(screen.queryByRole('button', { name: 'Headlines' })).not.toBeInTheDocument()
-    rerender(<TopBar {...base} view="journal" onToggleView={noop} onToggleNews={noop} />)
+    rerender(<TopBar {...base} view="journal" onView={noop} onToggleNews={noop} />)
     expect(screen.queryByRole('button', { name: 'Headlines' })).not.toBeInTheDocument()
+    rerender(<TopBar {...base} view="trades" onView={noop} onToggleNews={noop} />)
+    expect(screen.queryByRole('button', { name: 'Headlines' })).not.toBeInTheDocument()
+  })
+
+  it('switches between the dashboard, the journal and the trades page', () => {
+    const onView = vi.fn()
+    const base = {
+      health,
+      ws: 'open' as const,
+      now: 1400,
+      lastTickTs: 1000,
+      theme: 'dark' as const,
+      onToggleTheme: noop,
+      debug: false,
+      onToggleDebug: noop,
+      onView,
+      openTradeCount: 2,
+    }
+    const { rerender } = render(<TopBar {...base} view="dashboard" />)
+    const pages = within(screen.getByRole('navigation', { name: 'Pages' }))
+    expect(pages.getByRole('button', { name: 'Dashboard' })).toHaveAttribute('aria-pressed', 'true')
+    expect(pages.getByRole('button', { name: /Journal/ })).toHaveTextContent('Journal2 open')
+    fireEvent.click(pages.getByRole('button', { name: 'Trades' }))
+    expect(onView).toHaveBeenLastCalledWith('trades')
+
+    rerender(<TopBar {...base} view="trades" />)
+    expect(pages.getByRole('button', { name: 'Trades' })).toHaveAttribute('aria-pressed', 'true')
+    expect(pages.getByRole('button', { name: 'Dashboard' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+    fireEvent.click(pages.getByRole('button', { name: /Journal/ }))
+    expect(onView).toHaveBeenLastCalledWith('journal')
   })
 
   describe('NSE and MCX keep different hours', () => {

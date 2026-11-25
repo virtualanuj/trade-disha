@@ -82,6 +82,7 @@ version, then enhancements, configuration and signal quality).
 | E15 | Factor switches in the Evidence panel | 2026-11-19 | built; superseded the same day by E16 |
 | E16 | Factor switches in the versioned config | 2026-11-19 | built; checked by the owner in the app |
 | — | Config drawer (not a milestone) | 2026-11-19 | built, with unit tests; checked by the owner in the app |
+| E19 | Executed paper trades page | 2026-11-25 | built; checked by the owner in the app |
 | S3 | Switch the trigger on, on evidence | — | planned: after five live sessions of shadow data |
 
 ---
@@ -962,6 +963,45 @@ existing flaky websocket test (`tests/test_net_volume.py`, about 1 run in 5 on `
 too). Not yet checked end to end with the owner.
 
 **Design:** spec §9a; signal.md §13.6, §13.8–13.10.
+
+## Milestone E19 — Executed paper trades page
+
+**Goal:** a page of the paper trades that have been closed, where each one opens to why it
+was taken and how it went: levels and fills, P&L, the signal, what the instrument did after
+it, and the evidence at the minute it fired. Display only; nothing new is stored.
+
+- `api/paper.py`: `GET /api/paper-trades/{id}` → `PaperTradeDetailOut {trade, signal}`.
+  An open trade comes from its manager (live P&L), a closed one from `paper_trades`; the
+  signal from `signals` (index and bullion share it), so it works before the feed starts.
+  404 for an unknown id.
+- `api/signals.py:signal_out`: with no outcome tracker (feed not started) the outcome is
+  read from `signal_outcomes`, so `GET /signals/{id}` gains it too.
+- Page: `lib/view.ts` (pages and their hash); the TopBar's single Journal toggle becomes
+  Dashboard · Journal · Trades. `components/TradeLog/` lists closed trades by IST day (count,
+  won/lost, net) with Market, From and To filters; a trade's row opens its detail, fetched
+  once and kept. `lib/signalBias.ts:biasFromSignal()` turns a signal's stored breakdown back
+  into a `BiasOut` for `EvidenceTable`. The exit-reason and fill-quality labels move to
+  `lib/tradeText.ts`, shared with the Journal.
+- Journal: its trade table and the Exit and Fill filters that narrowed it are removed (the
+  owner's follow-up: no trade listed twice). It keeps the bank, the ledger and the summary
+  cards, loads only `/journal/stats`, and links to the Trades page, which takes the Exit
+  and Fill filters.
+- Tests: the endpoint for an open, a closed, an unknown and a bullion trade, and the outcome
+  read without the tracker; the page's filters, day grouping and totals, detail facts
+  (slippage, risk : reward for a bought option and a short future, result in R, signal,
+  outcome, evidence), the detail cache, a failed detail and its retry, a missing signal,
+  the Exit and Fill filters; the Journal with no trade table and a link to the page; the
+  hash mapping; the TopBar buttons.
+
+**Demo:** paper-trade a signal and close it from Open paper trades. Trades in the TopBar
+lists it under today with the day's net; open it: the fill against the signal price, target
+and stop, risk : reward, net and R, the signal's bias, rule and config version (hover for
+the values), what the option did after, and the evidence table as it was then.
+
+**Status (2026-11-25):** built, with unit tests; `make check` green; checked by the owner
+in the app.
+
+**Design:** spec §13.2 (Trades page), §12 (API).
 
 ## Logout (24/11/2026, not a milestone)
 

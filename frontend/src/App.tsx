@@ -27,6 +27,7 @@ import { SignalHistory } from './components/SignalHistory/SignalHistory'
 import { currentBanner } from './components/StatusBanner/banner'
 import { StatusBanner } from './components/StatusBanner/StatusBanner'
 import { TopBar } from './components/TopBar/TopBar'
+import { TradeLog } from './components/TradeLog/TradeLog'
 import { factorSwitches } from './lib/factors'
 import { clampLayout, DEFAULT_LAYOUT, LIMITS, parseLayout } from './lib/layout'
 import { newsSummary } from './lib/news'
@@ -48,6 +49,7 @@ import { isLong } from './lib/direction'
 import { useBullionMetal } from './lib/useBullionMetal'
 import { useNewsSeen } from './lib/useNewsSeen'
 import { usePref } from './lib/usePref'
+import { hashFor, viewFromHash, type View } from './lib/view'
 import { BULLION_TAB, useMarketStore } from './state/store'
 import { useTheme } from './theme/useTheme'
 
@@ -63,7 +65,8 @@ function useDebugFlag(): [boolean, () => void] {
   ]
 }
 
-type View = 'dashboard' | 'journal'
+/** bullion trades are kept for these metals (`engine/paper.py:METALS`), loaded or not */
+const METALS = ['GOLD', 'SILVER']
 
 const LAYOUT_KEY = 'tradedisha.layout'
 
@@ -95,16 +98,12 @@ function useLayout(): [Layout, (change: Partial<Layout>) => void] {
   return [layout, update]
 }
 
-function viewFromHash(): View {
-  return location.hash === '#journal' ? 'journal' : 'dashboard'
-}
-
 /** The page shown, kept in the URL hash so reload and the back button work. */
-function useView(): [View, () => void] {
-  const [view, setView] = useState<View>(viewFromHash)
+function useView(): [View, (view: View) => void] {
+  const [view, setView] = useState<View>(() => viewFromHash(location.hash))
   useEffect(() => {
     const sync = () => {
-      setView(viewFromHash())
+      setView(viewFromHash(location.hash))
     }
     window.addEventListener('hashchange', sync)
     return () => {
@@ -113,14 +112,14 @@ function useView(): [View, () => void] {
   }, [])
   return [
     view,
-    () => {
-      location.hash = view === 'journal' ? '' : 'journal'
+    (next: View) => {
+      location.hash = hashFor(next)
     },
   ]
 }
 
 export default function App() {
-  const [view, toggleView] = useView()
+  const [view, showView] = useView()
   const [layout, setLayout] = useLayout()
   const panels = usePanels()
   const [theme, toggleTheme] = useTheme()
@@ -158,6 +157,11 @@ export default function App() {
   const onBullion = selected === BULLION_TAB
   const metalNames = useMemo(() => (bullion?.metals ?? []).map((m) => m.metal), [bullion])
   const [metal, setMetal] = useBullionMetal(metalNames)
+  /** what the Trades page filters by: every index, and the metals even before bullion loads */
+  const tradeMarkets = useMemo(
+    () => [...new Set([...instruments.map((i) => i.index), ...METALS, ...metalNames])],
+    [instruments, metalNames],
+  )
   /** what the panels show: the selected index, or on BULLION the selected metal (spec §9a) */
   const focus = onBullion ? metal : selected
   const candles = onBullion ? (bullionCandles[metal] ?? EMPTY) : indexCandles
@@ -387,7 +391,7 @@ export default function App() {
         debug={debug}
         onToggleDebug={toggleDebug}
         view={view}
-        onToggleView={toggleView}
+        onView={showView}
         openTradeCount={openTrades.length}
         panelsChanged={panels.changed}
         onRestorePanels={panels.restoreAll}
@@ -413,6 +417,8 @@ export default function App() {
             revision={journalRevision}
             bank={<Bank bank={bank} openTrades={openTrades} showLedger />}
           />
+        ) : view === 'trades' ? (
+          <TradeLog markets={tradeMarkets} revision={journalRevision} />
         ) : (
           <>
             <section

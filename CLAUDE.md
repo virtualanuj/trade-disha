@@ -188,8 +188,9 @@ Things that are easy to get wrong:
 - Every frame carries `t_src`, `t_in`, `t_out`; `lib/latency.ts` adds receive and paint
   times and posts a per-minute summary. `?debug=1` shows the overlay. Budget: ingest to
   painted under 250 ms p95.
-- Routing is the URL hash (`#journal`). Browser preferences (panel sizes, minimised
-  panels, details open) go through `lib/usePref.ts` to `localStorage`.
+- Routing is the URL hash (`#journal`, `#trades`; `lib/view.ts`). Browser preferences
+  (panel sizes, minimised panels, details open) go through `lib/usePref.ts` to
+  `localStorage`.
 - Dates are shown as DD/MM/YYYY; the API, config and file names stay ISO.
 - Components live in `components/<Name>/<Name>.tsx` with the test beside them.
 

@@ -369,7 +369,13 @@ export interface SignalOut {
   delta_used: number | null
   bias: number
   strength: number
-  breakdown: { indicators?: IndicatorOut[]; group_scores?: Record<string, number> }
+  /** the market view at the minute it fired, as the bias engine stored it */
+  breakdown: {
+    indicators?: IndicatorOut[]
+    group_scores?: Record<string, number>
+    group_weights?: Record<string, number>
+    is_expiry_day?: boolean
+  }
   expires_at: number
   status: SignalStatus
   status_ts: number
@@ -514,6 +520,13 @@ export interface PaperTradeOut {
   ltp_ts: number | null
   live_gross: number | null
   live_net: number | null
+}
+
+/** One trade and the signal it was taken from (`GET /api/paper-trades/{id}`, E19). */
+export interface PaperTradeDetailOut {
+  trade: PaperTradeOut
+  /** null only if the signal row is missing */
+  signal: SignalOut | null
 }
 
 /** every second while signals wait: their live levels */
