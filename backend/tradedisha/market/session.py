@@ -7,7 +7,7 @@ import contextlib
 import functools
 import logging
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from pathlib import Path
@@ -84,6 +84,17 @@ from tradedisha.store.gift import GiftStore
 from tradedisha.store.ticks import FeedEventLog, TickStore
 
 log = logging.getLogger(__name__)
+
+
+@contextlib.contextmanager
+def _chore(name: str) -> Iterator[None]:
+    """One housekeeping step: a failure is logged and stays local, so the square-off, the
+    lapses and the gap tracking go on whatever else breaks."""
+    try:
+        yield
+    except Exception:
+        log.exception("housekeeping: %s failed", name)
+
 
 # MCX and NSE currency: side markets with their own trackers (spec §6.6, §6.8)
 SIDE_MARKET_SEGMENTS = ("MCX_FO|", "NCD_FO|")
@@ -247,6 +258,7 @@ class FeedSession:
             on_subscription_change=self._sub_changes.put_nowait,
         )
         self.tick_bus.subscribe(self.chains.on_tick)
+        self.tick_bus.subscribe(self._apply_candles)  # after the chain (see there)
         self.bias = BiasEngine(
             candles=self.candles,
             chains=self.chains.chains,
@@ -465,8 +477,15 @@ class FeedSession:
         if self.settings.feed_provider != "replay":
             self.tick_store.add(t)
             self.latency.record("src_to_in", st.t_in - t.ts, at_ms=st.t_in)
-        if t.key in self._candle_keys():
-            self.candles.apply(t)
+
+    def _apply_candles(self, st: StampedTick) -> None:
+        """Spot and futures candles; a spot close runs the bias and the signal engines.
+
+        Subscribed after the chain manager, so on a tick that opens a new minute the chain
+        has closed its minute before the bias reads it.
+        """
+        if st.tick.key in self._candle_keys():
+            self.candles.apply(st.tick)
 
     def _candle_keys(self) -> set[str]:
         keys: set[str] = set()
@@ -933,27 +952,37 @@ class FeedSession:
         last_minute = None
         while True:
             await asyncio.sleep(0.5)
-            self.tick_store.flush()
-            self.bullion_tick_store.flush()
-            self.candles.flush_stale(self.clock.now_ms())
+            with _chore("tick stores"):
+                self.tick_store.flush()
+                self.bullion_tick_store.flush()
+            with _chore("candles"):
+                self.candles.flush_stale(self.clock.now_ms())
             if self.bullion is not None:
-                self.bullion.candles.flush_stale(self.clock.now_ms())
+                with _chore("bullion candles"):
+                    self.bullion.candles.flush_stale(self.clock.now_ms())
             if self.bullion_desk is not None:
-                for lag in self.bullion_desk.housekeeping(self.clock.now_ms()):
-                    self.latency.record("bullion_eval_lag", lag, at_ms=epoch_ms_now())
+                with _chore("bullion desk"):
+                    for lag in self.bullion_desk.housekeeping(self.clock.now_ms()):
+                        self.latency.record("bullion_eval_lag", lag, at_ms=epoch_ms_now())
             for engine in (self.signals, self.shadow_signals):
                 if engine is not None:
-                    engine.tick(self.clock.now_ms())
+                    with _chore("signal lapses"):
+                        engine.tick(self.clock.now_ms())
             if self.paper is not None:
-                self.paper.tick(self.clock.now_ms())
+                with _chore("paper trades"):
+                    self.paper.tick(self.clock.now_ms())
             if self.outcomes is not None:
-                self.outcomes.tick(self.clock.now_ms())
-            self._track_gap()
-            await self._publish_health()
+                with _chore("outcomes"):
+                    self.outcomes.tick(self.clock.now_ms())
+            with _chore("feed gap"):
+                self._track_gap()
+            with _chore("health"):
+                await self._publish_health()
             minute = epoch_ms_now() // 60_000
             if minute != last_minute:
                 last_minute = minute
-                self.latency.persist_minute(self._conn, minute * 60_000)
+                with _chore("latency"):
+                    self.latency.persist_minute(self._conn, minute * 60_000)
 
     async def _publish_health(self) -> None:
         if self.provider is None:

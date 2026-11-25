@@ -238,12 +238,12 @@ def _index(state: AppState, index: str) -> str:
 
 
 @router.get("/candles/{index}", response_model=CandlesResponse)
-def candles(index: str, state: State, minutes: int = 375) -> CandlesResponse:
+async def candles(index: str, state: State, minutes: int = 375) -> CandlesResponse:
     return candles_response(state, _index(state, index), max(1, min(minutes, 400)))
 
 
 @router.get("/bias/{index}", response_model=BiasOut | None)
-def bias(index: str, state: State) -> BiasOut | None:
+async def bias(index: str, state: State) -> BiasOut | None:
     key = _index(state, index)
     engine = state.session.bias
     latest = engine.latest.get(key) if engine else None
@@ -251,7 +251,7 @@ def bias(index: str, state: State) -> BiasOut | None:
 
 
 @router.get("/bias/{index}/history", response_model=list[BiasPoint])
-def bias_history(index: str, state: State, day: date | None = None) -> list[BiasPoint]:
+async def bias_history(index: str, state: State, day: date | None = None) -> list[BiasPoint]:
     key = _index(state, index)
     engine = state.session.bias
     if engine is None:
@@ -264,12 +264,12 @@ def bias_history(index: str, state: State, day: date | None = None) -> list[Bias
 
 
 @router.get("/parameters", response_model=ParametersOut)
-def parameters(state: State) -> ParametersOut:
+async def parameters(state: State) -> ParametersOut:
     return parameters_out(state)
 
 
 @router.get("/parameters/schema", response_model=list[ParameterFieldOut])
-def parameters_schema(state: State) -> list[ParameterFieldOut]:
+async def parameters_schema(state: State) -> list[ParameterFieldOut]:
     return [ParameterFieldOut(**asdict(f)) for f in describe(state.params.params)]
 
 
@@ -288,12 +288,12 @@ async def save_parameters(body: ParametersIn, state: State) -> ParametersOut:
 
 
 @router.get("/parameters/versions", response_model=list[ConfigVersionOut])
-def parameter_versions(state: State) -> list[ConfigVersionOut]:
+async def parameter_versions(state: State) -> list[ConfigVersionOut]:
     return [_version_out(state, v) for v in state.params.versions()]
 
 
 @router.get("/parameters/versions/{version}", response_model=ConfigVersionDetail)
-def parameter_version(version: int, state: State) -> ConfigVersionDetail:
+async def parameter_version(version: int, state: State) -> ConfigVersionDetail:
     v = state.params.get(version)
     if v is None:
         raise HTTPException(status_code=404, detail=f"there is no config version {version}")

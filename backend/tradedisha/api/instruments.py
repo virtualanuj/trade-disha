@@ -37,5 +37,5 @@ def resolved_out(r: ResolvedIndex) -> ResolvedIndexOut:
 
 
 @router.get("/instruments", response_model=list[ResolvedIndexOut])
-def instruments(state: State) -> list[ResolvedIndexOut]:
+async def instruments(state: State) -> list[ResolvedIndexOut]:
     return [resolved_out(r) for r in state.session.resolved.values()]

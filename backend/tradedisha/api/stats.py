@@ -48,7 +48,7 @@ def all_stats(state: AppState) -> list[IndexStatsOut]:
 
 
 @router.get("/stats/{index}", response_model=IndexStatsOut)
-def stats(index: str, state: State) -> IndexStatsOut:
+async def stats(index: str, state: State) -> IndexStatsOut:
     key = index.upper()
     if key not in state.session.resolved:
         raise HTTPException(status_code=404, detail=f"unknown index {index}")

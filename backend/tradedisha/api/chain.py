@@ -51,5 +51,5 @@ def get_chain(state: AppState, index: str) -> ChainState:
 
 
 @router.get("/chain/{index}", response_model=ChainOut)
-def chain(index: str, state: State) -> ChainOut:
+async def chain(index: str, state: State) -> ChainOut:
     return chain_out(get_chain(state, index.upper()))

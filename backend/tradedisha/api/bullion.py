@@ -97,13 +97,13 @@ def all_bullion_candles(state: AppState, minutes: int) -> list[BullionCandlesOut
 
 
 @router.get("/bullion", response_model=BullionOut)
-def bullion(state: State) -> BullionOut:
+async def bullion(state: State) -> BullionOut:
     """Gold and silver snapshot; no metals without the live feed."""
     return bullion_out(state)
 
 
 @router.get("/bullion/{metal}/candles", response_model=BullionCandlesOut)
-def candles(metal: str, state: State, minutes: int = 900) -> BullionCandlesOut:
+async def candles(metal: str, state: State, minutes: int = 900) -> BullionCandlesOut:
     tracker = state.session.bullion
     key = metal.upper()
     if tracker is None or key not in tracker.contracts:

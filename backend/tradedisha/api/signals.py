@@ -204,7 +204,7 @@ def today_signals(state: AppState, index: str | None = None) -> list[SignalOut]:
 
 
 @router.get("/signals", response_model=list[SignalOut])
-def list_signals(
+async def list_signals(
     state: State, index: str | None = None, status: str | None = None, day: date | None = None
 ) -> list[SignalOut]:
     eng = state.session.signals
@@ -218,17 +218,17 @@ def list_signals(
 
 
 @router.get("/signals/active", response_model=list[SignalOut])
-def list_active(state: State) -> list[SignalOut]:
+async def list_active(state: State) -> list[SignalOut]:
     return active_signals(state)
 
 
 @router.get("/signals/gates", response_model=list[GateOut])
-def list_gates(state: State) -> list[GateOut]:
+async def list_gates(state: State) -> list[GateOut]:
     return gates(state)
 
 
 @router.get("/signals/scorecard", response_model=list[ScoreRowOut])
-def get_scorecard(
+async def get_scorecard(
     state: State,
     index: str | None = None,
     start: Annotated[date | None, Query(alias="from")] = None,
@@ -256,12 +256,12 @@ def get_scorecard(
 
 
 @router.get("/flow", response_model=list[FlowOut])
-def list_flow(state: State) -> list[FlowOut]:
+async def list_flow(state: State) -> list[FlowOut]:
     return flow_readings(state)
 
 
 @router.get("/signals/{signal_id}", response_model=SignalOut)
-def get_signal(signal_id: str, state: State) -> SignalOut:
+async def get_signal(signal_id: str, state: State) -> SignalOut:
     eng = state.session.signals
     s = eng.store.get(signal_id) if eng else None
     if s is None:

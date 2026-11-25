@@ -160,6 +160,13 @@ def decode(msg: pb.FeedResponse) -> list[Tick]:
 # -- REST helpers -----------------------------------------------------------------
 
 
+async def _close_quietly(ws: FeedSocket) -> None:
+    try:
+        await ws.close()
+    except Exception:
+        log.debug("closing the Upstox socket failed", exc_info=True)
+
+
 def _bearer(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
@@ -297,6 +304,7 @@ class UpstoxProvider:
         self._reconnects = 0
         self._closed = False
         self._ever_connected = False
+        self._drops = 0  # counts `drop()`, so an open in flight can tell it was overtaken
 
     # -- provider protocol -------------------------------------------------
 
@@ -324,13 +332,11 @@ class UpstoxProvider:
         `ticks()` goes on retrying; with no token it waits, and a new login reconnects and
         re-subscribes everything.
         """
+        self._drops += 1
         self._state = "disconnected"
         ws, self._ws = self._ws, None
         if ws is not None:
-            try:
-                await ws.close()
-            except Exception:
-                log.debug("closing the Upstox socket failed", exc_info=True)
+            await _close_quietly(ws)
 
     def health(self) -> FeedHealth:
         return FeedHealth(
@@ -382,6 +388,7 @@ class UpstoxProvider:
         return url
 
     async def _try_open(self) -> bool:
+        drops = self._drops
         token = self._token()
         if token is None:
             self._state = "disconnected"  # waiting for the trader to log in again
@@ -397,6 +404,12 @@ class UpstoxProvider:
             return False
         except Exception as exc:
             log.warning("Upstox feed connect failed: %s", type(exc).__name__)
+            self._state = "disconnected"
+            return False
+        if self._drops != drops or self._closed:
+            # Logged out (or shut down) during the handshake: this socket was opened with
+            # the old token, so it must not carry ticks.
+            await _close_quietly(ws)
             self._state = "disconnected"
             return False
         self._ws = ws

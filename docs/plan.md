@@ -1017,6 +1017,41 @@ in the app.
 
 **Design:** spec §13.2 (Trades page), §12 (API).
 
+## Review fixes (26/11/2026, not a milestone)
+
+**Goal:** the owner asked for a code review and its five most important issues, fixed.
+Each fix started with a test that failed on the old code.
+
+- **Routes on the loop** (`api/*.py`): the routes were plain `def`, so FastAPI ran them
+  in worker threads beside the event loop. Two clicks on one signal opened two trades
+  (45 runs in 50), a manual close could race a target hit, and a latency post could change
+  a deque while the loop read it, killing `_housekeeping` for good (no square-off, lapses
+  or gap tracking). Every route is `async def` now except `/data/usage` and `/auth/login`.
+  Each housekeeping step is guarded on its own (`_chore`).
+- **Chain before candles** (`market/session.py`): the spot candle closed, and the bias ran,
+  before the chain closed its minute on the same tick. When the spot tick opened a minute,
+  the OI and premium votes read the previous minute's chain. The candle step is now a tick
+  consumer subscribed after the chain manager.
+- **Candles after the wall-clock flush** (`market/candles.py`): a late tick reopened a
+  flushed minute (a second candle replaced the real row and the bias ran twice), and live
+  made no carry-forward candles after an outage, unlike replay. The builder now judges a
+  tick against the last closed candle: older ones are dropped, and gaps are filled within
+  one IST day, never from backfilled candles.
+- **Logout during a reconnect** (`feed/upstox.py`): a handshake already in flight
+  installed its socket after the logout, so ticks kept flowing. `drop()` is counted, and
+  a socket opened across one is closed.
+- **Gate reasons a minute behind** (`api/ws.py`): the hub hears the bias before the
+  signal engines do, so `bias` and `signal` frames carried the previous minute's gates.
+  The gates are now read when the frame is sent.
+
+**Measured:** replaying 23/11/2026 with `tools/score.py` gives the same scorecard to within
+one signal (the trigger rule 21 → 22 signals, BANK NIFTY). These fixes are about data
+integrity, not the strategy.
+
+**Status (2026-11-26):** built, with tests; `make check` green.
+
+**Design:** spec §7.1, §12.1.
+
 ## Performance pass (25/11/2026, not a milestone)
 
 **Goal:** the owner asked for a performance review with changes that keep behaviour and

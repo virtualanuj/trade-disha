@@ -1,11 +1,15 @@
 """WebSocket contract: hello snapshot, then tick frames with latency stamps."""
 
 import json
+import time
 from typing import Any
 
 from fastapi.testclient import TestClient
 
+from tradedisha.engine.aggregator import Bias
+from tradedisha.engine.bias_engine import BiasComputed, OverlayPoint
 from tradedisha.market.news import Headline
+from tradedisha.market.session import FeedSession
 
 
 def test_hello_then_ticks(client: TestClient) -> None:
@@ -79,3 +83,28 @@ def test_news_change_is_pushed(client: TestClient) -> None:
             "symbols": ["SBIN", "ITC"],
         }
     ]
+
+
+def test_a_bias_frame_carries_the_gate_of_its_own_minute(client: TestClient) -> None:
+    """The hub listens to the bias before the signal engines do; the frame's gates must still
+    be the ones this minute's evaluation set, not the previous minute's."""
+    time.sleep(0.3)  # let the synthetic feed price the chain
+    session: FeedSession = client.app.state.td.session  # type: ignore[attr-defined]
+    minute_ts = session.clock.now_ms() // 60_000 * 60_000 - 60_000
+    bias = Bias(0.8, "Bullish", 80, {}, {}, [], False)
+    computed = BiasComputed(
+        "NIFTY", minute_ts, bias, OverlayPoint(minute_ts, None, None, None, None, 0)
+    )
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_text()  # hello
+        assert client.portal is not None
+        client.portal.call(session._on_bias, computed)  # every bias listener, on the loop
+        for _ in range(400):
+            frame = json.loads(ws.receive_text())
+            p = frame["payload"]
+            if frame["type"] == "bias" and p["bias"]["strength"] == 80:
+                break
+        else:
+            raise AssertionError("no bias frame")
+    gate = next(g for g in p["gates"] if g["index"] == "NIFTY")
+    assert (gate["minute_ts"], gate["fired"]) == (minute_ts, True)

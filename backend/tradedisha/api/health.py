@@ -77,5 +77,5 @@ def build_health(state: AppState) -> HealthResponse:
 
 
 @router.get("/health", response_model=HealthResponse)
-def health(state: State) -> HealthResponse:
+async def health(state: State) -> HealthResponse:
     return build_health(state)

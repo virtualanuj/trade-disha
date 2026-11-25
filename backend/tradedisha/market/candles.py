@@ -2,7 +2,10 @@
 
 Minute boundaries are driven by exchange timestamps. A wall-clock fallback (`flush_stale`)
 closes a candle when no tick arrives for a while. Minutes with no ticks produce a
-carry-forward candle flagged synthetic so indicator windows stay aligned.
+carry-forward candle flagged synthetic so indicator windows stay aligned, whether the
+minute before them was closed by the next tick or by the flush (so a live day and its
+replay close the same minutes), but only within one IST day and never from a seeded
+(backfilled) candle.
 
 Net volume (Milestone E8): Upstox does not say which side started a trade, so each tick's
 volume is signed here. A print at or above the ask, as it stood before the tick, is a buy;
@@ -19,6 +22,7 @@ import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from tradedisha.clock import ms_to_ist
 from tradedisha.feed.provider import Tick
 
 MINUTE_MS = 60_000
@@ -91,6 +95,9 @@ class _Series:
     last_ltp: float | None = None
     last_side: int = 0
     last_ts: int | None = None  # the previous tick, to tell a feed gap
+    # The last candle this builder closed itself (never a seeded one): after the wall-clock
+    # flush there is no current candle, and the next tick is judged against this.
+    last_live: Candle | None = None
 
     @property
     def vwap(self) -> float | None:
@@ -125,36 +132,38 @@ class CandleBuilder:
         closed: list[Candle] = []
         cur = s.current
         if cur is None:
+            if s.closed and minute <= s.closed[-1].minute_ts:
+                return closed  # late tick for a minute already closed (flushed or seeded)
+            if s.last_live is not None:
+                closed += self._fill_gap(s, s.last_live, minute)
             s.current = self._open(t, minute, dvol, side)
             return closed
         if minute < cur.minute_ts:
             return closed  # late tick for an already-closed minute; ignore
         if minute > cur.minute_ts:
             closed.append(self._close(s, cur))
-            # gap-fill minutes with no ticks
-            sides = 0 if cur.buy_volume is not None else None
-            m = cur.minute_ts + MINUTE_MS
-            while m < minute:
-                gap = Candle(
-                    t.key,
-                    m,
-                    cur.close,
-                    cur.close,
-                    cur.close,
-                    cur.close,
-                    0,
-                    synthetic=True,
-                    buy_volume=sides,
-                    sell_volume=sides,
-                )
-                closed.append(self._close(s, gap))
-                m += MINUTE_MS
+            closed += self._fill_gap(s, cur, minute)
             s.current = self._open(t, minute, dvol, side)
             return closed
         cur.update(t.ltp, dvol)
         if t.volume is not None:
             cur.add_trade(side, dvol)
         return closed
+
+    def _fill_gap(self, s: _Series, last: Candle, minute: int) -> list[Candle]:
+        """Carry `last` forward over the minutes with no ticks before `minute`, within the
+        same IST day (left running overnight, the morning starts afresh)."""
+        if ms_to_ist(last.minute_ts).date() != ms_to_ist(minute).date():
+            return []
+        sides = 0 if last.buy_volume is not None else None
+        out: list[Candle] = []
+        m = last.minute_ts + MINUTE_MS
+        while m < minute:
+            p = last.close
+            gap = Candle(last.key, m, p, p, p, p, 0, True, buy_volume=sides, sell_volume=sides)
+            out.append(self._close(s, gap))
+            m += MINUTE_MS
+        return out
 
     @staticmethod
     def _side(s: _Series, t: Tick, dvol: int) -> int:
@@ -192,6 +201,7 @@ class CandleBuilder:
 
     def _close(self, s: _Series, c: Candle) -> Candle:
         s.closed.append(c)
+        s.last_live = c
         if len(s.closed) > self._max:
             del s.closed[: len(s.closed) - self._max]
         if c.volume:

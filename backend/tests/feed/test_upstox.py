@@ -366,3 +366,31 @@ async def test_drop_waits_for_a_new_login_then_reconnects_and_resubscribes() -> 
     await pump
     assert set(sleeps[:5]) == {1.0}  # waiting for a login does not back off
     assert sockets[1].sent[0]["data"] == {"mode": "full", "instrumentKeys": ["A"]}
+
+
+async def test_a_logout_during_the_handshake_discards_the_new_socket() -> None:
+    """Logout while a reconnect waits on the handshake: the socket it then gets, opened with
+    the old token, is closed, not installed (ticks would otherwise flow, logged out)."""
+    token: list[str | None] = ["tok"]
+    sock = HeldSocket()
+    handshake, released = asyncio.Event(), asyncio.Event()
+
+    async def factory(_: str) -> HeldSocket:
+        handshake.set()
+        await released.wait()
+        return sock
+
+    p = UpstoxProvider(token=lambda: token[0], transport=_authorize(), socket_factory=factory)
+    p._subscribed = {"A"}
+    opening = asyncio.create_task(p.connect())
+    await asyncio.wait_for(handshake.wait(), timeout=1)
+
+    token[0] = None  # the trader logs out
+    await p.drop()
+    released.set()
+    await opening
+
+    assert p._ws is None
+    assert p.health().state == "disconnected"
+    assert sock.closed
+    assert sock.sent == []  # no subscribe on a socket that was thrown away

@@ -18,7 +18,7 @@ def _out(s: HopSummary) -> HopOut:
 
 
 @router.get("/metrics", response_model=MetricsResponse)
-def metrics(state: State) -> MetricsResponse:
+async def metrics(state: State) -> MetricsResponse:
     return MetricsResponse(
         last_1m=[_out(s) for s in state.latency.summaries(last_ms=60_000)],
         last_15m=[_out(s) for s in state.latency.summaries()],
@@ -26,7 +26,7 @@ def metrics(state: State) -> MetricsResponse:
 
 
 @router.post("/metrics/client", status_code=204)
-def client_metrics(body: ClientLatencyIn, state: State) -> Response:
+async def client_metrics(body: ClientLatencyIn, state: State) -> Response:
     for v in body.out_to_recv_ms[:MAX_CLIENT_SAMPLES]:
         state.latency.record("out_to_recv", v)
     for v in body.recv_to_paint_ms[:MAX_CLIENT_SAMPLES]:

@@ -11,6 +11,7 @@ import asyncio
 import contextlib
 import json
 import logging
+from collections.abc import Callable
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -71,7 +72,8 @@ class WsHub:
         self._bullion_dirty: int | None = None  # t_in of newest gold / silver tick
         self._last_bullion_push = 0.0
         self._health_dirty = False
-        self._immediate: list[str] = []  # frames to send on the next pusher pass
+        # Frames to send on the next pusher pass; a callable is built then (see `_on_bias`).
+        self._immediate: list[str | Callable[[], str]] = []
         self._flow_pending: dict[str, FlowReading] = {}
         self._task: asyncio.Task[None] | None = None
         state.session.tick_bus.subscribe(self._on_tick)
@@ -135,20 +137,31 @@ class WsHub:
         }
         self._immediate.append(self._frame("bullion_candle", payload, t_src=c.minute_ts, t_in=None))
 
+    def _gates(self) -> list[dict[str, object]]:
+        return [g.model_dump() for g in gates(self._state)]
+
     def _on_bias(self, b: BiasComputed) -> None:
-        payload = {
+        # The hub hears the bias before the signal engines evaluate the minute (they are
+        # wired later, at feed start), so the gates are read when the frame is sent.
+        payload: dict[str, object] = {
             "bias": bias_out(b).model_dump(),
             "overlay": overlay_out(b.overlays).model_dump(),
-            "gates": [g.model_dump() for g in gates(self._state)],
         }
-        self._immediate.append(self._frame("bias", payload, t_src=b.minute_ts, t_in=None))
+        self._immediate.append(
+            lambda: self._frame(
+                "bias", payload | {"gates": self._gates()}, t_src=b.minute_ts, t_in=None
+            )
+        )
 
     def _on_signal(self, s: Signal) -> None:
-        payload = {
-            "signal": signal_out(self._state, s).model_dump(),
-            "gates": [g.model_dump() for g in gates(self._state)],
-        }
-        self._immediate.append(self._frame("signal", payload, t_src=s.status_ts, t_in=None))
+        # A reversal is announced before the entry rule has run: gates are read on sending.
+        payload: dict[str, object] = {"signal": signal_out(self._state, s).model_dump()}
+        t_src = s.status_ts
+        self._immediate.append(
+            lambda: self._frame(
+                "signal", payload | {"gates": self._gates()}, t_src=t_src, t_in=None
+            )
+        )
 
     def _on_flow(self, r: FlowReading) -> None:
         """About one a second per index; the newest replaces any not yet sent."""
@@ -246,6 +259,18 @@ class WsHub:
         }
         return self._frame("hello", payload, t_src=None, t_in=None)
 
+    def _broadcast_built(self, frame: str | Callable[[], str]) -> None:
+        """Send a queued frame, building it now if it was queued as a builder."""
+        if isinstance(frame, str):
+            self._broadcast(frame)
+            return
+        try:
+            built = frame()
+        except Exception:  # a frame that cannot be built must not stop the pusher
+            log.exception("building a websocket frame failed")
+            return
+        self._broadcast(built)
+
     def _broadcast(self, frame: str) -> None:
         for q in list(self._clients):
             if q.qsize() >= SLOW_CLIENT_LIMIT:
@@ -305,7 +330,7 @@ class WsHub:
             if self._immediate:
                 frames, self._immediate = self._immediate, []
                 for f in frames:
-                    self._broadcast(f)
+                    self._broadcast_built(f)
             for index in list(self._dirty):
                 if now - last_push.get(index, 0.0) < interval_ms:
                     continue

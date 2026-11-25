@@ -68,6 +68,73 @@ def test_flush_stale_closes_after_grace() -> None:
     assert b.current("F") is None
 
 
+def _flushed(b: CandleBuilder, seen: list[tuple[int, bool]]) -> None:
+    """Minute T0 traded and was closed by the wall-clock flush."""
+    b.on_close(lambda c: seen.append((c.minute_ts, c.synthetic)))
+    b.apply(tick(T0 + 5_000, 100.0))
+    b.flush_stale(T0 + M + 2_500)
+    assert seen == [(T0, False)]
+
+
+@pytest.mark.parametrize(
+    ("ts", "closed_after", "current"),
+    [
+        # a late tick for the flushed minute: dropped, never a second T0
+        (T0 + 59_900, [(T0, False)], None),
+        # the next minute: opens normally
+        (T0 + M + 3_000, [(T0, False)], T0 + M),
+        # after a silence: the missed minutes are carried forward, as replay does
+        (T0 + 3 * M + 5_000, [(T0, False), (T0 + M, True), (T0 + 2 * M, True)], T0 + 3 * M),
+    ],
+)
+def test_after_a_flush(ts: int, closed_after: list[tuple[int, bool]], current: int | None) -> None:
+    b = CandleBuilder()
+    seen: list[tuple[int, bool]] = []
+    _flushed(b, seen)
+    b.apply(tick(ts, 101.0))
+    assert seen == closed_after
+    assert [c.minute_ts for c in b.closed("F")] == [m for m, _ in closed_after]
+    cur = b.current("F")
+    assert (cur.minute_ts if cur else None) == current
+    assert all(c.close == 100.0 for c in b.closed("F"))  # carried forward from T0
+
+
+def test_live_and_replay_close_the_same_minutes_across_an_outage() -> None:
+    """Live, the flush closes T0 during the silence; replay's clock waits for the next tick."""
+    ticks = [tick(T0 + 5_000, 100.0), tick(T0 + 3 * M + 10_000, 101.0), tick(T0 + 4 * M, 102.0)]
+    live, replay = CandleBuilder(), CandleBuilder()
+    live.apply(ticks[0])
+    live.flush_stale(T0 + M + 2_500)  # the half-second timer, early in the silence
+    for t in ticks[1:]:
+        live.apply(t)
+    for t in ticks:
+        replay.apply(t)
+    expected = [(T0, False), (T0 + M, True), (T0 + 2 * M, True), (T0 + 3 * M, False)]
+    assert [(c.minute_ts, c.synthetic) for c in live.closed("F")] == expected
+    assert [(c.minute_ts, c.synthetic) for c in replay.closed("F")] == expected
+
+
+def test_seeded_candles_are_not_carried_forward() -> None:
+    """A backfill that ends early must not turn into a burst of synthetic minutes at start."""
+    b = CandleBuilder()
+    seen: list[int] = []
+    b.on_close(lambda c: seen.append(c.minute_ts))
+    b.seed("F", [Candle("F", T0, 100, 100, 100, 100)])
+    b.apply(tick(T0 + 30 * M, 101.0))
+    assert seen == []
+    assert b.apply(tick(T0 + 10, 99.0)) == []  # older than the seeded minute: dropped
+    assert b.current("F").minute_ts == T0 + 30 * M  # type: ignore[union-attr]
+
+
+def test_no_carry_forward_overnight() -> None:
+    """Left running overnight, the first tick of the morning opens a fresh minute."""
+    b = CandleBuilder()
+    seen: list[tuple[int, bool]] = []
+    _flushed(b, seen)
+    b.apply(tick(T0 + 24 * 60 * M, 101.0))  # the next IST day
+    assert seen == [(T0, False)]
+
+
 def test_store_roundtrip() -> None:
     conn = connect(":memory:")
     store = CandleStore(conn)

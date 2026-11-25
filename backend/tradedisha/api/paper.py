@@ -189,7 +189,7 @@ def _read(
 
 
 @router.post("/paper-trades", response_model=PaperTradeOut, status_code=201)
-def open_trade(body: OpenRequest, state: State) -> PaperTradeOut:
+async def open_trade(body: OpenRequest, state: State) -> PaperTradeOut:
     try:
         known = SignalStore(state.conn).get(body.signal_id)
         index = known.index if known else None
@@ -199,7 +199,7 @@ def open_trade(body: OpenRequest, state: State) -> PaperTradeOut:
 
 
 @router.post("/paper-trades/{trade_id}/close", response_model=PaperTradeOut)
-def close_trade(trade_id: str, state: State) -> PaperTradeOut:
+async def close_trade(trade_id: str, state: State) -> PaperTradeOut:
     try:
         known = PaperTradeStore(state.conn).get(trade_id)
         index = known.index if known else None
@@ -209,7 +209,7 @@ def close_trade(trade_id: str, state: State) -> PaperTradeOut:
 
 
 @router.get("/paper-trades", response_model=list[PaperTradeOut])
-def list_trades(
+async def list_trades(
     state: State,
     index: str | None = None,
     status: str | None = None,
@@ -220,7 +220,7 @@ def list_trades(
 
 
 @router.get("/paper-trades/{trade_id}", response_model=PaperTradeDetailOut)
-def get_trade(trade_id: str, state: State) -> PaperTradeDetailOut:
+async def get_trade(trade_id: str, state: State) -> PaperTradeDetailOut:
     """An open trade comes from its manager (live P&L), a closed one from the store."""
     live = next(
         (m.open_trades[trade_id] for m in _managers(state) if trade_id in m.open_trades), None
@@ -236,12 +236,12 @@ def get_trade(trade_id: str, state: State) -> PaperTradeDetailOut:
 
 
 @router.get("/bank", response_model=BankOut)
-def bank(state: State) -> BankOut:
+async def bank(state: State) -> BankOut:
     return bank_out(state)
 
 
 @router.get("/journal/stats", response_model=JournalOut)
-def stats(
+async def stats(
     state: State,
     index: str | None = None,
     start: Annotated[date | None, Query(alias="from")] = None,

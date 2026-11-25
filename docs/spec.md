@@ -553,7 +553,13 @@ currency futures.
   `candles_1m`, and handed to the builder's close listeners (the bias engine and the
   session's candle listeners).
 - Gaps (no ticks in a minute) produce a carry-forward candle (O=H=L=C=prev close, V=0)
-  flagged `synthetic=True`, so indicator windows stay aligned.
+  flagged `synthetic=True`, so indicator windows stay aligned. They are made when the next
+  tick arrives, whether the minute before the gap was closed by a tick or by the fallback,
+  so a live day and its replay close the same minutes. They are made only within one IST
+  day (an app left running overnight starts the morning afresh) and never from backfilled
+  candles. A tick for a minute that is already closed is dropped.
+- On each tick the candle builder runs after the chain manager (§7.2), so on a tick that
+  opens a new minute the chain has closed its minute before the bias reads it.
 - VWAP is maintained on the futures stream from session open: `Σ(price×vol) / Σvol`.
 - **Net volume.** Upstox does not say which side started a trade, so each
   tick's volume change is signed (`trade_side`): at or above the ask as it stood before the
@@ -1187,6 +1193,11 @@ takes it only before its header is first written.
 ## 12. API
 
 ### 12.1 REST (`/api`)
+
+Every route is `async def`, so it runs on the event loop that owns the engines, never in a
+worker thread beside it (two clicks on one signal would otherwise both pass the "still
+active" check). The exceptions are `GET /data/usage`, which counts the ticks table and reads
+only SQLite, and `GET /auth/login`; a test lists them.
 
 | Method | Path | Returns |
 |---|---|---|
