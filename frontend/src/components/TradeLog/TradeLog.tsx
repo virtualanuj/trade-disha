@@ -23,6 +23,7 @@ import {
   pnlColour,
 } from '../../lib/format'
 import { biasFromSignal } from '../../lib/signalBias'
+import { useInFlight } from '../../lib/useInFlight'
 import { QUALITY_TEXT, REASON_TEXT } from '../../lib/tradeText'
 import { ConfigVersionChip } from '../ConfigVersionChip/ConfigVersionChip'
 import { EvidenceTable } from '../EvidenceTable/EvidenceTable'
@@ -92,8 +93,7 @@ export function TradeLog({
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const [details, setDetails] = useState<Partial<Record<string, Detail>>>({})
   /** the trade being closed, and why the last close was refused */
-  const [closing, setClosing] = useState<string | null>(null)
-  const [closeError, setCloseError] = useState<string | null>(null)
+  const { busy: closing, errors: closeErrors, run } = useInFlight()
   /** aborts detail fetches still running when the page goes away */
   const detailCtl = useRef<AbortController | null>(null)
 
@@ -183,18 +183,11 @@ export function TradeLog({
   /** the socket's paper_trade frame then moves the row; the revision refetches the list */
   const close = useCallback(
     (id: string) => {
-      setClosing(id)
-      setCloseError(null)
-      onClose(id)
-        .catch((e: unknown) => {
-          setCloseError(e instanceof Error ? e.message : 'could not close')
-        })
-        .finally(() => {
-          setClosing(null)
-        })
+      run(id, () => onClose(id), 'could not close')
     },
-    [onClose],
+    [onClose, run],
   )
+  const refused = openRows.filter((t) => closeErrors[t.id] !== undefined)
 
   const rowsOf = (list: PaperTradeOut[]) =>
     list.map((t) => (
@@ -207,7 +200,7 @@ export function TradeLog({
         detail={details[t.id]}
         onToggle={toggle}
         onRetry={fetchDetail}
-        closing={closing === t.id}
+        closing={closing.has(t.id)}
         closeBlock={t.status === 'open' ? (closeBlock?.(t) ?? null) : null}
         onClose={close}
       />
@@ -299,11 +292,14 @@ export function TradeLog({
           Could not load the trades: {error}
         </div>
       ) : null}
-      {closeError ? (
-        <div className="text-bear" role="alert">
-          Not closed: {closeError}
+      {refused.map((t) => (
+        <div key={t.id} className="text-bear" role="alert">
+          Not closed: {closeErrors[t.id]}{' '}
+          <span className="text-fg-muted">
+            ({t.index} {instrumentLabel(t)})
+          </span>
         </div>
-      ) : null}
+      ))}
 
       <div className="rounded border border-border bg-bg-elev p-3">
         {days.length === 0 && openRows.length === 0 ? (

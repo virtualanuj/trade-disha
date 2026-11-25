@@ -19,7 +19,7 @@ import {
   offNames,
 } from '../../lib/factors'
 import { fmtDate, fmtIstTime } from '../../lib/format'
-import { useNow } from '../../lib/useNow'
+import { marketNow, useMarketNow } from '../../lib/marketClock'
 import { FactorSwitch } from '../FactorSwitch/FactorSwitch'
 import { toolClass } from '../../lib/toolbar'
 import { ConfigIcon } from '../Icons/Icons'
@@ -56,8 +56,9 @@ const TEXT = `${BOX} min-w-0 flex-1 border-border`
 const BUTTON =
   'rounded border border-border px-2 py-0.5 text-fg-muted hover:text-fg disabled:opacity-50 disabled:hover:text-fg-muted'
 
+/** The next minute close of the market clock, when a save applies (in replay, the day's). */
 function nextMinute(): number {
-  return (Math.floor(Date.now() / 60_000) + 1) * 60_000
+  return (Math.floor(marketNow() / 60_000) + 1) * 60_000
 }
 
 function describe(e: unknown): ConfigError[] {
@@ -70,8 +71,7 @@ export function ConfigControl({ parameters, effectiveFrom, onSaved, api = API }:
   const [tab, setTab] = useState<'parameters' | 'factors' | 'versions'>('parameters')
   const [fields, setFields] = useState<ParameterField[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [appliedAt, setAppliedAt] = useState<number | null>(null)
-  const now = useNow(5_000)
+  const now = useMarketNow(5_000)
 
   useEffect(() => {
     if (!open || fields) return
@@ -100,12 +100,12 @@ export function ConfigControl({ parameters, effectiveFrom, onSaved, api = API }:
     }
   }, [open])
 
+  // The store's minute is the one shown: this save's until the server's parameters frame
+  // (which also carries changes made in another tab) replaces it.
   const saved = (p: ParametersOut) => {
-    const at = nextMinute()
-    setAppliedAt(at)
-    onSaved(p, at)
+    onSaved(p, nextMinute())
   }
-  const pending = appliedAt ?? effectiveFrom
+  const pending = effectiveFrom
   const factorsOff = FACTOR_SCOPES.reduce(
     (n, s) => n + offNames(factorSwitches(parameters?.params, s.scope)).length,
     0,

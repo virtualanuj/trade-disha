@@ -212,6 +212,8 @@ class WsHub:
                 "t_src": t_src,
                 "t_in": t_in,
                 "t_out": epoch_ms_now(),
+                # the market clock (in replay, the recorded day's): the page's times read it
+                "t_mkt": self._state.clock.now_ms(),
                 "payload": payload,
             },
             separators=(",", ":"),

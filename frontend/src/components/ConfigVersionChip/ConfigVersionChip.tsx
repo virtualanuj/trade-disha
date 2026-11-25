@@ -14,9 +14,14 @@ interface Props {
 }
 
 const WIDTH = 420
+const LOADING = { kind: 'loading' } as const
 const CLOSE_DELAY_MS = 150
 
-type Loaded = { kind: 'loading' } | { kind: 'ok'; detail: ConfigVersionDetail } | { kind: 'error' }
+/** What was fetched, and for which version: the chip is reused across signals (tab switch). */
+type Loaded =
+  | { kind: 'loading' }
+  | { kind: 'ok'; version: number; detail: ConfigVersionDetail }
+  | { kind: 'error'; version: number }
 
 /**
  * "v7": the config version a signal fired under. Hovering or focusing it shows that
@@ -33,6 +38,7 @@ export function ConfigVersionChip({ version, load = getConfigVersion }: Props) {
     maxHeight: number
   } | null>(null)
   const [loaded, setLoaded] = useState<Loaded>({ kind: 'loading' })
+  const wanted = useRef<number | null>(null) // the version last asked for; older replies lose
 
   useEffect(
     () => () => {
@@ -42,6 +48,7 @@ export function ConfigVersionChip({ version, load = getConfigVersion }: Props) {
   )
 
   if (version === null) return null
+  const shown: Loaded = loaded.kind !== 'loading' && loaded.version === version ? loaded : LOADING
 
   const show = () => {
     if (closing.current) clearTimeout(closing.current)
@@ -57,13 +64,14 @@ export function ConfigVersionChip({ version, load = getConfigVersion }: Props) {
       ...(under ? { top: r.bottom + 4 } : { bottom: window.innerHeight - r.top + 4 }),
       maxHeight: Math.max(120, (under ? below : above) - 12),
     })
-    if (loaded.kind !== 'ok') {
+    if (shown.kind !== 'ok') {
+      wanted.current = version
       load(version).then(
         (detail) => {
-          setLoaded({ kind: 'ok', detail })
+          if (wanted.current === version) setLoaded({ kind: 'ok', version, detail })
         },
         () => {
-          setLoaded({ kind: 'error' })
+          if (wanted.current === version) setLoaded({ kind: 'error', version })
         },
       )
     }
@@ -107,12 +115,12 @@ export function ConfigVersionChip({ version, load = getConfigVersion }: Props) {
               onMouseEnter={show}
               onMouseLeave={hide}
             >
-              {loaded.kind === 'loading' ? <span className="text-fg-muted">Loading…</span> : null}
-              {loaded.kind === 'error' ? (
+              {shown.kind === 'loading' ? <span className="text-fg-muted">Loading…</span> : null}
+              {shown.kind === 'error' ? (
                 <span className="text-bear">Could not load config v{version}.</span>
               ) : null}
-              {loaded.kind === 'ok' ? (
-                <Values detail={loaded.detail} current={current ? flatten(current.params) : null} />
+              {shown.kind === 'ok' ? (
+                <Values detail={shown.detail} current={current ? flatten(current.params) : null} />
               ) : null}
             </div>,
             document.body,

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 
 import { ConfigRejected } from '../../api/client'
 import type { ConfigVersionOut, ParameterField, ParametersOut } from '../../api/types'
+import { fmtIstTime } from '../../lib/format'
 import { ConfigControl, type ConfigApi } from './ConfigControl'
 
 const v1: ParametersOut = {
@@ -134,7 +135,28 @@ describe('ConfigControl', () => {
     const [saved, from] = onSaved.mock.calls[0] as [ParametersOut, number]
     expect(saved.version).toBe(2)
     expect(from % 60_000).toBe(0)
-    expect(screen.getByRole('status')).toHaveTextContent('applies from')
+  })
+
+  it('shows when the version in force applies from, whoever saved it', async () => {
+    const { api, onSaved, rerender } = setup()
+    const page = (effectiveFrom: number | null) => (
+      <ConfigControl parameters={v1} effectiveFrom={effectiveFrom} onSaved={onSaved} api={api} />
+    )
+    const entry = await openEditor()
+    fireEvent.change(entry, { target: { value: '0.6' } })
+    fireEvent.change(screen.getByLabelText('Tag for this version'), { target: { value: 't' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save as v2' }))
+    await vi.waitFor(() => {
+      expect(onSaved).toHaveBeenCalledTimes(1)
+    })
+    const [, from] = onSaved.mock.calls[0] as [ParametersOut, number]
+    rerender(page(from)) // the store now holds this save's minute
+    expect(screen.getByRole('status')).toHaveTextContent(`applies from ${fmtIstTime(from)}`)
+
+    // later, another tab reverts: its parameters frame brings a later minute
+    const later = from + 5 * 60_000
+    rerender(page(later))
+    expect(screen.getByRole('status')).toHaveTextContent(`applies from ${fmtIstTime(later)}`)
   })
 
   it('shows what the server refused beside the field or its group, and keeps the draft', async () => {

@@ -296,6 +296,29 @@ describe('TradeLog', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Not closed: feed not live')
   })
 
+  it('keeps a row busy until its own close ends, while another row closes', async () => {
+    const second: PaperTradeOut = { ...opened, id: 'o2', strike: 25100 }
+    const { onClose } = setup([opened, second])
+    await screen.findByTestId('trade-o2')
+    const finish: Record<string, (v: unknown) => void> = {}
+    onClose.mockImplementation(
+      (id) =>
+        new Promise((resolve) => {
+          finish[id] = resolve
+        }),
+    )
+    const closeOne = within(screen.getByTestId('trade-o1')).getByRole('button', { name: 'Close' })
+    const closeTwo = within(screen.getByTestId('trade-o2')).getByRole('button', { name: 'Close' })
+    fireEvent.click(closeOne)
+    fireEvent.click(closeTwo)
+    await act(async () => {
+      finish.o2?.({})
+      await Promise.resolve()
+    })
+    expect(closeOne).toBeDisabled() // still in flight
+    expect(closeTwo).toBeEnabled()
+  })
+
   it('cannot close while that market has no live price', async () => {
     const { onClose } = setup([opened], {
       closeBlock: (t) => (t.index === 'NIFTY' ? 'Feed not live: no price to close at' : null),

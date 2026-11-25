@@ -15,6 +15,7 @@ import {
   tilesSummary,
   tradesSummary,
 } from '../../lib/panelSummary'
+import { useMarketNow } from '../../lib/marketClock'
 import { useNow } from '../../lib/useNow'
 import { useMarketStore } from '../../state/store'
 import { Bank } from '../Bank/Bank'
@@ -55,7 +56,7 @@ function useOpenTrades() {
 export function LiveTopBar(
   props: Omit<ComponentProps<typeof TopBar>, 'now' | 'lastTickTs' | 'openTradeCount'>,
 ) {
-  const now = useNow(500)
+  const now = useMarketNow(500)
   const bullionTab = props.bullionTab ?? false
   const lastTickTs = useMarketStore((s) =>
     bullionTab ? newestBullionTs(s.bullion) : newestIndexTickTs(s.prices),
@@ -96,7 +97,7 @@ export function SignalPanel({
   blocked: string | undefined
   onPaperTrade: (s: SignalOut) => Promise<unknown>
 }) {
-  const now = useNow(500)
+  const now = useMarketNow(500)
   const signal = useMarketStore((s) => s.signals[focus])
   const gate = useMarketStore((s) => s.gates[focus])
   const open = useOpenTrades()
@@ -168,7 +169,7 @@ export function TradesPanel({
   focus: string
   canClose: boolean
 }) {
-  const now = useNow(500)
+  const now = useMarketNow(500)
   const bank = useMarketStore((s) => s.bank)
   const open = useOpenTrades()
   const openOnIndex = useMemo(() => open.filter((t) => t.index === focus), [open, focus])
@@ -240,7 +241,7 @@ export function LiveBank({ showLedger = false }: { showLedger?: boolean }) {
 
 /** The Trades page, with the socket's trades and the clock for open trades' time held. */
 export function LiveTradeLog(props: Omit<ComponentProps<typeof TradeLog>, 'latest' | 'now'>) {
-  const now = useNow(500)
+  const now = useMarketNow(500)
   const trades = useMarketStore((s) => s.trades)
   return <TradeLog {...props} latest={trades} now={now} />
 }

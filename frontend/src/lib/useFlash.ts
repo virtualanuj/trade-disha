@@ -7,7 +7,12 @@ export function useFlash(value: number | null): 'up' | 'down' | null {
   useEffect(() => {
     const p = prev.current
     prev.current = value
-    if (value == null || p == null || value === p) return
+    if (value == null || p == null) {
+      // the cleanup just cleared the reset timer of a flash in progress: end it here
+      setDir(null)
+      return
+    }
+    if (value === p) return
     setDir(value > p ? 'up' : 'down')
     const id = setTimeout(() => {
       setDir(null)

@@ -1264,7 +1264,11 @@ Server → client JSON frames `{type, ts, payload}`:
 | `news` | on change (at most once per poll, §6.7) | `NewsOut`: status, error, fetched_at, headlines newest first |
 
 Every frame carries `t_src` (exchange ts), `t_in` (backend ingest), `t_out` (backend send)
-so the client can compute per-hop latency. Frames are serialised with pydantic and the
+so the client can compute per-hop latency, and `t_mkt`, the market clock when it was sent
+(in replay, the recorded day's; `ts` is the wall clock). The page re-bases its market clock
+on each frame (`lib/marketClock.ts`) and measures against it everything compared with market
+timestamps: the signal countdown, time held, the feed's age, the top-bar clock and the
+"applies from" minute. Headlines and latency stay on the wall clock. Frames are serialised with pydantic and the
 standard `json` module; throttled channels send only the latest state of the window.
 
 Client → server: `{"type":"ping"}` only, answered with a `pong` frame. All mutations go through REST.

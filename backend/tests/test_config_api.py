@@ -2,6 +2,7 @@
 
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -97,3 +98,23 @@ def test_a_save_is_announced_on_the_websocket(client: TestClient) -> None:
         assert frame["type"] == "parameters"
         assert (frame["payload"]["version"], frame["payload"]["tag"]) == (2, "higher bar")
         assert frame["payload"]["effective_from_minute_ts"] % 60_000 == 0
+
+
+def test_a_save_applies_from_the_market_clocks_next_minute(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Parameters apply at the next minute close of the market clock (in replay, the
+    recorded day's), so that is the minute announced."""
+    replayed = 1_795_000_012_345
+    td = client.app.state.td  # type: ignore[attr-defined]
+    monkeypatch.setattr(td.clock, "now_ms", lambda: replayed)
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()  # hello
+        values = _values(client)
+        values["bias"] = {**values["bias"], "entry_threshold": 0.6}
+        client.put("/api/parameters", json={"tag": "higher bar", "params": values})
+        for _ in range(500):
+            frame = ws.receive_json()
+            if frame["type"] == "parameters":
+                break
+    assert frame["payload"]["effective_from_minute_ts"] == (replayed // 60_000 + 1) * 60_000

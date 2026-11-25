@@ -150,6 +150,32 @@ describe('SignalCard', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Not opened: market is not open')
   })
 
+  it('shows "Opening…" only on the signal being opened', () => {
+    const onPaperTrade = vi.fn(() => new Promise(() => undefined)) // never answers
+    const { rerender } = render(
+      <SignalCard
+        signal={signal}
+        gate={undefined}
+        now={1_700_000_100_000}
+        onPaperTrade={onPaperTrade}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Paper trade' }))
+    expect(screen.getByRole('button', { name: 'Opening…' })).toBeDisabled()
+
+    // the tab switches to another index: the same card now shows that index's signal
+    const other = { ...signal, id: 'xyz', index: 'BANKNIFTY' }
+    rerender(
+      <SignalCard
+        signal={other}
+        gate={undefined}
+        now={1_700_000_100_000}
+        onPaperTrade={onPaperTrade}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Paper trade' })).toBeEnabled()
+  })
+
   it('disables the action with the reason while the feed is down', () => {
     render(
       <SignalCard

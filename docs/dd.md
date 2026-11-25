@@ -242,7 +242,7 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Fan-out** | Delivering each tick to several consumers (candle builder, chain state, paper manager, tick store) one after another from the tick bus. |
 | **FastAPI** | The Python web framework used for REST and websocket endpoints. |
 | **Fault injection** | Deliberately dropping or delaying replayed ticks to test reconnect and degraded-mode behaviour. |
-| **Frame (websocket)** | One JSON message from backend to browser: `{type, ts, t_src, t_in, t_out, payload}`. |
+| **Frame (websocket)** | One JSON message from backend to browser: `{type, ts, t_src, t_in, t_out, t_mkt, payload}`; `t_mkt` is the market clock (in replay, the recorded day's), `ts` the wall clock. |
 | **`hello` frame** | The first websocket frame after connect, containing a full snapshot of current state so the client needs no event replay. |
 | **`HeadlineOut` / `NewsOut`** | The headlines as sent to the browser in `hello` and the `news` frame. `NewsOut`: `status` (`needs_login`, `loading`, `ok`, `error`), `error` (why the last fetch failed, or null), `fetched_at` (epoch ms of the last successful fetch), `items` (newest first), `stock_indices` (each listed symbol's indices, which colour its chip). `HeadlineOut`: `heading`, `summary` (or null), `link` (the article, or null), `published_ts` (epoch ms), `symbols` (the listed stocks it was attached to). |
 | **Hop** | One leg of the data path used for latency measurement: exchange → ingest, ingest → sent, sent → received, received → painted. |

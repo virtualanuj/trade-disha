@@ -1,5 +1,3 @@
-import { useState } from 'react'
-
 import type { GateOut, PaperTradeOut, SignalOut } from '../../api/types'
 import {
   countdown,
@@ -12,6 +10,7 @@ import {
   pnlColour,
 } from '../../lib/format'
 import { directionLabel, instrumentLabel, isFuture, isLong } from '../../lib/direction'
+import { useInFlight } from '../../lib/useInFlight'
 import { ConfigVersionChip } from '../ConfigVersionChip/ConfigVersionChip'
 
 const REASON_TEXT: Record<NonNullable<GateOut['reason']>, string> = {
@@ -51,8 +50,7 @@ interface Props {
 }
 
 export function SignalCard({ signal, gate, now, openTrades = [], blocked, onPaperTrade }: Props) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<{ id: string; text: string } | null>(null)
+  const { busy: opening, errors, run } = useInFlight()
   if (!signal) {
     return (
       <div className="text-xs text-fg-muted" data-testid="signal-card">
@@ -69,6 +67,8 @@ export function SignalCard({ signal, gate, now, openTrades = [], blocked, onPape
     )
   }
   const long = isLong(signal.direction)
+  const busy = opening.has(signal.id) // tied to this signal: the card is reused across tabs
+  const error = errors[signal.id]
   const remaining = countdown(signal.expires_at, now)
   const urgent = signal.expires_at - now < 60_000
   return (
@@ -152,26 +152,15 @@ export function SignalCard({ signal, gate, now, openTrades = [], blocked, onPape
           title={blocked ?? 'Open a paper trade at the current price. No real order is placed.'}
           onClick={() => {
             if (!onPaperTrade) return
-            setBusy(true)
-            setError(null)
-            onPaperTrade(signal)
-              .catch((e: unknown) => {
-                setError({
-                  id: signal.id,
-                  text: e instanceof Error ? e.message : 'could not open',
-                })
-              })
-              .finally(() => {
-                setBusy(false)
-              })
+            run(signal.id, () => onPaperTrade(signal), 'could not open')
           }}
         >
           {busy ? 'Opening…' : 'Paper trade'}
         </button>
         {blocked ? <span className="text-fg-muted">{blocked}</span> : null}
-        {error?.id === signal.id ? (
+        {error !== undefined ? (
           <span className="text-bear" role="alert">
-            Not opened: {error.text}
+            Not opened: {error}
           </span>
         ) : null}
       </div>

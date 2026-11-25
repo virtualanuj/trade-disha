@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 
 import type { ConfigVersionDetail } from '../../api/types'
 import { useMarketStore } from '../../state/store'
@@ -84,5 +84,46 @@ describe('ConfigVersionChip', () => {
     render(<ConfigVersionChip version={3} load={vi.fn().mockRejectedValue(new Error('x'))} />)
     fireEvent.mouseEnter(screen.getByRole('button', { name: 'Config version 3' }))
     expect(await screen.findByText('Could not load config v3.')).toBeInTheDocument()
+  })
+
+  it('loads the new version when the chip is reused for another signal', async () => {
+    current(0.5)
+    const v4: ConfigVersionDetail = { ...v3, version: 4, tag: 'lower stop' }
+    const load = vi.fn((v: number) => Promise.resolve(v === 3 ? v3 : v4))
+    const { rerender } = render(<ConfigVersionChip version={3} load={load} />)
+    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Config version 3' }))
+    await screen.findByText('higher entry bar')
+    fireEvent.mouseLeave(screen.getByRole('button', { name: 'Config version 3' }))
+
+    // the signal card keeps the same chip when the tab switches to another index
+    rerender(<ConfigVersionChip version={4} load={load} />)
+    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Config version 4' }))
+    expect(await screen.findByText('lower stop')).toBeInTheDocument()
+    expect(load).toHaveBeenLastCalledWith(4)
+    expect(screen.queryByText('higher entry bar')).not.toBeInTheDocument()
+  })
+
+  it('ignores a reply for a version the chip no longer shows', async () => {
+    current(0.5)
+    let answerV3: (d: ConfigVersionDetail) => void = () => undefined
+    const v4: ConfigVersionDetail = { ...v3, version: 4, tag: 'lower stop' }
+    const load = vi.fn((v: number) =>
+      v === 3
+        ? new Promise<ConfigVersionDetail>((resolve) => {
+            answerV3 = resolve
+          })
+        : Promise.resolve(v4),
+    )
+    const { rerender } = render(<ConfigVersionChip version={3} load={load} />)
+    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Config version 3' }))
+    rerender(<ConfigVersionChip version={4} load={load} />)
+    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Config version 4' }))
+    expect(await screen.findByText('lower stop')).toBeInTheDocument()
+    await act(async () => {
+      answerV3(v3) // the slow v3 reply lands last
+      await Promise.resolve()
+    })
+    expect(screen.getByText('lower stop')).toBeInTheDocument()
+    expect(screen.queryByText('higher entry bar')).not.toBeInTheDocument()
   })
 })

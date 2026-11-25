@@ -1,9 +1,8 @@
-import { useState } from 'react'
-
 import { closePaperTrade } from '../../api/client'
 import type { PaperTradeOut } from '../../api/types'
 import { instrumentLabel, isLong } from '../../lib/direction'
 import { fmtDuration, fmtIstTime, fmtMoney, fmtPrice, fmtRupees, pnlColour } from '../../lib/format'
+import { useInFlight } from '../../lib/useInFlight'
 
 interface Props {
   /** open trades on the selected index */
@@ -16,8 +15,7 @@ interface Props {
 
 /** Open paper trades with live P&L. Always on the page, signal or not; says so when none are open. */
 export function OpenTrades({ trades, now, canClose, onClose = closePaperTrade }: Props) {
-  const [busy, setBusy] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const { busy, errors, run } = useInFlight()
   if (trades.length === 0) {
     return (
       <div className="text-xs text-fg-muted" data-testid="open-trades">
@@ -27,16 +25,9 @@ export function OpenTrades({ trades, now, canClose, onClose = closePaperTrade }:
   }
 
   const close = (id: string) => {
-    setBusy(id)
-    setError(null)
-    onClose(id)
-      .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : 'could not close')
-      })
-      .finally(() => {
-        setBusy(null)
-      })
+    run(id, () => onClose(id), 'could not close')
   }
+  const refused = trades.filter((t) => errors[t.id] !== undefined)
 
   return (
     <div className="text-xs" data-testid="open-trades">
@@ -92,7 +83,7 @@ export function OpenTrades({ trades, now, canClose, onClose = closePaperTrade }:
                 <button
                   type="button"
                   className="rounded border border-border px-2 py-0.5 text-fg-muted hover:text-fg disabled:opacity-50"
-                  disabled={!canClose || busy === t.id}
+                  disabled={!canClose || busy.has(t.id)}
                   title={
                     canClose ? 'Close at the current price' : 'Feed not live: no price to close at'
                   }
@@ -100,18 +91,18 @@ export function OpenTrades({ trades, now, canClose, onClose = closePaperTrade }:
                     close(t.id)
                   }}
                 >
-                  {busy === t.id ? 'Closing…' : 'Close'}
+                  {busy.has(t.id) ? 'Closing…' : 'Close'}
                 </button>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-      {error ? (
-        <div className="mt-2 text-bear" role="alert">
-          Not closed: {error}
+      {refused.map((t) => (
+        <div key={t.id} className="mt-2 text-bear" role="alert">
+          Not closed: {errors[t.id]} <span className="text-fg-muted">({instrumentLabel(t)})</span>
         </div>
-      ) : null}
+      ))}
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import { clientLatency } from '../lib/latency'
+import { syncMarketClock } from '../lib/marketClock'
 import { useMarketStore } from '../state/store'
 import type { Frame } from './types'
 
@@ -63,6 +64,7 @@ export class MarketSocket {
 
   private handle(frame: Frame) {
     const recvAt = Date.now()
+    syncMarketClock(frame.t_mkt, recvAt)
     const s = useMarketStore.getState()
     switch (frame.type) {
       case 'hello':

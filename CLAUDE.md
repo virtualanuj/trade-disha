@@ -194,6 +194,10 @@ Things that are easy to get wrong:
 - Every frame carries `t_src`, `t_in`, `t_out`; `lib/latency.ts` adds receive and paint
   times and posts a per-minute summary. `?debug=1` shows the overlay. Budget: ingest to
   painted under 250 ms p95.
+- Time on the page: anything compared with market timestamps (signal expiry, trade entry,
+  ticks, minutes) uses `useMarketNow` (`lib/marketClock.ts`, re-based on each frame's
+  `t_mkt`), so a replay reads as the recorded day. `useNow` is the wall clock, for
+  headlines and latency only.
 - Routing is the URL hash (`#journal`, `#trades`; `lib/view.ts`). Browser preferences
   (panel sizes, minimised panels, details open) go through `lib/usePref.ts` to
   `localStorage`.

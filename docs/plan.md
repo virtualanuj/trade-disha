@@ -1017,6 +1017,34 @@ in the app.
 
 **Design:** spec §13.2 (Trades page), §12 (API).
 
+## Frontend review fixes (26/11/2026, not a milestone)
+
+**Goal:** the owner asked for a review of the frontend and its five most important
+issues, fixed. Each fix started with a test that failed on the old code.
+
+- **Market time on the page** (`lib/marketClock.ts`): every time shown was measured with
+  the browser's wall clock against market timestamps, so in replay the signal countdown
+  sat at 0:00, the feed's age read hundreds of hours and the top bar showed today's time.
+  Every frame now carries `t_mkt` (the market clock when sent; `api/ws.py`); the page
+  re-bases on it and `useMarketNow` drives the top bar, the signal, open trades and the
+  Trades page. The "applies from" minute is the market clock's next minute on both sides
+  (`api/analysis.py`).
+- **Config-version tooltip** (`ConfigVersionChip.tsx`): a chip reused for another signal
+  (tab switch) kept showing the first version's values. The loaded detail is now keyed
+  by version, and a late reply for an old one is dropped.
+- **Busy per row** (`lib/useInFlight.ts`): one busy id covered every row, so closing a
+  second trade re-enabled the first mid-request (a second click gave a false "Not
+  closed"), and the signal card's "Opening…" followed it across tabs. Requests in flight
+  and refusals are now kept per trade or signal (open trades, the Trades page, the card).
+- **"Applies from" after a save** (`ConfigControl.tsx`): a local copy of the save's
+  minute was never cleared and hid later changes from another tab. The store's minute is
+  shown.
+- **Stuck price flash** (`lib/useFlash.ts`): a value going blank mid-flash left it lit.
+
+**Status (2026-11-26):** built, with tests; `make check` green.
+
+**Design:** spec §12.2.
+
 ## Review fixes (26/11/2026, not a milestone)
 
 **Goal:** the owner asked for a code review and its five most important issues, fixed.

@@ -4,6 +4,7 @@ import json
 import time
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tradedisha.engine.aggregator import Bias
@@ -108,3 +109,20 @@ def test_a_bias_frame_carries_the_gate_of_its_own_minute(client: TestClient) -> 
             raise AssertionError("no bias frame")
     gate = next(g for g in p["gates"] if g["index"] == "NIFTY")
     assert (gate["minute_ts"], gate["fired"]) == (minute_ts, True)
+
+
+def test_every_frame_carries_the_market_clock(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """In replay the market clock is the recorded day's; the page shows times from it."""
+    replayed = 1_795_000_000_000  # some minute of an earlier day
+    td = client.app.state.td  # type: ignore[attr-defined]
+    monkeypatch.setattr(td.clock, "now_ms", lambda: replayed)
+    with client.websocket_connect("/ws") as ws:
+        hello = json.loads(ws.receive_text())
+        tick = next(
+            f for f in (json.loads(ws.receive_text()) for _ in range(40)) if f["type"] == "tick"
+        )
+    assert hello["t_mkt"] == replayed
+    assert tick["t_mkt"] == replayed
+    assert tick["ts"] != replayed  # `ts` stays the wall-clock send time

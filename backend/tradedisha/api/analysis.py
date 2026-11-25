@@ -12,7 +12,6 @@ from pydantic import BaseModel
 
 from tradedisha.api.deps import State
 from tradedisha.app_state import AppState
-from tradedisha.clock import epoch_ms_now
 from tradedisha.engine.bias_engine import BiasComputed, OverlayPoint
 from tradedisha.events import ParametersChanged
 from tradedisha.market.candles import Candle
@@ -221,8 +220,9 @@ def _version_out(state: AppState, v: ConfigVersion) -> ConfigVersionOut:
 
 
 async def _announce(state: AppState) -> ParametersOut:
-    """Tell the screens; engines read the new set themselves at the next minute close."""
-    next_minute = (epoch_ms_now() // 60_000 + 1) * 60_000
+    """Tell the screens; engines read the new set themselves at the next minute close
+    of the market clock (in replay, the recorded day's)."""
+    next_minute = (state.clock.now_ms() // 60_000 + 1) * 60_000
     await state.events.publish(ParametersChanged(state.params.current.version, next_minute))
     return parameters_out(state)
 

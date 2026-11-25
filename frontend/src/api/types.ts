@@ -105,6 +105,8 @@ interface FrameBase {
   t_src: number | null
   t_in: number | null
   t_out: number
+  /** the market clock when sent (in replay, the recorded day's); `ts` is the wall clock */
+  t_mkt: number
 }
 
 export interface HelloFrame extends FrameBase {
