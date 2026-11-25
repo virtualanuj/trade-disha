@@ -2,9 +2,9 @@
 
 Requirements: [intent.md](intent.md). Milestones: [plan.md](plan.md). A walkthrough of how
 a signal is worked out, with examples: [signal.md](signal.md). Terms: [dd.md](dd.md).
-This document describes how the application is built, including the enhancements after
-1.0.0 (milestones are named where a section came from one). Values marked *(default)* live
-in configuration and can be changed without code changes.
+This document describes how the application is built; the order it was built in is the
+plan's. Values marked *(default)* live in configuration and can be changed without code
+changes.
 
 ---
 
@@ -101,8 +101,8 @@ TradeDisha/
 │   ├── params.toml              # starting parameters for a new database
 │   ├── nse-holidays.txt         # NSE trading holidays
 │   ├── mcx-holidays.txt         # MCX holidays and evening-only days
-│   ├── us-events.txt            # US data releases that pause bullion signals (E18)
-│   └── news-stocks.txt          # stocks whose news fills the Headlines panel (E10)
+│   ├── us-events.txt            # US data releases that pause bullion signals (§9a)
+│   └── news-stocks.txt          # stocks whose news fills the Headlines panel (§6.7)
 ├── data/                        # SQLite files, instrument caches (gitignored)
 ├── scripts/check.sh             # every gate, run by `make check`
 └── docs/
@@ -163,10 +163,10 @@ by section. Each field carries a one-line description, which the editor shows as
 |---|---|---|
 | Weights | `trend`, `oi`, `premium` | 0.40, 0.35, 0.25 |
 | Weights | `expiry_oi_weight_factor` | 0.5 |
-| Weights | `macro` | 0.10 (E12: share of the bias for the macro group; the three above keep their proportions in the rest, so 0.36 / 0.315 / 0.225 / 0.10; §8.6) |
+| Weights | `macro` | 0.10 (share of the bias for the macro group; the three above keep their proportions in the rest, so 0.36 / 0.315 / 0.225 / 0.10; §8.6) |
 | Macro | `window_minutes`, `max_age_seconds` | 30, 180 |
 | Macro | `dollar_full_pct`, `usdinr_full_pct`, `crude_full_pct`, `gold_full_pct` | 0.15, 0.10, 0.80, 0.40 (% move over the window that counts as full strength) |
-| Macro | `gift_full_pct`, `gift_fade_minutes`, `gift_direction` | 0.50, 30, `follow` (or `fade`); NIFTY only (E14, §8.6) |
+| Macro | `gift_full_pct`, `gift_fade_minutes`, `gift_direction` | 0.50, 30, `follow` (or `fade`); NIFTY only (§8.6) |
 | Bias | `entry_threshold` | 0.50 |
 | Bias | `neutral_band` | 0.20 |
 | Bias | `setup_threshold` | 0.35 (trigger rule; see §9.6) |
@@ -189,26 +189,26 @@ by section. Each field carries a one-line description, which the editor shows as
 | Signal | `entry_mode` | `minute_close` (or `trigger`; see §9.6) |
 | Signal | `max_spread_pct` | 1.0 (trigger rule) |
 | Signal | `last_signal_time`, `last_signal_time_expiry` | 15:00, 13:00 |
-| Chain | `strike_window`, `recenter_strikes` | 10, 2 (**not read**: the chain uses the process settings `TRADEDISHA_STRIKE_WINDOW` / `TRADEDISHA_RECENTER_STRIKES`, §3.1; open item in enhancements.md) |
+| Chain | `strike_window`, `recenter_strikes` | 10, 2 (**not read**: the chain uses the process settings `TRADEDISHA_STRIKE_WINDOW` / `TRADEDISHA_RECENTER_STRIKES`, §3.1; open item, §17) |
 | Paper | `square_off_time` | 15:15 |
 | Paper | `cost_per_trade` | ₹60 |
 | Paper | `lots` | 1 |
-| Bank | `opening_balance` | ₹25,00,000 (E17; raising it deposits the difference, lowering it withdraws, §10.5) |
+| Bank | `opening_balance` | ₹25,00,000 (raising it deposits the difference, lowering it withdraws, §10.5) |
 | Bullion | `signals` | `on` (`off` = no bullion signals) |
 | Bullion | `entry_threshold`, `neutral_band`, `rearm_hysteresis` | 0.60, 0.20, 0 |
 | Bullion | `signal_ttl_seconds`, `eval_offset_seconds` | 300, 20 |
 | Bullion | `first_signal_time`, `last_signal_time`, `square_off_time` | 09:15, 22:45, 23:00 |
 | Bullion | `target_pct`, `stop_pct` | 0.40, 0.20 (% of the future's price) |
 | Bullion | `lots`, `cost_fixed_per_lot`, `cost_pct_of_value` | 1, ₹60, 0.012 % |
-| Bullion | `gold_margin_pct`, `silver_margin_pct` | 10, 12 (E17: % of value a future blocks in the paper bank, §10.5) |
-| Bullion | `macro_weight` | 0.10 (E12, E13: other markets' share, the dollar and the other metal) |
-| Bullion | `oi_weight`, `flow_weight` | 0.15, 0.15 (E13; trend has what OI, flow and macro leave) |
+| Bullion | `gold_margin_pct`, `silver_margin_pct` | 10, 12 (% of value a future blocks in the paper bank, §10.5) |
+| Bullion | `macro_weight` | 0.10 (other markets' share: the dollar, USD/INR and the other metal) |
+| Bullion | `oi_weight`, `flow_weight` | 0.15, 0.15 (trend has what OI, flow and macro leave) |
 | Bullion | `oi_window_minutes`, `oi_full_pct`, `oi_price_flat_pct`, `oi_unwind_factor` | 15, 0.50 %, 0.02 %, 0.5 |
 | Bullion | `flow_window_minutes`, `flow_trades_full`, `flow_book_minutes`, `flow_book_full` | 15, 0.50, 30, 0.20 |
 | News | `poll_seconds` | 180 (30–3600; display only, §6.7; applies at once, not at a minute close) |
-| Factors | `factors.nifty`, `factors.banknifty`, `factors.gold`, `factors.silver`: one value per factor | `on` (or `off`; E16, §8.4; flipped in Config → Factors, not in the typed form) |
+| Factors | `factors.nifty`, `factors.banknifty`, `factors.gold`, `factors.silver`: one value per factor | `on` (or `off`; §8.4; flipped in Config → Factors, not in the typed form) |
 
-**Versions (Milestone C1).** The database is the source of truth. Table
+**Versions.** The database is the source of truth. Table
 `config_versions` holds every saved set: `version` (1, 2, 3, …), `tag` (typed by the
 trader, required, at most 60 characters), `created_ts`, `source` (`seed`, `edit` or
 `revert`), `reverted_from` and `params_json` (the whole set). Versions are never changed
@@ -230,13 +230,13 @@ or deleted, and the highest one is in force.
   database, which is seeded from the file given with `--params`.
 - **Signals.** `signals.config_version` references `config_versions(version)`: the
   version in force when the signal fired, for live and shadow signals alike. It is null
-  for signals from before versions existed.
+  for a signal recorded without one (a database older than the version table).
 
 **Application.** The Signal Engine and Paper Trade Manager read the active set at the
 start of each minute-close evaluation, so a save takes effect at the next minute, never
 mid-computation. Open paper trades keep the target/stop they were opened with.
-Chain-window parameters (`strike_window`, `recenter_strikes`) take effect at the next
-re-centre check. `news.poll_seconds` applies as soon as it is saved: the poller re-reads it
+The chain-window parameters (`strike_window`, `recenter_strikes`) are not read: the chain
+takes its window from process settings (open item, §17). `news.poll_seconds` applies as soon as it is saved: the poller re-reads it
 and the next fetch falls due that long after the last one (at once, if that is past); a
 save never fetches early.
 
@@ -258,7 +258,7 @@ manual step.
   `AuthChanged("valid")`; starts the feed (`FeedSession.start()`, 502 if it fails); then
   redirects to `/` when the backend serves the frontend, else to `frontend_url`. (Both
   routes sit under `/api`, like every REST route.)
-- `POST /auth/logout` (24/11/2026) ends the login before 03:30: the token is revoked at
+- `POST /auth/logout` ends the login before 03:30: the token is revoked at
   Upstox (`DELETE /v2/logout`, best effort: a failure is logged and the local logout
   still happens), every `sessions` row is deleted, `AuthChanged("missing")` is published,
   and the Upstox socket is closed (`FeedSession.drop_feed()` → `UpstoxProvider.drop()`).
@@ -334,7 +334,7 @@ class Tick:
     iv: float | None      # if the feed provides it
     delta: float | None   # if the feed provides it
     close_prev: float | None
-    # order flow (Milestone S1)
+    # order flow (§8.5)
     bid_qty, ask_qty, bid_qty5, ask_qty5, tbq, tsq: int | None
     atp: float | None; ltq: int | None
     # the feed's day candle, sent for MCX futures (§6.6)
@@ -351,15 +351,14 @@ subscribed, provider}`. Each provider also has a `name`.
   that changed are populated; `Tick` consumers treat `None` as "unchanged".
 - Reconnect with exponential backoff (1s → 30s cap), re-subscribe on reconnect, surface
   every disconnect as a `FeedHealthChanged` event.
-- Rate and subscription limits are enforced client-side from configuration discovered in
-  Milestone 1.
+- Rate and subscription limits are enforced client-side from configuration.
 
-**Order-flow fields (Milestone S1).** From `marketFF` the provider also keeps the
+**Order-flow fields.** From `marketFF` the provider also keeps the
 quantity at the best bid and ask (`bid_qty`, `ask_qty`), the quantity summed over the five
 book levels (`bid_qty5`, `ask_qty5`), total buy and sell quantity (`tbq`, `tsq`), the
 exchange average traded price (`atp`) and the last traded quantity (`ltq`). They are
-recorded with every tick so the order-flow trigger (Milestone S2) can be studied and
-replayed; days recorded earlier read back as `None`. The synthetic provider generates the
+recorded with every tick so the order-flow trigger (§9.6) can be studied and replayed; a
+day recorded without them reads back as `None`. The synthetic provider generates the
 same fields, with the books leaning the way its market is drifting.
 
 **India VIX.** `NSE_INDEX|India VIX` is subscribed alongside the two indices as an
@@ -369,7 +368,7 @@ but it has no candles, no futures and no chain. It feeds the index details view 
 ### 6.3 Replay provider
 - Reads `ticks` rows for a given date, emits them in timestamp order at `speed` ×
   real-time (or as fast as possible when `speed = 0`), setting the driven market clock
-  from each tick. Used by tests, after-hours demos, and Milestone 6 fault injection: it can
+  from each tick. Used by tests, after-hours demos, and fault injection: it can
   be told to drop (withhold) time ranges (`replay_drop`).
 - With `replay_bullion`, the day's `bullion_ticks` are merged in by time and the bullion
   desk runs on them (§9a).
@@ -396,10 +395,10 @@ On startup (or after login) when the market is already open:
    before today (§7.4). One request per index per start. A failure is logged in
    `feed_events` and the 52-week fields stay empty; nothing else depends on them.
 
-### 6.6 Bullion (Milestones E4, E6)
-Gold and silver on their own tab, BULLION, beside the indices. Since E6 bullion has its
-own trend bias, long/short signals on the near-month future and paper trades (§9a). It
-still never feeds the index bias or signals, it never reaches the shared `CandleBuilder`
+### 6.6 Bullion
+Gold and silver on their own tab, BULLION, beside the indices. Bullion has its own bias,
+long/short signals on the near-month future and paper trades (§9a). It never feeds the
+index bias or signals, it never reaches the shared `CandleBuilder`
 or the `ticks` table, and there is no real-order path for it.
 - **Contracts.** Upstox has no spot price for gold or silver, so the prices are MCX
   futures of `GOLD` (₹ per 10 g) and `SILVER` (₹ per kg). Upstox's MCX instrument file
@@ -444,8 +443,8 @@ or the `ticks` table, and there is no real-order path for it.
   Synthetic has no bullion; replay has it only with `replay_bullion` (§9a).
 - **Recorded apart.** Bullion ticks are never written to `ticks`: MCX trades until 23:30,
   and evening ticks there would stretch every NSE replay and drive its clock past the NSE
-  close. Since E6 they go to their own table, `bullion_ticks`, and closed bullion candles
-  to `candles_1m` under the MCX key (§9a).
+  close. They go to their own table, `bullion_ticks`, and closed bullion candles to
+  `candles_1m` under the MCX key (§9a).
 - **Hours and liveness.** MCX keeps its own hours: `mcx_open`/`mcx_close` in settings
   (09:00 to 23:30; 23:55 while the US is on standard time, set by hand with the season) and
   `config/mcx-holidays.txt`, where a line with a time (`2026-12-25 17:00`) is a day with
@@ -455,8 +454,10 @@ or the `ticks` table, and there is no real-order path for it.
   only, so gold ticking never hides an index outage. Bullion is `live` when MCX is open
   and a bullion tick arrived within `bullion_live_max_tick_age_ms` (15 s); otherwise
   `stale`, `closed` or `holiday`. An MCX outage is logged to `feed_events`
-  (`bullion_gap_start`/`bullion_gap_end`) and changes nothing else: no degraded mode, no
-  effect on signals or paper trades.
+  (`bullion_gap_start`/`bullion_gap_end`) and acts on bullion alone: while bullion is not
+  live no bullion signal fires and no bullion paper trade opens or closes by hand, and a
+  bullion trade's first exit after the gap is marked `after_gap` (§9a, §10.1). The index
+  side is untouched: no index degraded mode.
 - **API:**
   - `GET /api/bullion` (the snapshot) and `GET /api/bullion/{metal}/candles`
   - `bullion` (status and `since_ms`) in the health response and `health` frame. On the
@@ -470,7 +471,7 @@ or the `ticks` table, and there is no real-order path for it.
   - `bullion` and `bullion_candles` in `hello`
   - a `bullion` frame throttled like `tick`, and a `bullion_candle` frame on each close
 
-### 6.7 News headlines (Milestone E10)
+### 6.7 News headlines
 
 A quick check on what is moving the market. **Display only**: news is not an input to the
 bias, signals or paper trades, and nothing about it is stored.
@@ -507,7 +508,7 @@ bias, signals or paper trades, and nothing about it is stored.
   summary, link, published_ts, symbols; and `stock_indices`, each listed symbol's indices)
   in `hello`, and a `news` frame on change. No REST endpoint.
 
-### 6.8 Macro data (Milestone E12)
+### 6.8 Macro data
 
 The data behind the macro group of the bias (§8.6). Upstox has no dollar index (no DXY in
 the NSE or MCX instrument files, checked 2026-11-18), so the dollar comes from NSE's
@@ -529,7 +530,7 @@ currency futures.
 - **Loading:** with the `upstox` provider, and in replay with `replay_bullion` (contracts
   from that day's cached files). Today's candles are backfilled at start so the window is
   full at once. Every step fails soft: the index feed always starts.
-- **GIFT Nifty (Milestone E14):** not in the NSE or MCX files; Upstox lists it in its
+- **GIFT Nifty:** not in the NSE or MCX files; Upstox lists it in its
   global instrument file (`global.json.gz`) as `GLOBAL_INDEX|SGX NIFTY` with a 120 s
   refresh, for the quote and candle APIs (the WebSocket is not documented for it, and it
   is not subscribed). There is no GIFT Bank Nifty. `market/gift.py:GiftNifty` fetches,
@@ -554,7 +555,7 @@ currency futures.
 - Gaps (no ticks in a minute) produce a carry-forward candle (O=H=L=C=prev close, V=0)
   flagged `synthetic=True`, so indicator windows stay aligned.
 - VWAP is maintained on the futures stream from session open: `Σ(price×vol) / Σvol`.
-- **Net volume (Milestone E8).** Upstox does not say which side started a trade, so each
+- **Net volume.** Upstox does not say which side started a trade, so each
   tick's volume change is signed (`trade_side`): at or above the ask as it stood before the
   tick is a buy; at or below the bid, a sell; in between, the **tick rule** (up from the
   last trade is a buy, down a sell, unchanged keeps the last side). Each candle keeps
@@ -562,10 +563,10 @@ currency futures.
   volume; backfilled minutes come from the candle API without trades). On a recorded day
   the quote rule alone classified 85 % of NIFTY and 90 % of BANK NIFTY futures volume; the
   tick rule covers the rest. A volume jump after more than 30 s with no tick
-  (`SIDE_GAP_MS`, E13) is every trade the gap hid, not one trade, so it is counted in the
+  (`SIDE_GAP_MS`) is every trade the gap hid, not one trade, so it is counted in the
   volume but not signed. For the indices it is display only; the bullion bias reads it
-  from E13 (`net_volume`, §9a). The order-flow score (§8.5) signs trades its own way over
-  seconds and is unchanged.
+  (`net_volume`, §9a). The order-flow score (§8.5) signs trades its own way, over
+  seconds.
 
 ### 7.2 Chain state
 Per index, in memory:
@@ -612,7 +613,7 @@ class IndexStats:
     fut_premium: float | None      # futures LTP − spot LTP
     vix, vix_change_pct: float | None
     updated_ts: int | None
-    sectors: tuple[SectorQuote, ...]   # Milestone E11
+    sectors: tuple[SectorQuote, ...]   # the index's sector indices
 
 class SectorQuote:
     name: str                      # Upstox NSE_INDEX name: "Nifty Fin Service"
@@ -629,17 +630,17 @@ class SectorQuote:
 | 52-week high / low | the range before today from §6.5 step 3, widened by today's high/low on every update, so a new extreme shows the moment it happens |
 | Futures premium | latest futures LTP − latest spot LTP |
 | India VIX and its change % | the VIX key's LTP and previous close (§6.2) |
-| Sectors (E11) | for each name in `sector_indices[index]`, in that order, the `NSE_INDEX|<name>` key's LTP and previous close; change = LTP − previous close |
+| Sectors | for each name in `sector_indices[index]`, in that order, the `NSE_INDEX|<name>` key's LTP and previous close; change = LTP − previous close |
 
 Any value without a source is `None` and shown as "—". On the synthetic feed that is the
-52-week range, previous close, VIX and the sectors; on replay it is the 52-week range, and previous
-close and VIX for days recorded before E1 (previous close is stored with ticks from E1 on,
-once per instrument whenever it changes).
+52-week range, previous close, VIX and the sectors; on replay it is the 52-week range, and
+previous close and VIX for a day recorded without them (previous close is stored with the
+ticks, once per instrument whenever it changes).
 
 Recomputed on spot, futures and VIX ticks; cheap enough not to cache beyond the latest
 value.
 
-**Sector indices (Milestone E11).** `market_wide_keys()` subscribes India VIX and every
+**Sector indices.** `market_wide_keys()` subscribes India VIX and every
 configured sector key once (Fin Service and PSU Bank serve both indices), on every feed but
 the synthetic one. Their ticks are recorded in `ticks` like VIX, so a replay brings them
 back, and they count toward NSE liveness as VIX does; nothing else reads them (the candle
@@ -680,7 +681,7 @@ outside its window). `flow` is weighted only in the bullion bias (§9a); `macro`
 | Indicator | Inputs | Score |
 |---|---|---|
 | `pcr` | ChainState | `clamp((PCR − 1.0) / 0.5, −1, 1)` — PCR 1.5 is fully bullish (put writers confident), 0.5 fully bearish |
-| `oi_change_atm` | ATM ± 2 build-up classes, weighted by ΔOI size | The premium's direction decides the side, the OI moved is the weight. Call long build-up and short covering (premium up) → bullish; call short build-up and long unwinding (premium down) → bearish; puts the mirror image *(owner's decision, 2026-11-14; before that any OI rise on a call counted bearish and on a put bullish, whatever the premium did)*. Score = `(bull_oi − bear_oi) / (bull_oi + bear_oi)` over the window |
+| `oi_change_atm` | ATM ± 2 build-up classes, weighted by ΔOI size | The premium's direction decides the side, the OI moved is the weight. Call long build-up and short covering (premium up) → bullish; call short build-up and long unwinding (premium down) → bearish; puts the mirror image *(owner's decision: not every OI rise on a call is writing, so it is not bearish whatever the premium did)*. Score = `(bull_oi − bear_oi) / (bull_oi + bear_oi)` over the window |
 | `max_pain_drift` | ChainState history | `clamp((max_pain_now − max_pain_15m_ago) / (2 · step), −1, 1)` — max pain migrating up is bullish |
 
 On expiry day the whole group's weight is halved and the shortfall is redistributed
@@ -703,10 +704,10 @@ strength    = round(|bias| · 100)
 label       = Bullish if bias ≥ neutral_band, Bearish if bias ≤ −neutral_band, else Neutral
 ```
 
-Groups since E12: trend, OI, premium and macro (§8.6); E13 adds `flow`, which only the
-bullion bias weighs (§9a; the index reads order flow at the trigger, §8.5) and the index
-gives 0. `weights.macro` is carved out
-first and the other three keep their proportions in the rest
+Groups: trend, OI, premium and macro (§8.6), and `flow`, which only the bullion bias
+weighs (§9a; the index reads order flow at the trigger, §8.5) and the index gives 0.
+`weights.macro` is carved out first and the other three keep their proportions in the
+rest
 (`effective_group_weights`): 0.36 / 0.315 / 0.225 / 0.10 by default. On expiry day the
 OI cut is spread over trend, premium and macro in proportion. **If no macro indicator is
 `ok`** (no live feed, the currency market shut after 17:00, a window still filling), the
@@ -715,9 +716,8 @@ three-group one. An `info` reading (silver) is shown with weight 0. The groups t
 their share back when idle are an argument of `aggregate()`: macro for the indices
 (`INDEX_IDLE`), OI, flow and macro for bullion (`BULLION_IDLE`).
 
-**Factor switches (Milestones E15, E16).** Asked for on 2026-11-19: each factor of each
-index's and metal's bias can be switched off; every factor is on by default. Since E16 the
-switches are parameters: `factors.nifty`, `factors.banknifty`, `factors.gold` and
+**Factor switches.** Each factor of each index's and metal's bias can be switched off;
+every factor is on by default. The switches are parameters: `factors.nifty`, `factors.banknifty`, `factors.gold` and
 `factors.silver`, one `"on"`/`"off"` value per factor (`IndexFactors`, `NiftyFactors` with
 `gift_nifty`, `BullionFactors`; a test keeps the names equal to what the engines emit).
 They are flipped only in the Config drawer's **Factors** tab (§13.2), and each flip is saved at once
@@ -732,14 +732,14 @@ every member is off gives its share back to the others in proportion, whatever
 `idle_groups` says. Each contribution carries `enabled`, stored in every breakdown. Like
 any parameter, a flip applies from the next evaluation, never mid-minute; signals record it
 through `config_version`, Revert brings switches back, and `tools/score.py --params`
-replays with a trial file's switches. (E15 kept switches outside the config in
-`app_state`; migration 014 drops that, starting every factor on.)
+replays with a trial file's switches. Migration 014 removed an older `factors_off` row
+from `app_state`, so a database that had it starts with every factor on.
 
 A `BiasComputed(index, ts, bias, label, strength, breakdown)` event is published every
 minute close and persisted to `bias_minutes`. `breakdown` is the list of
 `IndicatorResult` plus the effective group weights.
 
-### 8.5 Order flow (Milestone S2)
+### 8.5 Order flow
 
 Not part of the bias. A separate, faster reading per index, from the order-flow fields of
 the feed (§6.2), of who is leaning on the book and who is paying up. Three parts, each
@@ -757,18 +757,18 @@ from −1 (selling) to +1 (buying):
 The score is the weighted mean (`w_fut_book`, `w_fut_trades`, `w_options`) of the parts
 that have data in the last `window_seconds`. A part with no data is left out, never
 counted as zero; with no part the score is unknown. A `FlowReading` is produced about once
-a second per index, timed by tick timestamps so replay reads the same as live. Days
-recorded before the order-flow fields still have bid, ask and volume, so they give a score
+a second per index, timed by tick timestamps so replay reads the same as live. A day
+recorded without the order-flow fields still has bid, ask and volume, so it gives a score
 from the trades readings alone, without either book reading.
 
 *(my call: the window, the weights and the 0.25 trigger are starting values with no
 evidence behind them yet; the shadow scorecard is how they get tuned.)*
 
-### 8.6 Macro group (Milestone E12)
+### 8.6 Macro group
 
-Asked for on 2026-11-18: the dollar, crude and bullion trends in the signal, live with a
-small weight (`weights.macro` 0.10), and in the bullion bias too. Pure functions in
-`indicators/macro.py` over the data of §6.8.
+The dollar, crude and bullion trends, live with a small weight (`weights.macro` 0.10), in
+the index bias and in the bullion bias too. Pure functions in `indicators/macro.py` over
+the data of §6.8.
 
 Each reading is the instrument's move over `macro.window_minutes` (30) of 1-minute
 closes: `score = sign · clamp(change% / full%)`. With no price, too few closes or a price
@@ -790,7 +790,7 @@ dollar, krona and franc are not traded on NSE. Only its % change is used, so its
 and the futures' forward premium do not matter. A move of the rupee alone leaves it
 unchanged; that is what `usd_inr` reads.
 
-**GIFT Nifty gap (Milestone E14, NIFTY only).** Asked for on 2026-11-19. During NSE hours
+**GIFT Nifty gap (NIFTY only).** During NSE hours
 GIFT Nifty is a 2-minute-late copy of the NIFTY future the bias already reads, so it is
 used only for what it knows while NSE is shut: the overnight move,
 `move% = preopen / ref − 1` (both GIFT's own prices, §6.8, so its premium over spot
@@ -803,12 +803,11 @@ follow. It is one more macro member, so it shares the group's weight equally wit
 ones; alone (replay without `replay_bullion`) it carries the whole group.
 
 Every reading is in the bias breakdown, so each bias minute and each signal keeps its
-macro evidence; `signals.config_version` separates signals before and after.
+macro evidence, and `signals.config_version` records the weights it fired under.
 
 *(my call: the window, the full-strength moves and the signs are starting values from how
 these markets usually relate to Indian equities, not from TradeDisha's own data. Macro
-ticks are recorded from E12 on, so `tools/score.py` can tune them once there are weeks of
-them.)*
+ticks are recorded, so `tools/score.py` can tune them once there are weeks of them.)*
 
 ---
 
@@ -873,7 +872,7 @@ stop} (§9.3).
   `target = entry + |delta| × target_points`, `stop = entry − |delta| × stop_points`,
   floored at `0.05`. `delta` from feed or computed (§7.3). Both the point and premium
   values are stored and shown.
-- **Live levels (Milestone E7).** The fired levels are stored and never change. While a
+- **Live levels.** The fired levels are stored and never change. While a
   signal is active, `SignalEngine.live()` / `BullionSignalEngine.live()` apply the same rule
   to the price now (`signals.py:rescale_levels`): a percentage signal keeps its target/entry
   and stop/entry ratios (so a config change after it fired does not move it); an
@@ -895,7 +894,7 @@ the label no longer opposes it (for bullion: a long future while Bearish, a shor
 Bullish). Each change goes to the trade listeners and out as a `paper_trade` frame. The
 warning is informational; it never closes a trade.
 
-### 9.5 Outcomes and the scorecard (Milestone S1)
+### 9.5 Outcomes and the scorecard
 
 Every signal is scored by what its option did next, whether or not it was paper-traded and
 whatever became of it (lapsed, reversed, traded). This is the yardstick for any change to
@@ -931,7 +930,7 @@ is judged.
 The scorecard keeps each entry rule apart (§9.6): rows carry the rule and whether it was
 running in shadow, live rules first.
 
-### 9.6 Entry rules and the shadow engine (Milestone S2)
+### 9.6 Entry rules and the shadow engine
 
 `signal.entry_mode` picks the live rule:
 
@@ -959,14 +958,14 @@ the next evaluation; the other carries on in shadow, so the comparison never sto
 
 ---
 
-### 9a. Bullion signals (Milestone E6)
+### 9a. Bullion signals
 
 GOLD and SILVER MCX near-month futures, run by `engine/bullion_desk.py:BullionDesk`
 (bias -> signals -> paper trades) on the MCX clock and bullion liveness (§6.6).
 
 - **Evidence.** There is no option chain for bullion. The bias has four groups, all read
   from the near future up to the minute being worked out (`indicators/futures.py`,
-  Milestone E13, except trend):
+  except trend):
   - *trend*: EMA cross, VWAP position and supertrend over the closed 1-minute candles;
   - *oi*: `futures_oi`, the price change against the OI change over
     `oi_window_minutes`. Build-up (OI up) counts fully in the price's direction, short
@@ -977,14 +976,14 @@ GOLD and SILVER MCX near-month futures, run by `engine/bullion_desk.py:BullionDe
     `flow_window_minutes` candles, and `book_imbalance`, the book's lean (total and
     five-level quantities) against its own average over `flow_book_minutes` readings,
     because MCX books lean one way for hours;
-  - *macro*: (E12) `dollar_index` and `usd_inr` with the bullion signs of §8.6, and (E13)
+  - *macro*: `dollar_index` and `usd_inr` with the bullion signs of §8.6, and
     `peer_metal`, the other metal's trend (the mean of its `ok` trend votes).
 
   OI and book readings come from `BullionTracker.minute_book()`: the near contract as it
   stood at the end of each minute (its last tick), kept 900 minutes. Weights from
   `bullion_weights()`: OI `oi_weight` (0.15), flow `flow_weight` (0.15), macro
   `macro_weight` (0.10), trend the rest (0.60). A group with no `ok` reading gives its
-  share to the live ones (`BULLION_IDLE`), so at start, before the new votes warm up,
+  share to the live ones (`BULLION_IDLE`), so at start, before the OI, flow and macro votes warm up,
   the bias is trend alone. Indicator periods come from `trend`; thresholds from the
   `bullion` section. Stored in `bias_minutes` under GOLD / SILVER and sent in the `bias`
   frame.
@@ -1003,7 +1002,7 @@ GOLD and SILVER MCX near-month futures, run by `engine/bullion_desk.py:BullionDe
   `active_exists`, `rearm`, `outside_hours` (MCX open and `first_signal_time` <= t <
   `last_signal_time`, 09:15–22:45 by default), `event_pause` (a US data release is near,
   below), `feed_down` (bullion status not `live`), `no_price`.
-- **US data-release pause (Milestone E18).** CPI, payrolls and similar releases move gold
+- **US data-release pause.** CPI, payrolls and similar releases move gold
   and silver sharply, so a 1-minute trend signal around one is mostly noise. The releases
   are hand-kept in `config/us-events.txt` (`YYYY-MM-DD HH:MM label`, IST, read at start;
   `us_events_file`). From `bullion.event_pause_before_minutes` (15) before a release to
@@ -1055,7 +1054,7 @@ comparisons are mirrored: the target is below the entry):
   23:00, on the MCX clock)
 - `POST /paper-trades/{id}/close` → close `MANUAL` at current LTP (409 if feed not live)
 
-Exit fill uses the LTP that triggered the exit (no simulated slippage on exit in v1).
+Exit fill uses the LTP that triggered the exit (no simulated slippage on exit).
 
 **Fill quality.** Every exit records `exit_fill_quality`:
 
@@ -1100,14 +1099,14 @@ tables together) and the UI requires confirmation. Deletion runs in batches of 5
 yielding to the event loop between batches so the feed keeps flowing, followed by
 `PRAGMA incremental_vacuum`, which gives the freed pages back to the disk. Pruning the
 current day while the feed is live is allowed; the tick store simply continues appending.
-Until 25/11/2026 the connection switched to WAL before setting `auto_vacuum`, which left
-it off, so a file made before then only reuses pruned space and never shrinks: `make
-compact` (`tradedisha.tools.compact`) rewrites such a file once with `VACUUM` and turns
-incremental vacuum on. It refuses while the app answers on its port.
+A file whose `auto_vacuum` is off (WAL was switched on before it was set, §11) only reuses
+pruned space and never shrinks: `make compact` (`tradedisha.tools.compact`) rewrites such
+a file once with `VACUUM` and turns incremental vacuum on. It refuses while the app
+answers on its port.
 A `feed_events` row (`ticks_pruned`, with the date and row count) is written.
 
 ### 10.5 Paper bank
-A fake bank account funds paper trades (Milestone E17). There is one account for every
+A fake bank account funds paper trades. There is one account for every
 market: NIFTY, BANK NIFTY, GOLD and SILVER draw on the same money. Nothing is ever deleted.
 
 ```
@@ -1137,8 +1136,8 @@ available = balance − held
   free money: it can leave available below zero, and then new trades are refused until
   trades close.
 - **Derived, not stored.** No running balance is kept: each read sums the funded trades
-  in `paper_trades` (`banked = 1`). Trades from before E17 were not funded and never
-  count.
+  in `paper_trades` (`banked = 1`). A trade with `banked = 0` (recorded without the bank)
+  was not funded and never counts.
 - **API.** `GET /api/bank` → opening balance, when the bank opened, deposited, withdrawn,
   realised, balance, blocked, available, open trades and the ledger (oldest first). The
   same object is in `hello` (`bank`) and in a `bank` frame after any paper-trade change
@@ -1160,8 +1159,8 @@ applied in order at startup and tracked by `PRAGMA user_version`.
 | `sessions` | id, token, obtained_at, expires_at | daily auth |
 | `instruments` | instrument_key, trading_symbol, exchange, segment, name, instrument_type, expiry, strike, lot_size, tick_size, loaded_on (key: instrument_key, loaded_on) | daily master subset |
 | `ticks` | key, ts, ltp, volume, oi, bid, ask, iv, delta, close_prev, bid_qty, ask_qty, bid_qty5, ask_qty5, tbq, tsq, atp, ltq | raw NSE feed, replay source |
-| `bullion_ticks` | the `ticks` columns plus day_open, day_high, day_low | raw MCX bullion feed (E6), kept apart so evening ticks never stretch an NSE replay |
-| `candles_1m` | key, minute_ts, o, h, l, c, v, synthetic, bv, sv | index and bullion candles, keyed by instrument; bv/sv = buyer-/seller-initiated volume (E8, migration 012), NULL with no side information |
+| `bullion_ticks` | the `ticks` columns plus day_open, day_high, day_low | raw MCX bullion feed, kept apart so evening ticks never stretch an NSE replay |
+| `candles_1m` | key, minute_ts, o, h, l, c, v, synthetic, bv, sv | index and bullion candles, keyed by instrument; bv/sv = buyer-/seller-initiated volume (migration 012), NULL with no side information |
 | `chain_minutes` | idx, minute_ts, strike, ce_* / pe_* (ltp, oi, oi_chg_open, iv, buildup), atm, pcr, max_pain | per-strike per-minute chain snapshot |
 | `bias_minutes` | idx, minute_ts, bias, label, strength, breakdown_json | evidence history (indices and GOLD / SILVER) |
 | `signals` | the `Signal` fields (§9.2), with `index` stored as `idx` | every signal, live and shadow, index and bullion |
@@ -1169,8 +1168,8 @@ applied in order at startup and tracked by `PRAGMA user_version`.
 | `config_versions` | version, tag, created_ts, source, reverted_from, params_json | every saved parameter set (§3.2) |
 | `paper_trades` | id, signal_id, idx, instrument_key, trading_symbol, direction, strike, expiry, lots, qty, signal_entry, entry_price, entry_ts, slippage, target_price, stop_price, cost, status, exit_price, exit_ts, exit_reason, exit_fill_quality, exit_price_age_ms, gross, net, warning, blocked, banked | index and bullion paper trades; `blocked` and `banked` are the paper bank's (§10.5) |
 | `bank_ledger` | id, ts, kind, amount, opening_balance, config_version | one cash move in the paper bank: the opening deposit, then a deposit or withdrawal per change of the opening balance (§10.5) |
-| `app_state` | key, value | small application state; unused since migration 014 removed E15's `factors_off` |
-| `gift_nifty` | day, ref_ts, ref_close, preopen_ts, preopen_price, fetched_at | GIFT Nifty's previous-close and pre-open prices per NSE day (E14, §6.8); read by replay and `tools/score.py` |
+| `app_state` | key, value | small application state; unused (migration 014 removed its `factors_off` row, §8.4) |
+| `gift_nifty` | day, ref_ts, ref_close, preopen_ts, preopen_price, fetched_at | GIFT Nifty's previous-close and pre-open prices per NSE day (§6.8); read by replay and `tools/score.py` |
 | `feed_events` | ts, kind, detail | session starts, disconnects, gaps, bullion gaps, recentres, backfills, tick prunes |
 | `latency_samples` | ts, hop, p50, p95, p99, n | one row per hop per minute |
 
@@ -1210,7 +1209,7 @@ takes it only before its header is first written.
 | POST | `/paper-trades` | body `{signal_id}` → trade |
 | POST | `/paper-trades/{id}/close` | manual close |
 | GET | `/paper-trades?index=&status=&from=&to=` | trades |
-| GET | `/paper-trades/{id}` | one trade (live P&L while open) and the signal it was taken on, with breakdown and outcome (E19) |
+| GET | `/paper-trades/{id}` | one trade (live P&L while open) and the signal it was taken on, with breakdown and outcome |
 | GET | `/journal/stats?from=&to=&index=` | summary stats: overall (index options), per index, `bullion` and per metal |
 | GET | `/bullion` | the GOLD / SILVER snapshot (§6.6) |
 | GET | `/bullion/{metal}/candles` | today's bullion candles with VWAP |
@@ -1290,7 +1289,7 @@ On reconnect the client receives a fresh `hello`, so no event replay is needed.
 │  └───────────────────────────────────────────┘ │                             │
 │  ┌ PRICE CHART ───────────────────────── [–] ┐ │                             │
 │  │ 1-min candles, EMA9/21, VWAP, ▲▼ markers  │ │                             │
-│  │ net volume ▆▂▇▃ (E8)                      │ │                             │
+│  │ net volume ▆▂▇▃                           │ │                             │
 │  └───────────────────────────────────────────┘ │                             │
 │  ═══════════ drag: chart height ═════════════  │                             │
 │  ┌ OPEN PAPER TRADES ─────────────────── [–] ┐ │                             │
@@ -1310,7 +1309,7 @@ Minimum supported width 1280 px. The chain panel and the price chart are resizab
 The main column scrolls; its panels come in the order drawn above until the trader moves
 them ("Panel order" in §13.2).
 
-**Right column with headlines (Milestone E10).** The right column holds the option chain on
+**Right column with headlines.** The right column holds the option chain on
 top and Headlines (§6.7) below it, with a horizontal drag divider between them:
 
 ```
@@ -1330,39 +1329,40 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
 
 - Both expanded: the chain fills, headlines take the remembered height.
 - One minimised: it is its title bar and the other fills the column.
-- Headlines hidden (×, or the top bar's Headlines toggle): the column is the chain alone,
-  as before E10. The toggle is lit while the headlines are on the page and expanded; a
+- Headlines hidden (×, or the top bar's Headlines toggle): the column is the chain alone.
+  The toggle is lit while the headlines are on the page and expanded; a
   click when lit hides them, otherwise it shows them expanded, minimised or not.
 - Nothing expanded (chain minimised or absent, headlines minimised or hidden): the column
   becomes the 28 px strip; its button expands both and shows headlines again.
-- BULLION tab: there is no chain, so the column shows headlines alone (it was absent
-  before E10); with headlines hidden there is no column.
+- BULLION tab: there is no chain, so the column shows headlines alone; with headlines
+  hidden there is no column.
 
 ### 13.2 Components
-- **TopBar** (regrouped 25/11/2026): the brand, a link home to the dashboard; a
+- **TopBar**: the brand, a link home to the dashboard; a
   borderless status strip with the market status (pre-open / live / closed / holiday,
   with clock), feed health with tick age colour (green < 2 s, amber < 10 s, red otherwise)
   and the login state; on the right the pages as tabs, Dashboard · Journal · Trades
-  (`#journal`, `#trades`; E19) with icons, the open-trade count on Trades, then icon tools (Restore panels and Headlines on the dashboard;
+  (`#journal`, `#trades`) with icons, the open-trade count on Trades, then icon tools (Restore panels and Headlines on the dashboard;
   Data, Config with its version, Latency, theme) and Login or Logout last. The tick age is
-  fixed-width so nothing moves as it changes; the bar wraps instead of scrolling. Both pills follow the tab (E5): on an index tab they read NSE
+  fixed-width so nothing moves as it changes; the bar wraps instead of scrolling. Both pills follow the tab: on an index tab they read NSE
   status and the newest index tick; on BULLION they read `MCX LIVE` / `MCX CLOSED` and the
   newest bullion tick. While that market is closed, a quiet feed is shown muted instead of
   amber or red; a dropped connection is always red.
 - **StatusBanner**: one band under the top bar. Errors (login, feed gap, lost backend) are
   red with ⚠. A market's session state (closed, holiday, pre-open; NSE, or MCX on
   BULLION) is an amber band with ⏸ and a bold title such as "NSE MARKET CLOSED", so it
-  is never mistaken for a quiet feed (E5). On BULLION the bullion status decides the
+  is never mistaken for a quiet feed. On BULLION the bullion status decides the
   banner; login and connection problems still come first.
 - **IndexTabs**: NIFTY / BANKNIFTY, and BULLION while there is bullion data (§6.6);
   selection drives chart, meter, signal, evidence, and chain panel. A selected BULLION
   survives a reconnect, and falls back to the first index if bullion goes away.
-- **BULLION tab** (Milestones E4, E6). The main column's panels, the same units in the same
+- **BULLION tab**. The main column's panels, the same units in the same
   trader-set order with the same ↑ ↓ and minimise controls as the index tabs, for the metal
   picked by a GOLD / SILVER switch above them (`MetalSwitch`, remembered in `localStorage`
   as `tradedisha.bullionChart`). The tiles unit is `BullionCards` (below) instead of the
-  index tiles; Market view, Signal, Price chart, Evidence (trend, OI, flow and macro groups;
-  no order-flow line), Open paper trades and Signals today show the metal (§9a). The option-chain column
+  index tiles; Signal, Market view (its evidence has the trend, OI, flow and macro groups,
+  and no order-flow line), Price chart, Open paper trades and Signals today show the metal
+  (§9a). The option-chain column
   and its divider are not shown.
 - **BullionCards** (the BULLION tiles):
   - A card per metal, headed by the contract, expiry and lot:
@@ -1377,7 +1377,7 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   - The gold/silver ratio.
   - `Price`, `Group`, `Fact` and `RangeBar` are shared with IndexTiles (`components/Facts`).
 - **IndexTiles**: spot and futures for the selected index; under them the **Sectors**
-  block (E11), which opens and closes like Details (open by default, remembered as
+  block, which opens and closes like Details (open by default, remembered as
   `tradedisha.sectorsOpen`; closed, it shows how many sectors are up and down, e.g.
   `6 up · 4 down`). Open, it is a small box per sector in config order with three lines:
   name (normal size, semi-bold, full text colour, to be easily read), value (flashing on
@@ -1387,7 +1387,7 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   on medium screens and up (NIFTY's ten in two rows); the full name and previous close on
   hover; no block for an index with no sectors. Then a collapsible
   **details view** showing `IndexStats` (§7.4) in six groups: options (ATM and the number
-  of strikes in the chain window, moved here from the top row in E11); day open / high
+  of strikes in the chain window); day open / high
   / low with a small range bar marking the current price; 52-week high / low with the
   distance of the current price from each; previous close with change and change %;
   futures premium over spot; India VIX with its change %. Closed by default *(my call)*;
@@ -1401,8 +1401,8 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   never more than 60% of the window; chart 200–700 px. Sizes are stored in `localStorage`
   and clamped again on load and on window resize, so a layout saved on a large screen
   cannot hide a panel on a small one. Dragging is throttled to one layout per animation
-  frame. No library is added for this. E10 adds a third, horizontal, between the chain
-  and Headlines in the right column (headlines 120–900 px), shown only while both are
+  frame. No library is added for this. A third, horizontal, sits between the chain and
+  Headlines in the right column (headlines 120–900 px), shown only while both are
   expanded.
 - **PanelFrame**: the frame around each of the eight dashboard panels (`tiles`, `bias`
   "Market view", `signal`, `trades`, `chart`, `history`, `chain`, `news` "Headlines"). It owns the box and a
@@ -1413,29 +1413,27 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   close; signals today; PCR and max pain), and the panels below move up. Contents
   are not rendered while minimised, except the price chart, which is kept in the page
   hidden so its zoom survives. The state is remembered in `localStorage`
-  (`tradedisha.panels`); the E1 key `tradedisha.chainOpen` seeds the option chain's state
-  the first time. There is no full-screen state (built, then removed at the owner's
-  request).
+  (`tradedisha.panels`); an older key, `tradedisha.chainOpen`, seeds the option chain's
+  state the first time. There is no full-screen state (the owner's decision).
 
-  The bias meter and signal card share a row; when either is minimised the row becomes
-  one column. The chart-height divider is rendered only while the chart is expanded. A
+  The chart-height divider is rendered only while the chart is expanded. A
   "Restore panels" button in the TopBar appears while any panel but the headlines is
   minimised (or the order is changed) and expands them; the headlines are left to their
-  own Headlines toggle (25/11/2026); E1's sizes are
-  untouched. State is shared across the index tabs. *(These are the builder's calls.)*
+  own Headlines toggle; the panel sizes are untouched. State is shared across the index tabs. *(These are the builder's calls.)*
   A minimised `signal` panel opens itself when an active signal id not seen in this page
   load arrives, and `trades` likewise for an open trade id; minimised again, it stays
   down until the next new id.
-- **Panel order** (Milestones E3, E9): the main column is six panels, each moving on its
+- **Panel order**: the main column is six panels, each moving on its
   own, drawn in a remembered order; the default is `tiles`, `signal`, `bias` (Market
   view: the meter with the evidence table and order-flow line below it, full width),
   `chart` (with its height divider), `trades`, `history`. Each PanelFrame has move-up and
   move-down buttons beside minimise; the button with nowhere to go is disabled. The index
   tabs and the option chain do not move. The order is kept in `localStorage`
   (`tradedisha.panelOrder`); a stored list is read tolerantly (unknown and repeated ids
-  dropped, missing units added at the end). An order stored before E9 is carried over:
-  the old `view` pair becomes `signal`, `bias` in its place and the old `evidence` unit is
-  dropped; a stored `evidence` minimised flag is ignored. "Restore panels" also resets the order and is
+  dropped, missing units added at the end). An older stored order, in which the market
+  view and the signal moved as one `view` unit and the evidence was a unit of its own, is
+  carried over: `view` becomes `signal`, `bias` in its place and `evidence` is dropped; a
+  stored `evidence` minimised flag is ignored. "Restore panels" also resets the order and is
   shown while it differs from the default. Units are keyed, so a moved chart is not
   remounted and keeps its zoom. `lib/panels.ts` holds the order logic.
 - **SidePanel** (the right-hand column holding the option-chain PanelFrame): minimising
@@ -1443,10 +1441,10 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   button and the panel's name; the main column takes the freed width (the chart resizes
   with it). The divider is not rendered while hidden, and the remembered width is used
   again on show. Hidden means not rendered only: the chain keeps updating in the store,
-  and indicators, signals and recording are unaffected. Since E10 the column also holds
+  and indicators, signals and recording are unaffected. The column also holds
   Headlines and its rules are in `RightColumn` (§13.1 "Right column with headlines"); the
   strip appears only when nothing in the column is expanded.
-- **Headlines** (Milestone E10, §6.7): a scrolling list, newest first, grouped by IST day
+- **Headlines** (§6.7): a scrolling list, newest first, grouped by IST day
   under sticky headers: Today, Yesterday, then `Fri 14/11`. Each row: time (`HH:MM`; the
   day is in the header), the stock symbols as chips, the heading as a link opening the
   article in a new tab (`rel="noopener noreferrer"`; a link that is not http(s) is shown
@@ -1468,18 +1466,19 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   good list. Minimised, the summary is the new count and the newest headline. The panel id
   is `news`; it does not move. Hidden is its own remembered flag (`tradedisha.newsHidden`),
   set by the frame's × button (`PanelFrame.onClose`) or the TopBar's Headlines toggle;
-  "Restore panels" clears it. Its height is `newsHeight` in the stored layout (default
-  280 px, 120–900, clamped like the others; a layout stored before E10 gets the default).
+  "Restore panels" leaves it alone. Its height is `newsHeight` in the stored layout
+  (default 280 px, 120–900, clamped like the others; a stored layout without it gets the
+  default).
 - **BiasMeter**: horizontal gauge −100…+100 with label and strength; animates on update.
 - **PriceChart**: resizes with its container (it has no fixed height once the layout is
   resizable). `lightweight-charts` candlestick; EMA9, EMA21, VWAP line series;
   supertrend as coloured line; signal markers (▲ CE, ▼ PE) with tooltips; paper-trade
-  entry/exit markers. A second pane below shows **net volume** per minute (E8): a
+  entry/exit markers. A second pane below shows **net volume** per minute: a
   histogram of buy − sell volume, green above zero and red below, from the near-month
   future on index tabs and the metal's future on BULLION. The legend gives net, buy and
   sell for the minute under the crosshair (or the latest); minutes without side data have
   no bar.
-- **SignalCard**: direction, symbol, the Fired and Live rows of entry/target/stop (E7;
+- **SignalCard**: direction, symbol, the Fired and Live rows of entry/target/stop (§9.3;
   points shown on expiry day; a future shows its rupees per point), countdown, an
   open-trades block when there are open trades on that index or metal (each with
   direction, entry, live P&L and minutes open; closing is done from the OpenTrades panel), Paper
@@ -1490,8 +1489,7 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   selected index: option and quantity, entry, current price, target, stop, live net P&L,
   time open, a "bias reversed" flag, and a Close button (disabled while the feed is not
   live). Always on the page; with none open it reads "No open paper trades." It sits
-  second last in the main column, directly above Signals today *(owner's decisions,
-  2026-11-13)*. Its border takes the accent colour while a trade is open.
+  second last in the main column, directly above Signals today *(owner's decisions)*. Its border takes the accent colour while a trade is open.
 - **SignalHistory** (the "Signals today" panel): today's signals on the selected index:
   time fired, option, entry, target, stop, bias strength, status with the time it changed,
   and the outcome (§9.5): target, stop, neither or "following", with the best and worst
@@ -1506,14 +1504,15 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   a flip; a footer counts the factors switched off ("Change in Config, Factors.").
   Under it, the **FlowLine**: the order-flow score and its three parts (§8.5), marked
   "recorded only, not used for signals yet" while the trigger is the shadow rule.
-- **OptionChain**: virtualised table, ATM centred and highlighted, OI build-up heat
+- **OptionChain**: a plain table of the window's rows (21 at most, so not virtualised;
+  each row memoised by strike), ATM centred and highlighted, OI build-up heat
   shading (log scale of ΔOI), build-up class badge on hover, header with expiry, PCR,
   max pain, last update time.
 - **Journal page**: the paper bank and its ledger (§10.5), and summary cards (hit rate,
   net P&L, avg win/loss, exits by reason, exits not on a live price) overall, per index
-  and for bullion, filtered by index and date range. It lists no trades: since E19 each
-  trade is on the Trades page, which it links to.
-- **Trades page** (E19, `#trades`): paper trades, index options and bullion, filtered by
+  and for bullion, filtered by index and date range. It lists no trades: each trade is on
+  the Trades page, which it links to.
+- **Trades page** (`#trades`): paper trades, index options and bullion, filtered by
   market and dates on the server. Open trades come first under "Open now" with their
   unrealised total: the price now, net so far and time held, ticking from the socket's
   `paper_trade` frames (a close shows before the page refetches). Each has a Close button
@@ -1532,12 +1531,12 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   date; a date picker for "delete ticks up to and including"; a preview line ("N days,
   M rows, ~X MB") fetched from `/data/usage`; a confirm step that requires typing the date;
   progress and result. Derived data is stated as unaffected.
-- **Config control** (in the TopBar): a button showing the version and tag in force
-  ("Config v7 higher bar"). It opens a **drawer on the right** over a dimmed backdrop
-  (since 19/11/2026; it was a dropdown panel). Its header reads "Config  in force: v7
+- **Config control** (in the TopBar): a button showing the version in force ("Config
+  v7"; the tag is in its tooltip, so a long one cannot widen the bar). It opens a
+  **drawer on the right** over a dimmed backdrop. Its header reads "Config  in force: v7
   higher bar, saved DD/MM/YYYY HH:MM". It closes from the header line, the **✕ Close**
   button, a click on the backdrop, or Escape. Three tabs:
-  - **Parameters** (was "Edit"): a form built from `/parameters/schema`, grouped as in
+  - **Parameters**: a form built from `/parameters/schema`, grouped as in
     §3.2. Each field shows its name, then its help text on the line below and its limits
     ("Allowed: …") under that; a changed field is outlined and shows its previous value
     ("was 0.5"). Saving needs a tag and at least one change; the server's field errors
@@ -1550,7 +1549,7 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
     toggle, the factor's name and a one-line plain explanation below it (`FACTOR_HELP` in
     `lib/factors.ts`); a factor switched off is dimmed. A flip is saved at once as its own
     version; "saving…" shows while it is in flight.
-  - **Versions** (was "History"): every version, newest first, with its date, time and
+  - **Versions**: every version, newest first, with its date, time and
     source (from params.toml, edited, revert to vN); the one in force carries an "in
     force" badge and the others a Revert button, which asks for a tag (pre-filled "Revert
     to vN") and a confirmation.
@@ -1578,9 +1577,10 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   the whole dashboard fits 1440 × 900 without scrolling.
 - **Motion**: value changes flash subtly (120 ms) and the meter eases over 300 ms; nothing
   animates continuously.
-- **Performance**: chain rows virtualised; incoming WS frames are merged into stores and
-  rendered once per animation frame; chart uses canvas (`lightweight-charts`) and receives
-  only the changed bar; heavy components memoised; no layout thrash on tick.
+- **Performance**: incoming WS frames are merged into the store and each panel reads only
+  the slice it shows (§14a), so a frame re-renders what it changes and nothing else; the
+  chart uses canvas (`lightweight-charts`) and receives only the changed bar; rows that a
+  clock tick cannot change are memoised; no layout thrash on tick.
 
 ### 13.4 State and data flow
 - WS client with exponential reconnect; on `hello` replaces all live stores.
@@ -1589,11 +1589,14 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   active one, with `live` levels), `gates`, `flow`, `stats`; plus `ws`, `instruments`,
   `selectedIndex`, `trades`, `signalHistory`, `health`, `parameters`,
   `parametersEffectiveFrom`, `bullion`, `bullionCandles`, `bullionOverlays` and `news`.
-  GOLD and SILVER use the same per-name maps as the indices.
+  GOLD and SILVER use the same per-name maps as the indices. A slice that changes with
+  the frames is read by the component that shows it (`components/Live/`), not by `App`,
+  which selects small values (`lib/marketViews.ts`); `useNow` is one shared clock per
+  interval.
 - Per-browser preferences in `localStorage`, read through one small hook with a
   try/catch fallback to defaults: theme (existing), `layout` (`{chainWidth, chartHeight}`),
-  `panels` (which panels are minimised; replaces E1's `chainOpen`, which is read once to
-  carry the choice over), `panelOrder` (the order of the main column's units),
+  `panels` (which panels are minimised; an older `chainOpen` key is read once to carry
+  the choice over), `panelOrder` (the order of the main column's units),
   `detailsOpen`, `bullionDetailsOpen`, `sectorsOpen`, `bullionChart` (the metal picked),
   `newsHidden` and `newsSeen`. All keys are prefixed `tradedisha.`.
 - REST via plain `fetch` (`api/client.ts`) for history, the journal and mutations
@@ -1679,27 +1682,30 @@ wall-clock fallback when ticks are sparse; the detection delay is reported separ
   the development Mac.
 
 ### Frontend techniques
-See §13.3 Performance. Additionally: WS parsing in the main thread (frames are small);
-React 19 automatic batching; no state in context that changes per tick; `React.memo` on
-chain rows keyed by strike; chart updates via `series.update()` not `setData()`.
+See §13.3 Performance. Additionally:
+- WS parsing in the main thread (frames are small); no state in context that changes per
+  tick; `React.memo` on chain rows keyed by strike; chart updates via `series.update()`
+  not `setData()`.
 - A store slice that changes with the frames (prices, chains, bullion, flow, stats, the
   live signal and trades) is read by the component that shows it (`components/Live/`),
-  never by `App`, so a tick re-renders the tiles and the top bar, not the page
-  (25/11/2026: from 135 components per commit to about 36, the ones that show time).
+  never by `App`, so a tick re-renders the tiles and the top bar, not the page; a clock
+  tick re-renders only what shows time.
 - The clock (`useNow`) is one shared timer per interval: every reader sees the same
   moment, and only readers re-render. Headline rows and Trades-page rows are memoised and
   given what they show (a headline's freshness band, `now` only for an open trade), so
-  the clock does not re-render a row whose text cannot change. The
-production build (`vite.config.ts`) splits the libraries from the app's code: `charts`
-(`lightweight-charts`), `vendor` (React, Zustand) and the app, so no file passes Vite's
-500 kB warning and the library files stay cached when only the app changes.
+  the clock does not re-render a row whose text cannot change.
+- The production build (`vite.config.ts`) splits the libraries from the app's code:
+  `charts` (`lightweight-charts`), `vendor` (React, Zustand) and the app, so no file
+  passes Vite's 500 kB warning and the library files stay cached when only the app
+  changes.
 
 ### Measurement
 - Every WS frame carries `t_src`, `t_in`, `t_out`; the client stamps `t_recv` and
   `t_paint` (via `requestAnimationFrame` after store commit) and posts a per-minute
   summary to `POST /api/metrics/client`. One animation-frame callback stamps every frame
-  received since the last paint, and none is queued while the tab is hidden (a hidden tab
-  paints nothing; the callbacks used to pile up and report minutes of "paint" time).
+  received since the last paint, and none is queued while the tab is hidden: a hidden tab
+  paints nothing, so callbacks queued there would pile up and then report minutes of
+  "paint" time.
 - `/api/metrics` and the dev overlay (toggle with `?debug=1`) show per-hop p50/p95/p99.
 - Per-minute summaries are stored in `latency_samples` so a slow afternoon can be
   diagnosed afterwards.
@@ -1759,19 +1765,20 @@ Live verification per milestone is described in plan.md.
 
 ---
 
-## 17. Open items to resolve during build
+## 17. Open items and checks against the live feed
 
-| Item | Resolve in | Fallback | Status |
+| Item | Checked by | Fallback | Status |
 |---|---|---|---|
-| Exact Upstox WS protobuf schema, `full` mode fields, subscription cap | M1 | reduce `strike_window` | resolved: live feed in use |
-| Whether IV/delta arrive on the feed | M2 | compute via Black-Scholes (§7.3) | resolved: delta computed when absent; IV from the feed |
-| Whether option-chain REST provides day OI change for opening-OI backfill | M2 | `oi_baseline=partial` flag | resolved in M6 backfill |
-| Intraday candle REST availability for same-day minutes | M3 | warm-up period with `quality=warming` | resolved: used for backfill |
-| Indicator constants (k, bands) | M3 review point | tune on recorded days | open: tuned with `tools/score.py` as days accumulate |
-| 52-week high/low from daily candles matches NSE's published figures | E1 demo | show the values with their source dates on hover | resolved: checked live |
-| India VIX arrives on the feed in `full` mode like the other indices | E1 demo | poll the quote API once a minute | resolved: checked live |
-| `tbq`, `tsq`, `atp` and all five book levels arrive in `full` mode for index futures and the option window | S1 live day | build the trigger on whichever of them do arrive | resolved: recorded live |
-| Growth of the `ticks` table with the eight order-flow columns | S1 live day (Data panel) | record them only for the futures and the strikes near ATM | watch: prune from the Data panel |
-| Whether order flow leads price on these contracts at all | S2 shadow scorecard | keep the minute-close rule; try enhancement 6's other options | open: S3, after five live sessions |
-| MCX ticks (and the `1d` OHLC row) arrive for this account in `full` mode | E4 live check | poll the full quote once a few seconds | resolved: checked live 2026-11-16 |
-| A live bullion signal and paper trade behave as the tests say | E6 live check | tune `bullion.*` | open: bias and panels checked live, a trade still to see |
+| Exact Upstox WS protobuf schema, `full` mode fields, subscription cap | the first live connection | reduce `strike_window` | resolved: live feed in use |
+| Whether IV/delta arrive on the feed | the live option chain | compute via Black-Scholes (§7.3) | resolved: delta computed when absent; IV from the feed |
+| Whether option-chain REST provides day OI change for opening-OI backfill | a late start on a live day | `oi_baseline=partial` flag | resolved: used by the backfill (§6.5) |
+| Intraday candle REST availability for same-day minutes | a late start on a live day | warm-up period with `quality=warming` | resolved: used for backfill |
+| Indicator constants (k, bands) | the scorecard over recorded days | tune on recorded days | open: tuned with `tools/score.py` as days accumulate |
+| 52-week high/low from daily candles matches NSE's published figures | comparison with NSE on a live day | show the values with their source dates on hover | resolved: checked live |
+| India VIX arrives on the feed in `full` mode like the other indices | a live day | poll the quote API once a minute | resolved: checked live |
+| `tbq`, `tsq`, `atp` and all five book levels arrive in `full` mode for index futures and the option window | the first live day recording them | build the trigger on whichever of them do arrive | resolved: recorded live |
+| Growth of the `ticks` table with the eight order-flow columns | the Data panel over live days | record them only for the futures and the strikes near ATM | watch: prune from the Data panel |
+| Whether order flow leads price on these contracts at all | the shadow scorecard (§9.5, §9.6) | keep the minute-close rule; try the alternatives recorded in enhancements.md (item 6) | open: the trigger goes live only once at least five live sessions of shadow scores show it is better |
+| MCX ticks (and the `1d` OHLC row) arrive for this account in `full` mode | a live MCX session | poll the full quote once a few seconds | resolved: checked live 2026-11-16 |
+| A live bullion signal and paper trade behave as the tests say | a live MCX session | tune `bullion.*` | open: bias and panels checked live, a trade still to see |
+| `chain.strike_window` and `chain.recenter_strikes` are offered in the Parameters tab but nothing reads them (§3.2) | the Parameters tab | wire the chain to them (re-centring at the next minute close; the width changes the subscriptions), or remove them from the model and `params.toml` | open |

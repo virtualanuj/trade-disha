@@ -62,7 +62,7 @@ A milestone is not done while `make check` is red. The pre-commit hook runs ruff
 - `upstox`: live feed; needs API key/secret and a daily login through the app. MCX hours
   are `TRADEDISHA_MCX_OPEN` / `TRADEDISHA_MCX_CLOSE` (23:30, or 23:55 while the US is on
   standard time; changed by hand) and `config/mcx-holidays.txt`. US data releases that
-  pause bullion signals are hand-kept in `config/us-events.txt` (IST; E18).
+  pause bullion signals are hand-kept in `config/us-events.txt` (IST; spec §9a).
 
 Live recordings are kept in a separate file (`TRADEDISHA_DB_PATH=data/live.sqlite`)
 because synthetic and live data use the same instrument keys. `data/` is gitignored.
@@ -96,12 +96,12 @@ MarketDataProvider (feed/synthetic | replay | upstox)
 ```
 
 Bullion is loaded with the `upstox` provider, or in replay with `replay_bullion`.
-`market/macro.py:MacroTracker` (Milestone E12) is loaded the same way: NSE currency
+`market/macro.py:MacroTracker` is loaded the same way: NSE currency
 futures (the dollar-index proxy, USD/INR) and MCX crude, read by the macro group of both
 biases (`indicators/macro.py`). Every `MCX_FO|` / `NCD_FO|` key is a side market
 (`FeedSession.is_side_market`): never the index candles or liveness, recorded in
 `bullion_ticks`.
-`market/gift.py:GiftNifty` (E14) is not on the socket: Upstox has GIFT Nifty only as
+`market/gift.py:GiftNifty` is not on the socket: Upstox has GIFT Nifty only as
 `GLOBAL_INDEX|SGX NIFTY`, refreshed every 120 s, so it is fetched over REST once NSE is
 open, stored per day in `gift_nifty` (replay and `tools/score.py` read that row) and used
 only as NIFTY's opening-gap vote in the macro group.
@@ -131,7 +131,7 @@ Things that are easy to get wrong:
   1 for a database that has none. Components take `params` as a callable so a save applies
   at the next minute close, and each signal stores the `config_version` it fired under. A
   new tunable goes in the model (with a `description`, which is the editor's help text) and
-  the TOML, not in `Settings`. The factor switches (`factors`, E16) are parameters that the
+  the TOML, not in `Settings`. The factor switches (`factors`) are parameters that the
   typed editor skips (`parameters/schema.py:describe()`): each flip in the Config drawer's
   Factors tab is its own version via `ParameterService.set_factor`, and a new indicator
   needs a switch field (a test checks).
@@ -204,11 +204,21 @@ Things that are easy to get wrong:
 
 - `docs/intent.md` requirements, `docs/spec.md` design (section numbers are cited in code
   comments), `docs/plan.md` milestones, `docs/signal.md` how a signal is worked out
-  (indices and bullion), `docs/dd.md` data dictionary, `docs/enhancements.md` post-1.0
-  requests, `docs/strike_ladder_analysis.md` an analysis of ATM ±3 signals (not built).
+  (indices and bullion), `docs/dd.md` data dictionary, `docs/enhancements.md`
+  enhancements (the companion to intent.md), `docs/strike_ladder_analysis.md` an analysis
+  of ATM ±3 signals (not built).
+- **Enhancements are documented in enhancements.md, as a companion to intent.md.** A new
+  request gets its own numbered item there: what was asked, what was decided (with the
+  owner, and the builder's calls) and where it is built. Do not edit intent.md for it.
+  From time to time the owner compacts by hand, merging the enhancements into intent.md
+  as if they had always been requirements; until then intent.md plus enhancements.md
+  together are the requirements. Only change intent.md when the owner asks for that.
+- spec.md describes the design as it is, as one design: no milestone tags, dates or
+  "added later" wording, and its section numbers stay fixed (code cites them).
 - Work is done in milestones; each ends with a runnable demo, one commit
-  (`Milestone N: ...`) and a README status update. A behaviour change is reflected in the
-  spec and plan as well as the code.
+  (`Milestone N: ...`) and the README's "What it does" summary kept current. A behaviour
+  change is reflected in enhancements.md, spec and plan as well as the code; plan.md is
+  the build history.
 - **Finishing a piece of work (the owner's rule):**
   1. Once the implementation is done and `make check` is green, stop and ask the owner
      whether to run an end-to-end test of it in the running app. Do not skip the

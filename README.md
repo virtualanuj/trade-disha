@@ -1,110 +1,63 @@
 # TradeDisha
 
-A personal trading assistant for NSE index options (NIFTY and BANK NIFTY). It watches the
-market live through a broker data feed, forms a bullish/bearish view every minute from
-price trend, open interest, and premium behaviour, and recommends a specific call or put to
-buy, with every reason visible. Recommendations can be paper-traded with one click; real
-orders are always placed by the trader in their broker's app. TradeDisha never places an
-order.
+A personal trading assistant for NSE index options (NIFTY and BANK NIFTY) and MCX gold and
+silver futures. It watches each market live through a broker data feed, forms a
+bullish/bearish view every minute, and recommends a specific trade (a call or put to buy on
+an index, a future to buy or sell on a metal) with every reason visible. Recommendations
+can be paper-traded with one click, funded by a paper bank; real orders are always placed
+by the trader in their broker's app. TradeDisha never places an order.
 
-## Status
+## What it does
 
-Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by milestone.
-[docs/plan.md](docs/plan.md) has the detail and what comes next.
+The requirements are in [docs/intent.md](docs/intent.md), with enhancements not yet merged
+into it in [docs/enhancements.md](docs/enhancements.md); how it was built, milestone by
+milestone, is in [docs/plan.md](docs/plan.md).
 
-- **0–6 (1.0.0):**
-  - Market data: a provider interface with synthetic and replay feeds, instrument
-    resolution, tick recording, and the live Upstox feed (daily login, real instrument
-    master, websocket adapter). Starting after the open backfills today's candles and the
-    opening-OI baseline.
-  - Screen: WebSocket push with latency stamps, a live option chain, and 1-minute candles
-    with EMA/VWAP/supertrend.
-  - Signals: nine indicators combined into a per-minute bias with a visible evidence
-    breakdown. A signal says which ATM call or put to buy, with entry, target and stop
-    (index points via delta on expiry day). There's a signal card, chart markers and a daily
-    history.
-  - Paper trades: one click to open; they close at target, stop, the 15:15 square-off or by
-    hand. P&L is net of costs, and a Journal page shows the results.
-  - Running it: a status banner explains why the screen isn't live, feed outages are logged,
-    and a Data panel deletes old raw ticks.
-- **E1:** resizable panels, a hideable option chain, DD/MM/YYYY dates, and an index details
-  view (day and 52-week range, change, futures premium, India VIX).
-- **E2 / E3:** every panel can be minimised, and moved up and down.
-- **C1:** the config is edited in the app and kept as numbered, tagged versions you can
-  revert to. Each signal records the version it fired under.
-- **S1 / S2:** every signal is scored by what its option did next. An order-flow trigger
-  runs in shadow beside the minute-close rule.
-- **E4:** a BULLION tab with live MCX gold and silver: day range, liquidity, circuit limits,
-  next month, the gold/silver ratio and a minute chart.
-- **E5:** bullion follows MCX hours with its own status, and index feed liveness counts NSE
-  ticks only. A closed market's quiet feed shows muted, not red, under an amber banner.
-- **E6:** bullion signals (buy or sell the GOLD/SILVER future on a trend-only bias, worked
-  out 20 s after each minute close) and long/short paper trades through the MCX session,
-  with their own Journal rows. (The bias is no longer trend-only: see E12 and E13.)
-- **E7:** a waiting signal shows its fired and live entry, target and stop, and a paper
-  trade takes the live levels at its fill.
-- **E8:** a net-volume histogram under the price chart: buyer- minus seller-initiated
-  volume per minute, signed from the futures ticks (Upstox does not supply it).
-- **E9:** one full-width Market view panel (the meter with its evidence and order flow),
-  with the signal on its own row above it.
-- **E10:** a Headlines panel under the option chain: Upstox news for the 30 heaviest NIFTY
-  and BANK NIFTY stocks, newest first, grouped by day, with unseen ones marked and stock
-  chips coloured by index. It collapses, hides (a top-bar toggle brings it back) and
-  shows alone on the BULLION tab. Display only.
-- **E11:** the Index panel lists sector indices with level and change: ten sectors on
-  NIFTY, the bank sub-indices on BANK NIFTY. ATM moves into Details.
-- **E12:** the bias weighs macro evidence with a small share: the dollar (rebuilt from NSE
-  currency futures), USD/INR, crude and gold for the indices; the dollar for bullion.
-- **E13:** the gold and silver bias also reads the near future's open-interest build-up,
-  order flow (net traded volume, the book's lean) and the other metal's trend: trend
-  0.60, OI 0.15, flow 0.15, other markets 0.10. Starting weights, to be tuned on more
-  recorded days.
-- **E14:** NIFTY's bias reads GIFT Nifty's overnight move as an opening-gap vote that
-  fades over the first 30 minutes. Upstox has GIFT Nifty only every 120 s and not for
-  BANK NIFTY, so it is not used during the session.
-- **E15:** each factor of an index's or metal's bias can be switched off, leaving it out
-  from the next minute close; all on by default.
-- **E16:** the factor switches are part of the versioned config: flipped in Config →
-  Factors, each flip its own version (`Factor NIFTY.pcr: off`), shown read only in the
-  Evidence panel, and usable in `tools/score.py` trial files.
-- **E17:** a paper bank funds paper trades. Each trade blocks its premium (options) or
-  margin (futures, 10 % GOLD, 12 % SILVER) plus cost, and is refused if the bank can't
-  cover it. Closing settles its net P&L. The opening balance (₹25 lakh) is set in Config:
-  raising it deposits the difference, lowering it withdraws it, and the journal lists each
-  cash move.
-- **E18:** bullion signals pause around US data releases listed by hand in
-  `config/us-events.txt` (15 minutes either side by default; gate "paused around a US data
-  release"). Two switches in Config, both off by default, also end a waiting signal when
-  the pause starts and refuse opening a bullion paper trade during it.
-- **E19:** a Trades page (TopBar: Dashboard · Journal · Trades) lists open paper trades at
-  the live price, each with a Close button, then closed ones by day with each day's net. A trade opens to its fill and slippage, target and stop,
-  risk : reward, net and result in R, the signal it was taken on, what the instrument did
-  after, and the evidence at the minute it fired. The Journal no longer lists trades; it
-  keeps the paper bank, its ledger and the summary figures.
-- **Performance** (25/11/2026): a tick re-renders the tiles and top bar, not the whole
-  page (about a quarter of the components per update); a background tab no longer piles up
-  latency samples; deleting old ticks now shrinks the database file. A file made before
-  this needs one `make compact` with the app stopped.
-- **Top bar** (25/11/2026): grouped into page tabs, a status strip, icon tools and
-  Login/Logout last; the feed's tick age no longer shifts the bar, and the bar wraps
-  instead of scrolling, so Logout is always on screen.
-- **Logout** (24/11/2026): the rightmost top-bar button is Login, then Logout once logged
-  in. Logout (click twice) revokes the Upstox token and stops the live feed until the next
-  login, which reconnects without a restart.
-- **Config drawer** (19/11/2026): the Config button opens a drawer on the right with three
-  tabs, Parameters, Factors and Versions. Each parameter and factor is explained on the
-  line below its name; it closes from its header, a Close button, the backdrop or Escape;
-  unsaved edits survive a factor flip.
+- **Market data:** the live Upstox feed (daily login, Logout at any time), with synthetic
+  and replay feeds for testing. Index spot and futures, the option chain around ATM, India
+  VIX and the sector indices; MCX GOLD and SILVER near-month futures; the currency futures
+  and crude behind the macro evidence; GIFT Nifty for the opening gap; headlines for the
+  heaviest index stocks. Ticks are recorded (bullion apart from the NSE day) and can be
+  replayed; starting after the open backfills the day. NSE and MCX keep their own hours
+  and holidays, and each is judged live on its own ticks.
+- **Market view:** a per-minute bias for each index from price trend, open interest,
+  premium behaviour and a small share of other markets (the dollar, USD/INR, crude, gold;
+  GIFT Nifty's gap at the open for NIFTY). For each metal: trend, the future's
+  open-interest build-up, order flow, and the dollar, USD/INR and the other metal. Every
+  vote is visible, and any factor can be switched off for one index or metal.
+- **Signals:** an index signal says which ATM call or put to buy, a bullion signal whether
+  to buy or sell the future, with entry, target and stop (index points via delta on
+  expiry day) shown as fired and live while it waits. Every index signal is scored by
+  what its option did next; an order-flow trigger runs in shadow beside the minute-close
+  rule. Bullion signals pause around hand-listed US data releases.
+- **Paper trading:** one click to open, funded by a paper bank (an option blocks its
+  premium, a future its margin, plus cost; ₹25 lakh to start, set in Config). Trades
+  close at target, stop, the square-off or by hand; P&L is net of costs. The Journal shows
+  the bank, its ledger and the results; the Trades page lists open trades live and closed
+  ones by day, each opening to its fills, signal, outcome and evidence.
+- **Screen:** NIFTY, BANK NIFTY and BULLION tabs; panels that resize, minimise and
+  re-order; a top bar with the market and feed status, the pages, the tools and Login or
+  Logout; DD/MM/YYYY dates; dark and light themes. A banner says why the screen isn't
+  live.
+- **Config:** every tunable value is edited in the app (a drawer with Parameters, Factors
+  and Versions), saved as a numbered, tagged version you can revert to; each signal
+  records the version it fired under.
+- **Data:** a Data panel deletes old raw ticks and gives the space back to the disk.
+
+What is still open: the order-flow trigger goes live only once enough live sessions of
+shadow scores show it is better; the bullion weights are starting values to be tuned on
+recorded weeks; `chain.strike_window` and `chain.recenter_strikes` are shown in Config but
+not read (spec §17).
 
 ## Documents
 
 | File | What it is |
 |---|---|
 | [docs/intent.md](docs/intent.md) | Requirements: purpose, scope, behaviour, qualities. No technical detail. |
-| [docs/plan.md](docs/plan.md) | Development plan: iterative milestones, each ending in a runnable demo. |
+| [docs/plan.md](docs/plan.md) | Development plan and build history: the milestones, each ending in a runnable demo. |
 | [docs/spec.md](docs/spec.md) | Architecture and detailed design: components, data model, indicators, signal engine, API, frontend, performance budget, code standards. |
 | [docs/signal.md](docs/signal.md) | How a signal is worked out, end to end, for the indices and for bullion, with worked examples. |
-| [docs/enhancements.md](docs/enhancements.md) | Requests made after 1.0.0, with what was decided and where each was built. |
+| [docs/enhancements.md](docs/enhancements.md) | Enhancements, the companion to intent.md: each request as it was asked, what was decided and where it was built. Merged into intent.md by hand from time to time. |
 | [docs/dd.md](docs/dd.md) | Data dictionary: every domain and technical term used in these documents. |
 | [docs/strike_ladder_analysis.md](docs/strike_ladder_analysis.md) | Analysis (not built): what signals for ATM ±3 strikes would take. |
 
@@ -138,8 +91,8 @@ For daily use, one command builds the web app and serves everything from the bac
 make start                 # then open http://127.0.0.1:8000
 ```
 
-Deleting old ticks (Data panel) gives the space back to the disk. A database made before
-25/11/2026 needs this once, with the app stopped:
+Deleting old ticks (Data panel) gives the space back to the disk. A database file whose
+incremental vacuum is off (an older one) needs this once, with the app stopped:
 
 ```bash
 make compact               # the database in .env; needs free disk about the size of the data kept
@@ -186,8 +139,7 @@ bar shows the version in force and opens a drawer on the right with three tabs:
 
 Each signal shows the config version it fired under; hover it for that version's values.
 Two parameters, `chain.strike_window` and `chain.recenter_strikes`, are not read yet: the
-chain uses `TRADEDISHA_STRIKE_WINDOW` / `TRADEDISHA_RECENTER_STRIKES` (open item in
-enhancements.md).
+chain uses `TRADEDISHA_STRIKE_WINDOW` / `TRADEDISHA_RECENTER_STRIKES` (open item, spec §17).
 
 Versions are kept in the database, so the live and synthetic databases each have their own
 history. `config/params.toml` only supplies version 1 for a new database.

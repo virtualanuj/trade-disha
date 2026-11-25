@@ -147,8 +147,8 @@ live.
 > **Clamp** means "limit to a range": a value above +1 becomes +1 and below −1 becomes −1.
 > "Full strength" is the reading at which an indicator's score reaches ±1.
 
-The indicators are in three groups of three, and since Milestone E12 a fourth, smaller
-macro group (section 3.4) reads the dollar, crude and gold. They are pure functions in
+The indicators are in three groups of three, and a fourth, smaller macro group
+(section 3.4) reads the dollar, crude and gold. They are pure functions in
 `backend/tradedisha/indicators/`.
 
 ### 3.1 Trend group: what is the price doing
@@ -229,7 +229,7 @@ All three compare the ATM call and put now with N minutes ago, using the chain h
 | `iv_change` | Change in ATM IV over 15 minutes, with the direction of the spot move | Only **rising** IV counts: `sign(spot move) × clamp(IV change / 2, 0, 1)`. IV up 2 points while spot rises is +1; while spot falls, −1. Falling IV scores 0. |
 | `premium_confirmation` | Whether premiums back the 5-minute spot move | Spot up and calls up (by at least as much as puts fell): `+clamp(call ROC / 10)`. Spot down and puts up: `−clamp(put ROC / 10)`. If they disagree: −0.5 on an up-move, +0.5 on a down-move, so a divergence pulls **against** the move. Spot flat: 0. |
 
-### 3.4 Macro group: the dollar, crude and gold (Milestone E12)
+### 3.4 Macro group: the dollar, crude and gold
 
 > **Note: terms used here**
 >
@@ -249,7 +249,7 @@ rupee, rising crude and rising gold are all **bearish** for NIFTY and BANK NIFTY
 | `crude` | MCX CRUDEOIL near-month future | `−clamp(move / 0.80)`: a bigger import bill and inflation |
 | `gold` | MCX GOLD near-month future | `−clamp(move / 0.40)`: money seeking safety |
 | `silver` | MCX SILVER near-month future | shown as `info`, never scored: half industrial, its sign is unclear |
-| `gift_nifty` | GIFT Nifty's overnight move, NIFTY only (Milestone E14) | `+clamp(move / 0.50)` (follow) or `−` (fade), fading to nothing over the first 30 minutes |
+| `gift_nifty` | GIFT Nifty's overnight move, NIFTY only | `+clamp(move / 0.50)` (follow) or `−` (fade), fading to nothing over the first 30 minutes |
 
 **The dollar-index proxy.** From the four rupee rates: euro-dollar = EUR/INR ÷ USD/INR,
 pound-dollar = GBP/INR ÷ USD/INR, dollar-yen = USD/INR ÷ (JPY/INR ÷ 100). The proxy is
@@ -306,9 +306,9 @@ proportions 0.40 / 0.35 / 0.25 in the rest. On expiry day OI is distorted by pos
 being closed, so its weight is halved (`expiry_oi_weight_factor = 0.5`) and the share it
 gives up is handed to the other groups in proportion to their own weights. When **no
 macro reading is `ok`**, the macro share is handed back the same way, so on a normal day the
-bias is exactly what it was before E12 (last column). On expiry day the two hand-backs
+bias is exactly the three-group bias (last column). On expiry day the two hand-backs
 happen one after the other, so with no live macro price the weights (0.505 / 0.180 / 0.316)
-differ from the pre-E12 expiry weights (0.508 / 0.175 / 0.317) by under 0.01.
+differ from the three-group expiry weights (0.508 / 0.175 / 0.317) by under 0.01.
 
 **Switching a factor off.** Every factor is on by default. In **Config → Factors** each
 index and metal lists its factors with a switch; a flip is saved at once as a new config
@@ -703,7 +703,7 @@ values and highlights the ones that differ from the current config.
 | `signal.expiry_points.<INDEX>` | 40/20, 100/50 | expiry-day target and stop in index points |
 | `signal.outcome_horizon_minutes` | 30 | how long each signal is scored for |
 | `signal.last_signal_time` / `_expiry` | 15:00 / 13:00 | last time a signal may fire |
-| `chain.strike_window` / `recenter_strikes` | 10 / 2 | **not read by the code** (open item in enhancements.md). The chain's width and re-centring, which decide the "ATM" strike (section 2), come from the process settings `TRADEDISHA_STRIKE_WINDOW` / `TRADEDISHA_RECENTER_STRIKES` and need a restart |
+| `chain.strike_window` / `recenter_strikes` | 10 / 2 | **not read by the code** (open item, spec §17). The chain's width and re-centring, which decide the "ATM" strike (section 2), come from the process settings `TRADEDISHA_STRIKE_WINDOW` / `TRADEDISHA_RECENTER_STRIKES` and need a restart |
 | `paper.square_off_time` | 15:15 | open index paper trades close |
 | `paper.cost_per_trade` | ₹60 | round-trip cost per lot |
 | `paper.lots` | 1 | lots per paper trade |
@@ -789,7 +789,7 @@ MCX GOLD / SILVER ticks ─> BullionTracker (its own 1-minute candles)
 | What a signal trades | buy the ATM call or put | buy or sell the near-month future |
 | Evidence | 9 indicators: trend, OI, premium; plus macro (dollar, USD/INR, crude, gold; silver shown as info; NIFTY also the GIFT Nifty gap) | 3 trend votes; the future's OI build-up; order flow (net volume, the book's lean); the dollar, USD/INR and the other metal's trend (there is no option chain) |
 | Candles the trend reads | spot (EMAs, supertrend), future (VWAP) | the near-month future for all three |
-| Order flow | read at the trigger (section 5), not in the bias | two votes in the bias, the `flow` group (E13) |
+| Order flow | read at the trigger (section 5), not in the bias | two votes in the bias, the `flow` group |
 | When it is worked out | at the minute close | 20 s after the minute close |
 | Entry threshold | \|bias\| ≥ 0.50 | \|bias\| ≥ 0.60 |
 | Entry rules | `minute_close` and `trigger`, with a shadow engine | `minute_close` only, no shadow |
@@ -809,11 +809,11 @@ For each metal, from the MCX instrument file of the day:
 | Near-month candles | the near contract's ticks, 1-minute bars, kept for 900 minutes (a full MCX day) | all three indicators |
 | VWAP | running close × volume over those candles, from the day's first candle | `vwap_position` |
 | Latest tick | the near contract | entry price, live levels, paper-trade fills |
-| Signed volume | each candle's buy and sell volume (E8). None for backfilled minutes; a volume jump after more than 30 s of silence is counted but not signed | `net_volume` |
-| Per-minute OI and book | the near contract as it stood at the end of each minute (its last tick): OI, total buy and sell quantity, five-level bid and ask quantity; kept 900 minutes | `futures_oi`, `book_imbalance` (E13) |
-| The other metal's candles | its near-month future, up to the same minute | `peer_metal` (E13) |
+| Signed volume | each candle's buy and sell volume. None for backfilled minutes; a volume jump after more than 30 s of silence is counted but not signed | `net_volume` |
+| Per-minute OI and book | the near contract as it stood at the end of each minute (its last tick): OI, total buy and sell quantity, five-level bid and ask quantity; kept 900 minutes | `futures_oi`, `book_imbalance` |
+| The other metal's candles | its near-month future, up to the same minute | `peer_metal` |
 | Next-month price | the next contract | display only (calendar spread) |
-| Dollar-index proxy, USD/INR | NSE currency futures, as for the indices (section 3.4) | the macro group, from E12 |
+| Dollar-index proxy, USD/INR | NSE currency futures, as for the indices (section 3.4) | the macro group |
 
 At start the live feed backfills today's 1-minute candles from 09:00, so the indicators
 are not cold. A bullion candle closes on the first tick of the next minute, or 2 seconds
@@ -844,20 +844,20 @@ input is the gold or silver near-month future.
 | `vwap_position` | The future's last close against its VWAP, in % | `clamp(distance% / 0.3)`. 0.3 % above VWAP is full strength. |
 | `supertrend` | Side of the supertrend line (period 10, multiplier 3) the price is on | +1 above, −1 below, ramped over 3 bars after a flip. Needs 11 bars. |
 
-**Positioning** (`oi`, Milestone E13):
+**Positioning** (`oi`):
 
 | Indicator | What it measures | Score |
 |---|---|---|
 | `futures_oi` | The future's price change against its OI change over 15 minutes (`oi_window_minutes`) | Strength `clamp(\|OI change %\| / 0.50)` (`oi_full_pct`), in the price's direction. Build-up counts fully, covering and unwinding half (`oi_unwind_factor`). A price move under 0.02 % (`oi_price_flat_pct`) or unchanged OI scores 0. Warms until 16 minutes of readings, and across a feed gap (no reading within 5 minutes of 15 minutes back). |
 
-**Order flow** (`flow`, Milestone E13):
+**Order flow** (`flow`):
 
 | Indicator | What it measures | Score |
 |---|---|---|
 | `net_volume` | Buyer- less seller-initiated volume over the last 15 candles (`flow_window_minutes`), as a share of the signed volume | `clamp(share / 0.50)` (`flow_trades_full`). Warms until 15 live minutes (backfilled ones have no sides); nothing traded scores 0. |
 | `book_imbalance` | The book lean now (mean of the total-quantity and five-level leans) against its average over the last 30 readings (`flow_book_minutes`) | `clamp((lean − average) / 0.20)` (`flow_book_full`). MCX books lean one way for hours (silver's pending sell quantity often runs well above its buy quantity), so only a change in the lean counts. Warms until 30 readings. |
 
-**Other markets** (`macro`): `dollar_index` and `usd_inr` as in section 3.4, and from E13:
+**Other markets** (`macro`): `dollar_index` and `usd_inr` as in section 3.4, and:
 
 | Indicator | What it measures | Score |
 |---|---|---|
@@ -881,7 +881,7 @@ neutral band and the bullion idle groups:
    ones are left out, not counted as zero.
 2. **Idle groups.** An OI, flow or macro group with no `ok` reading gives its share to the
    live groups in proportion to theirs. At start (backfilled candles have no OI, book or
-   sides) the bias is trend alone until the new votes warm up; after 17:00, when the
+   sides) the bias is trend alone until the OI, flow and macro votes warm up; after 17:00, when the
    currency market shuts, the other metal carries the macro share alone.
 3. **Bias** = the weighted sum of the group scores, clamped to −1..+1.
 4. **Label**: ≥ +0.20 Bullish, ≤ −0.20 Bearish, otherwise Neutral (`bullion.neutral_band`).
@@ -947,7 +947,7 @@ in order, and the first failure is the reason shown on the card:
 | 7 | Bullion is live (connected, MCX open, a bullion tick in the last 15 s) | `feed_down` |
 | 8 | The near future has a price | `no_price` |
 
-**The US data-release pause** (gate 6, Milestone E18). US releases such as CPI and
+**The US data-release pause** (gate 6). US releases such as CPI and
 payrolls (08:30 New York: 19:00 IST in US standard time, 18:00 in daylight time) move gold
 and silver sharply, and a 1-minute trend vote just before one, or in the whipsaw after
 it, is mostly noise. The releases are kept by hand in `config/us-events.txt`, one per line
@@ -1042,7 +1042,7 @@ a second), so it is not traded into the release.
 - **Cost**, fixed at entry: `cost_fixed_per_lot × lots + cost_pct_of_value / 100 × entry
   × quantity × 2` = ₹60 per lot + 0.012 % of the round-trip value. A GOLD lot at
   ₹1,35,000 is worth ₹1.35 crore, so 60 + 0.012 % × 2.7 crore = **₹3,300**.
-- **Paper bank** (E17, spec §10.5): the trade blocks its margin, `gold_margin_pct` (10) or
+- **Paper bank** (spec §10.5): the trade blocks its margin, `gold_margin_pct` (10) or
   `silver_margin_pct` (12) of entry × quantity, plus the cost, from the account shared
   with index options. That GOLD lot blocks ₹13.5 lakh + ₹3,300; if the bank cannot cover
   it, the trade is refused.
@@ -1066,13 +1066,13 @@ All in the `bullion` section of the Config drawer's Parameters tab:
 | `bullion.square_off_time` | 23:00 | open bullion paper trades close |
 | `bullion.target_pct` / `stop_pct` | 0.40 / 0.20 | % of the future's price |
 | `bullion.lots` | 1 | lots per paper trade |
-| `bullion.event_pause_before_minutes` / `event_pause_after_minutes` | 15 / 15 | the pause around each US data release in `config/us-events.txt`; both 0 = no pause (E18) |
+| `bullion.event_pause_before_minutes` / `event_pause_after_minutes` | 15 / 15 | the pause around each US data release in `config/us-events.txt`; both 0 = no pause |
 | `bullion.event_end_waiting` | `off` | `on` ends a signal still waiting when a pause starts |
 | `bullion.event_block_trades` | `off` | `on` refuses opening a bullion paper trade during a pause |
 | `bullion.cost_fixed_per_lot` / `cost_pct_of_value` | ₹60 / 0.012 % | paper-trade cost |
 | `bullion.gold_margin_pct` / `silver_margin_pct` | 10 / 12 | % of the future's value a paper trade blocks in the paper bank (spec §10.5) |
-| `bullion.macro_weight` | 0.10 | other markets' share: the dollar (E12) and the other metal (E13) |
-| `bullion.oi_weight` / `flow_weight` | 0.15 / 0.15 | the futures OI and order-flow shares (E13); trend has what the three leave, and they must leave it some |
+| `bullion.macro_weight` | 0.10 | other markets' share: the dollar, USD/INR and the other metal |
+| `bullion.oi_weight` / `flow_weight` | 0.15 / 0.15 | the futures OI and order-flow shares; trend has what the three leave, and they must leave it some |
 | `bullion.oi_window_minutes` | 15 | minutes over which price and OI changes are read |
 | `bullion.oi_full_pct` | 0.50 | OI change (%) that is full strength |
 | `bullion.oi_price_flat_pct` | 0.02 | a smaller price move (%) reads no build-up |
@@ -1082,9 +1082,10 @@ All in the `bullion` section of the Config drawer's Parameters tab:
 | `bullion.flow_book_minutes` | 30 | the readings the book's usual lean is averaged over |
 | `bullion.flow_book_full` | 0.20 | lean above that average that is full strength |
 
-The E13 weights and full-strength values are starting values. Replaying the 2.5 recorded
-MCX sessions (16–18/11/2026) cut bullion signals from 168 to 80: better on SILVER
-(+0.10 % per signal against +0.04 %), worse on GOLD (−0.02 % against +0.04 %). That is
+The OI, flow and macro weights and full-strength values are starting values. Replaying
+the 2.5 recorded MCX sessions (16–18/11/2026) with them gives 80 bullion signals against
+168 on trend alone: better on SILVER (+0.10 % per signal against +0.04 %), worse on GOLD
+(−0.02 % against +0.04 %). That is
 too little data to judge, so they are to be tuned once some weeks are recorded.
 
 The indicator periods come from the `[trend]` table, shared with the indices. MCX hours

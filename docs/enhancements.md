@@ -1,7 +1,16 @@
 # TradeDisha — Enhancements
 
-Improvements requested after release 1.0.0. This is the running list. Items that have been
-specified point to where the requirement, the design and the milestone live.
+The companion to [intent.md](intent.md): every improvement asked for after release
+1.0.0, as it was asked, with what was decided, by whom and when, and where it was built.
+The design is in [spec.md](spec.md) and the milestones in [plan.md](plan.md).
+
+From time to time the owner compacts by hand: the enhancements are merged into intent.md
+as if they had always been requirements. Until an item is merged, intent.md and this file
+together are the requirements. Wording below such as "since", "now" or "superseded" is as
+of the request.
+
+**Merged into intent.md:** items 1 to 22 (compacted 25/11/2026). Items added after 22 are
+not merged yet.
 
 ## UI
 
@@ -10,8 +19,8 @@ specified point to where the requirement, the design and the milestone live.
 Make the panels resizable.
 
 Status: built in Milestone E1 and checked in a browser. Requirement in [intent.md](intent.md)
-("Enhancements after the first version"); design in [spec.md](spec.md) §13.2 "Resizable
-layout"; planned in [plan.md](plan.md) Milestone E1.
+("The screen"); design in [spec.md](spec.md) §13.2 "Resizable layout"; planned in
+[plan.md](plan.md) Milestone E1.
 
 Decided in the spec: two draggable dividers (main column / option chain, and under the
 price chart), with size limits, double-click to reset, and sizes remembered in the browser.

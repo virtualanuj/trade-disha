@@ -1,8 +1,11 @@
 # TradeDisha — Development Plan
 
-Requirements live in [intent.md](intent.md). This plan breaks the first version into
-milestones. Every milestone ends with something that runs and can be looked at, so the
-direction can be corrected early rather than at the end.
+Requirements live in [intent.md](intent.md), with its companion
+[enhancements.md](enhancements.md) for enhancements not yet merged into it. This plan is
+the build history: the milestones the product was built in, in order. Milestones 0 to 6
+made version 1.0.0; the E, C and S milestones followed as the enhancements came in. Every
+milestone ends with something that runs and can be looked at, so the direction can be
+corrected early rather than at the end.
 
 ## Approach
 
@@ -266,9 +269,10 @@ at the last recorded price on the next start. Cost per trade is fixed at entry. 
 dashboard shows open trades with live P&L and the bias-reversed flag; the Journal page
 lists trades with filters and summary cards. Unit tests cover every exit path; the
 end-to-end run is manual. **Not built:** paper-trade entry/exit markers on the price chart
-and click-through from a journal row to the signal's evidence.
+and click-through from a journal row to the signal's evidence (it came with the Trades page,
+Milestone E19).
 
-**This completes the first version as described in intent.md.**
+**This completed version 1.0.0.**
 
 ---
 
@@ -317,9 +321,9 @@ owner.
 
 ## Enhancements
 
-Improvements requested after release 1.0.0. The running list, including items left for
-later, is in [enhancements.md](enhancements.md); requirements are in intent.md under
-"Enhancements after the first version".
+Built after release 1.0.0. Each request, with what was decided and the items left for
+later, is documented in [enhancements.md](enhancements.md), the companion to
+[intent.md](intent.md), and merged into intent.md from time to time.
 
 ## Milestone E1 — Layout, dates and index details
 
