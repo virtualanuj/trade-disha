@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { closePaperTrade, fetchPaperTradeDetail, fetchPaperTrades } from '../../api/client'
@@ -137,17 +137,21 @@ export function TradeLog({
     [loadDetail],
   )
 
-  const toggle = (id: string) => {
-    const opening = !expanded.has(id)
-    setExpanded((s) => {
-      const next = new Set(s)
-      if (opening) next.add(id)
-      else next.delete(id)
-      return next
-    })
-    const known = details[id]
-    if (opening && (known === undefined || known.kind === 'error')) fetchDetail(id)
-  }
+  /** stable between toggles, so the memoised rows skip the clock's re-renders */
+  const toggle = useCallback(
+    (id: string) => {
+      const opening = !expanded.has(id)
+      setExpanded((s) => {
+        const next = new Set(s)
+        if (opening) next.add(id)
+        else next.delete(id)
+        return next
+      })
+      const known = details[id]
+      if (opening && (known === undefined || known.kind === 'error')) fetchDetail(id)
+    },
+    [expanded, details, fetchDetail],
+  )
 
   /** the server says which trades match; the socket's copy of each is the newer one */
   const current = useMemo(() => {
@@ -177,37 +181,35 @@ export function TradeLog({
   )
 
   /** the socket's paper_trade frame then moves the row; the revision refetches the list */
-  const close = (id: string) => {
-    setClosing(id)
-    setCloseError(null)
-    onClose(id)
-      .catch((e: unknown) => {
-        setCloseError(e instanceof Error ? e.message : 'could not close')
-      })
-      .finally(() => {
-        setClosing(null)
-      })
-  }
+  const close = useCallback(
+    (id: string) => {
+      setClosing(id)
+      setCloseError(null)
+      onClose(id)
+        .catch((e: unknown) => {
+          setCloseError(e instanceof Error ? e.message : 'could not close')
+        })
+        .finally(() => {
+          setClosing(null)
+        })
+    },
+    [onClose],
+  )
 
   const rowsOf = (list: PaperTradeOut[]) =>
     list.map((t) => (
       <TradeRows
         key={t.id}
         t={t}
-        now={now}
+        // only an open trade shows time passing; a closed row keeps equal props and is skipped
+        now={t.status === 'open' ? now : 0}
         open={expanded.has(t.id)}
         detail={details[t.id]}
-        onToggle={() => {
-          toggle(t.id)
-        }}
-        onRetry={() => {
-          fetchDetail(t.id)
-        }}
+        onToggle={toggle}
+        onRetry={fetchDetail}
         closing={closing === t.id}
         closeBlock={t.status === 'open' ? (closeBlock?.(t) ?? null) : null}
-        onClose={() => {
-          close(t.id)
-        }}
+        onClose={close}
       />
     ))
 
@@ -402,7 +404,7 @@ function heldMs(t: PaperTradeOut, now: number): number | null {
   return t.exit_ts == null ? null : t.exit_ts - t.entry_ts
 }
 
-function TradeRows({
+const TradeRows = memo(function TradeRows({
   t,
   now,
   open,
@@ -417,11 +419,11 @@ function TradeRows({
   now: number
   open: boolean
   detail: Detail | undefined
-  onToggle: () => void
-  onRetry: () => void
+  onToggle: (id: string) => void
+  onRetry: (id: string) => void
   closing: boolean
   closeBlock: string | null
-  onClose: () => void
+  onClose: (id: string) => void
 }) {
   const live = t.status === 'open'
   const net = netOf(t)
@@ -437,7 +439,9 @@ function TradeRows({
             className={`flex items-center gap-1 hover:underline ${isLong(t.direction) ? 'text-bull' : 'text-bear'}`}
             aria-expanded={open}
             aria-controls={open ? panelId : undefined}
-            onClick={onToggle}
+            onClick={() => {
+              onToggle(t.id)
+            }}
             data-testid={`trade-toggle-${t.id}`}
             title={open ? 'Hide the details' : 'Show the details'}
           >
@@ -489,7 +493,9 @@ function TradeRows({
               className="rounded border border-border px-2 py-0.5 text-fg-muted hover:text-fg disabled:opacity-50"
               disabled={closeBlock !== null || closing}
               title={closeBlock ?? 'Close at the current price'}
-              onClick={onClose}
+              onClick={() => {
+                onClose(t.id)
+              }}
             >
               {closing ? 'Closing…' : 'Close'}
             </button>
@@ -499,13 +505,21 @@ function TradeRows({
       {open ? (
         <tr>
           <td colSpan={COLUMNS} className="pb-3 font-sans whitespace-normal">
-            <DetailBody t={t} now={now} detail={detail} onRetry={onRetry} panelId={panelId} />
+            <DetailBody
+              t={t}
+              now={now}
+              detail={detail}
+              onRetry={() => {
+                onRetry(t.id)
+              }}
+              panelId={panelId}
+            />
           </td>
         </tr>
       ) : null}
     </>
   )
-}
+})
 
 function DetailBody({
   t,

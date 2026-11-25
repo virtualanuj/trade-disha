@@ -81,6 +81,10 @@ Milestones 0 to 6 make up version 1.0.0; the enhancements after it are listed by
   risk : reward, net and result in R, the signal it was taken on, what the instrument did
   after, and the evidence at the minute it fired. The Journal no longer lists trades; it
   keeps the paper bank, its ledger and the summary figures.
+- **Performance** (25/11/2026): a tick re-renders the tiles and top bar, not the whole
+  page (about a quarter of the components per update); a background tab no longer piles up
+  latency samples; deleting old ticks now shrinks the database file. A file made before
+  this needs one `make compact` with the app stopped.
 - **Top bar** (25/11/2026): grouped into page tabs, a status strip, icon tools and
   Login/Logout last; the feed's tick age no longer shifts the bar, and the bar wraps
   instead of scrolling, so Logout is always on screen.
@@ -132,6 +136,13 @@ For daily use, one command builds the web app and serves everything from the bac
 
 ```bash
 make start                 # then open http://127.0.0.1:8000
+```
+
+Deleting old ticks (Data panel) gives the space back to the disk. A database made before
+25/11/2026 needs this once, with the app stopped:
+
+```bash
+make compact               # the database in .env; needs free disk about the size of the data kept
 ```
 
 In development, open http://localhost:5173. Add `?debug=1` (or press **Latency**) for the per-hop latency

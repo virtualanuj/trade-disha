@@ -1,51 +1,41 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 
 import { logout, openPaperTrade } from './api/client'
 import type { PaperTradeOut, SignalOut } from './api/types'
 import { MarketSocket } from './api/ws'
-import { BiasMeter } from './components/BiasMeter/BiasMeter'
-import { BullionCards, MetalSwitch } from './components/BullionView/BullionView'
+import { MetalSwitch } from './components/BullionView/BullionView'
 import { ConfigControl } from './components/ConfigControl/ConfigControl'
 import { DataPanel } from './components/DataPanel/DataPanel'
 import { DebugOverlay } from './components/DebugOverlay/DebugOverlay'
 import { Divider } from './components/Divider/Divider'
-import { EvidenceTable } from './components/EvidenceTable/EvidenceTable'
-import { FlowLine } from './components/FlowLine/FlowLine'
-import { Headlines } from './components/Headlines/Headlines'
 import { IndexTabs } from './components/IndexTabs/IndexTabs'
-import { IndexTiles } from './components/IndexTiles/IndexTiles'
-import { Bank } from './components/Bank/Bank'
 import { Journal } from './components/Journal/Journal'
-import { OpenTrades } from './components/OpenTrades/OpenTrades'
-import { OptionChain } from './components/OptionChain/OptionChain'
+import {
+  BiasPanel,
+  BullionTilesPanel,
+  ChainPanel,
+  HistoryPanel,
+  IndexTilesPanel,
+  LiveBank,
+  LiveTopBar,
+  LiveTradeLog,
+  NewsPanel,
+  SignalPanel,
+  TradesPanel,
+} from './components/Live/Live'
 import { PanelFrame } from './components/PanelFrame/PanelFrame'
 import { PriceChart } from './components/PriceChart/PriceChart'
 import { RightColumn } from './components/RightColumn/RightColumn'
-import { SignalCard } from './components/SignalCard/SignalCard'
-import { SignalHistory } from './components/SignalHistory/SignalHistory'
 import { currentBanner } from './components/StatusBanner/banner'
 import { StatusBanner } from './components/StatusBanner/StatusBanner'
-import { TopBar } from './components/TopBar/TopBar'
-import { TradeLog } from './components/TradeLog/TradeLog'
-import { factorSwitches } from './lib/factors'
 import { clampLayout, DEFAULT_LAYOUT, LIMITS, parseLayout } from './lib/layout'
-import { newsSummary } from './lib/news'
 import type { Layout } from './lib/layout'
+import { tradeRevision } from './lib/marketViews'
 import { unitOf, useOpenOnNew, usePanels } from './lib/panels'
 import type { PanelId, UnitId } from './lib/panels'
-import {
-  biasSummary,
-  chainSummary,
-  chartSummary,
-  historySummary,
-  signalSummary,
-  tilesSummary,
-  bullionSummary,
-  tradesSummary,
-} from './lib/panelSummary'
-import { useNow } from './lib/useNow'
-import { isLong } from './lib/direction'
+import { chartSummary } from './lib/panelSummary'
 import { useBullionMetal } from './lib/useBullionMetal'
 import { useNewsSeen } from './lib/useNewsSeen'
 import { usePref } from './lib/usePref'
@@ -118,44 +108,43 @@ function useView(): [View, (view: View) => void] {
   ]
 }
 
+/**
+ * The page. It holds the layout, the panels' state and the slow-moving data; the panels
+ * that show fast-moving data (prices, chains, bullion, flow, the clock) read it themselves
+ * (`components/Live/`), so a frame re-renders the piece that shows it, not the whole page.
+ */
 export default function App() {
   const [view, showView] = useView()
   const [layout, setLayout] = useLayout()
   const panels = usePanels()
   const [theme, toggleTheme] = useTheme()
   const [debug, toggleDebug] = useDebugFlag()
-  const now = useNow(500)
 
   const ws = useMarketStore((s) => s.ws)
   const health = useMarketStore((s) => s.health)
   const instruments = useMarketStore((s) => s.instruments)
-  const prices = useMarketStore((s) => s.prices)
-  const chains = useMarketStore((s) => s.chains)
   const selected = useMarketStore((s) => s.selectedIndex)
   const selectIndex = useMarketStore((s) => s.selectIndex)
   const indexCandles = useMarketStore((s) => s.candles[s.selectedIndex]) ?? EMPTY
   const indexOverlays = useMarketStore((s) => s.overlays[s.selectedIndex]) ?? EMPTY
   const indexFutCandles = useMarketStore((s) => s.futCandles[s.selectedIndex]) ?? EMPTY
-  const flow = useMarketStore((s) => s.flow[s.selectedIndex])
   const signalHistory = useMarketStore((s) => s.signalHistory)
-  const biasByIndex = useMarketStore((s) => s.bias)
-  const signalByIndex = useMarketStore((s) => s.signals)
-  const gateByIndex = useMarketStore((s) => s.gates)
   const parameters = useMarketStore((s) => s.parameters)
   const parametersEffectiveFrom = useMarketStore((s) => s.parametersEffectiveFrom)
   const applyParameters = useMarketStore((s) => s.applyParameters)
-  const trades = useMarketStore((s) => s.trades)
-  const bank = useMarketStore((s) => s.bank)
-  const stats = useMarketStore((s) => s.stats)
-  const bullion = useMarketStore((s) => s.bullion)
   const bullionCandles = useMarketStore((s) => s.bullionCandles)
   const bullionOverlays = useMarketStore((s) => s.bullionOverlays)
   const news = useMarketStore((s) => s.news)
+  /** the metals' names only: the bullion snapshot itself changes with every MCX frame */
+  const metalNames = useMarketStore(
+    useShallow((s) => (s.bullion?.metals ?? []).map((m) => m.metal)),
+  )
+  /** changes whenever a trade opens or closes, so the journal refetches */
+  const journalRevision = useMarketStore((s) => tradeRevision(s.trades))
   /** the headlines list is on screen: dots stay, and the newest is recorded as seen */
   const newsVisible = view === 'dashboard' && !panels.newsHidden && !panels.minimised.news
   const newsSeenTs = useNewsSeen(news, newsVisible)
   const onBullion = selected === BULLION_TAB
-  const metalNames = useMemo(() => (bullion?.metals ?? []).map((m) => m.metal), [bullion])
   const [metal, setMetal] = useBullionMetal(metalNames)
   /** what the Trades page filters by: every index, and the metals even before bullion loads */
   const tradeMarkets = useMemo(
@@ -168,25 +157,12 @@ export default function App() {
   const overlays = onBullion ? (bullionOverlays[metal] ?? EMPTY) : indexOverlays
   /** net volume comes from a traded future: the index's, or the metal itself */
   const netVolume = onBullion ? candles : indexFutCandles
-  const bias = biasByIndex[focus]
-  const signal = signalByIndex[focus]
-  const gate = gateByIndex[focus]
   const tabs = useMemo(() => {
     const indices = instruments.map((i) => i.index)
-    return bullion?.metals.length ? [...indices, BULLION_TAB] : indices
-  }, [instruments, bullion])
+    return metalNames.length ? [...indices, BULLION_TAB] : indices
+  }, [instruments, metalNames])
   const applyTrades = useMarketStore((s) => s.applyTrades)
 
-  const openTrades = useMemo(() => trades.filter((t) => t.status === 'open'), [trades])
-  const openOnIndex = useMemo(
-    () => openTrades.filter((t) => t.index === focus),
-    [openTrades, focus],
-  )
-  /** changes whenever a trade opens or closes, so the journal refetches */
-  const journalRevision = useMemo(
-    () => trades.reduce((n, t) => n + (t.status === 'closed' ? 2 : 1), 0),
-    [trades],
-  )
   const feedLive = ws === 'open' && health?.feed_live === true
   const banner = useMemo(() => currentBanner(health, ws, onBullion), [health, ws, onBullion])
   /** last-known data is dimmed so it is never mistaken for live */
@@ -242,8 +218,17 @@ export default function App() {
   const openTradesPanel = useCallback(() => {
     openPanel('trades')
   }, [openPanel])
-  const signalIds = useMemo(() => (signal?.status === 'active' ? [signal.id] : []), [signal])
-  const openTradeIds = useMemo(() => openOnIndex.map((t) => t.id), [openOnIndex])
+  /** ids only: the signal and the trades themselves change every second while live */
+  const activeSignalId = useMarketStore((s) => {
+    const sig = s.signals[focus]
+    return sig?.status === 'active' ? sig.id : null
+  })
+  const openTradeIds = useMarketStore(
+    useShallow((s) =>
+      s.trades.filter((t) => t.status === 'open' && t.index === focus).map((t) => t.id),
+    ),
+  )
+  const signalIds = useMemo(() => (activeSignalId ? [activeSignalId] : []), [activeSignalId])
   useOpenOnNew(signalIds, openSignalPanel)
   useOpenOnNew(openTradeIds, openTradesPanel)
 
@@ -255,26 +240,6 @@ export default function App() {
     }
   }, [])
 
-  const lastTickTs = useMemo(() => {
-    let latest: number | null = null
-    for (const p of Object.values(prices)) {
-      for (const ts of [p.spot_ts, p.fut_ts]) {
-        if (ts != null && (latest == null || ts > latest)) latest = ts
-      }
-    }
-    return latest
-  }, [prices])
-  /** on the BULLION tab the feed pill measures MCX ticks, which run to 23:30 */
-  const lastBullionTs = useMemo(() => {
-    const stamps = (bullion?.metals ?? []).map((m) => m.updated_ts).filter((t) => t != null)
-    return stamps.length ? Math.max(...stamps) : null
-  }, [bullion])
-
-  const selectedInstruments = useMemo(
-    () => instruments.filter((i) => i.index === selected),
-    [instruments, selected],
-  )
-
   const markers = useMemo(
     () => signalHistory.filter((s) => s.index === focus && !s.shadow),
     [signalHistory, focus],
@@ -283,53 +248,20 @@ export default function App() {
   /** the left column's units; drawn in the order the trader has put them in */
   const units: Record<UnitId, ReactNode> = {
     tiles: onBullion ? (
-      <PanelFrame {...frame('tiles')} title="Bullion" summary={bullionSummary(bullion)}>
-        <BullionCards bullion={bullion} />
-      </PanelFrame>
+      <BullionTilesPanel frame={frame('tiles')} />
     ) : (
-      <PanelFrame
-        {...frame('tiles')}
-        title="Index"
-        summary={tilesSummary(prices[selected], stats[selected])}
-      >
-        <IndexTiles instruments={selectedInstruments} prices={prices} stats={stats} />
-      </PanelFrame>
+      <IndexTilesPanel frame={frame('tiles')} index={selected} />
     ),
     signal: (
-      <PanelFrame
-        {...frame('signal')}
-        title="Signal"
-        summary={signalSummary(signal, now)}
-        border={
-          signal
-            ? isLong(signal.direction)
-              ? 'border-bull/60'
-              : 'border-bear/60'
-            : 'border-dashed border-border'
-        }
-      >
-        <SignalCard
-          signal={signal}
-          gate={gate}
-          now={now}
-          openTrades={openOnIndex}
-          blocked={tradeLive ? undefined : notLive}
-          onPaperTrade={paperTrade}
-        />
-      </PanelFrame>
+      <SignalPanel
+        frame={frame('signal')}
+        focus={focus}
+        blocked={tradeLive ? undefined : notLive}
+        onPaperTrade={paperTrade}
+      />
     ),
     // the view and the evidence that produced it, in one full-width panel (E9)
-    bias: (
-      <PanelFrame {...frame('bias')} title="Market view" summary={biasSummary(bias)}>
-        <div className="flex flex-col gap-3">
-          <BiasMeter bias={bias} />
-          <div className="border-t border-border pt-3">
-            <EvidenceTable bias={bias} switches={factorSwitches(parameters?.params, focus)} />
-            {onBullion ? null : <FlowLine flow={flow} />}
-          </div>
-        </div>
-      </PanelFrame>
-    ),
+    bias: <BiasPanel frame={frame('bias')} focus={focus} flowIndex={onBullion ? null : selected} />,
     chart: (
       <>
         <PanelFrame
@@ -366,37 +298,15 @@ export default function App() {
         )}
       </>
     ),
-    trades: (
-      <PanelFrame
-        {...frame('trades')}
-        title="Open paper trades"
-        summary={tradesSummary(openOnIndex)}
-        border={openOnIndex.length > 0 ? 'border-accent/50' : 'border-border'}
-      >
-        <div className="flex flex-col gap-2">
-          <Bank bank={bank} openTrades={openTrades} />
-          <OpenTrades trades={openOnIndex} now={now} canClose={tradeLive} />
-        </div>
-      </PanelFrame>
-    ),
-    history: (
-      <PanelFrame
-        {...frame('history')}
-        title="Signals today"
-        summary={historySummary(signalHistory, focus)}
-      >
-        <SignalHistory signals={signalHistory} index={focus} />
-      </PanelFrame>
-    ),
+    trades: <TradesPanel frame={frame('trades')} focus={focus} canClose={tradeLive} />,
+    history: <HistoryPanel frame={frame('history')} focus={focus} />,
   }
 
   return (
     <div className="flex h-full flex-col">
-      <TopBar
+      <LiveTopBar
         health={health}
         ws={ws}
-        now={now}
-        lastTickTs={onBullion ? lastBullionTs : lastTickTs}
         bullionTab={onBullion}
         theme={theme}
         onToggleTheme={toggleTheme}
@@ -404,7 +314,6 @@ export default function App() {
         onToggleDebug={toggleDebug}
         view={view}
         onView={showView}
-        openTradeCount={openTrades.length}
         panelsChanged={panels.changed}
         onRestorePanels={panels.restoreAll}
         newsHidden={!panels.newsShown}
@@ -427,16 +336,10 @@ export default function App() {
           <Journal
             indices={instruments.map((i) => i.index)}
             revision={journalRevision}
-            bank={<Bank bank={bank} openTrades={openTrades} showLedger />}
+            bank={<LiveBank showLedger />}
           />
         ) : view === 'trades' ? (
-          <TradeLog
-            markets={tradeMarkets}
-            revision={journalRevision}
-            latest={trades}
-            now={now}
-            closeBlock={closeBlock}
-          />
+          <LiveTradeLog markets={tradeMarkets} revision={journalRevision} closeBlock={closeBlock} />
         ) : (
           <>
             <section
@@ -452,32 +355,17 @@ export default function App() {
               ))}
             </section>
             <RightColumn
-              chain={
-                onBullion ? null : (
-                  <PanelFrame
-                    {...frame('chain')}
-                    title="Option chain"
-                    summary={chainSummary(chains[selected])}
-                    fill
-                  >
-                    <OptionChain chain={chains[selected]} />
-                  </PanelFrame>
-                )
-              }
+              chain={onBullion ? null : <ChainPanel frame={frame('chain')} index={selected} />}
               chainMinimised={panels.minimised.chain}
               news={
-                <PanelFrame
-                  {...frame('news')}
-                  title="Headlines"
-                  summary={newsSummary(news, newsSeenTs, now)}
+                <NewsPanel
+                  frame={frame('news')}
+                  news={news}
+                  seenTs={newsSeenTs}
                   onClose={() => {
                     panels.setNewsHidden(true)
                   }}
-                  fill
-                  bodyClassName=""
-                >
-                  <Headlines news={news} seenTs={newsSeenTs} now={now} />
-                </PanelFrame>
+                />
               }
               newsMinimised={panels.minimised.news}
               newsHidden={panels.newsHidden}

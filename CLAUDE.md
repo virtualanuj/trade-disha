@@ -26,6 +26,7 @@ make frontend   # Vite on http://localhost:5173, proxies /api and /ws to the bac
 make dev        # both at once (backend in the background; Ctrl-C stops the frontend)
 make start      # build the frontend and serve everything from :8000
 make check      # every gate: ruff check, ruff format --check, mypy, pytest, then frontend check
+make compact    # one-off: shrink a database made before 25/11/2026 (stop the app first)
 ```
 
 Individual gates and single tests:
@@ -174,6 +175,11 @@ Things that are easy to get wrong:
   frames (`tick`, `chain`, `candle`, `bias`, `signal`, `signal_live`, `paper_trade`,
   `stats`, `flow`, `bullion`, `bullion_candle`, `health`, `parameters`, `news`) update it;
   `pong` answers the client's ping. Live data is never polled.
+- Read a store slice that changes with the frames (prices, chains, bullion, flow, stats,
+  the live signal or trades) in the component that shows it (`components/Live/Live.tsx`),
+  never in `App`: read there, every frame re-renders the whole page (`App.test.tsx`
+  checks). `App` selects small values (`lib/marketViews.ts`, `useShallow`). `useNow` is
+  one shared timer per interval.
 - `selectedIndex` is an index or `BULLION_TAB` (`state/store.ts`), which is not in
   `instruments`; code keyed by the selected index must allow for it. The tab shows only
   while bullion data exists. The main-column panels show the **focus** (`App.tsx`): the

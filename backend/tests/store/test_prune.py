@@ -1,6 +1,7 @@
 """Tick pruning: preview, delete up to and including a date, leave everything else."""
 
 from datetime import date, datetime
+from pathlib import Path
 
 from tradedisha.clock import IST, ist_to_ms
 from tradedisha.feed.provider import Tick
@@ -47,6 +48,24 @@ async def test_prune_deletes_in_batches_and_touches_only_ticks() -> None:
     assert store.count() == 5
     assert store.recorded_days() == [date(2026, 11, 12)]
     assert candles.count() == 1
+
+
+async def test_prune_gives_the_space_back_to_the_disk(tmp_path: Path) -> None:
+    """With incremental vacuum the freed pages leave the file, not only the tables."""
+    conn = connect(tmp_path / "ticks.sqlite")
+    store = TickStore(conn)
+    for i in range(20_000):
+        store.add(Tick(key=f"K{i % 50}", ts=_ms(10) + i, ltp=100.0 + i, volume=i, oi=i))
+    store.add(Tick(key="A", ts=_ms(12), ltp=1.0))
+    store.flush()
+    pages_before = conn.execute("PRAGMA page_count").fetchone()[0]
+
+    result = await store.prune(date(2026, 11, 11))
+
+    assert result.rows_deleted == 20_000
+    assert conn.execute("PRAGMA freelist_count").fetchone()[0] == 0
+    assert conn.execute("PRAGMA page_count").fetchone()[0] < pages_before / 4
+    assert result.bytes_freed > 0
 
 
 async def test_prune_of_an_empty_range_is_a_no_op() -> None:

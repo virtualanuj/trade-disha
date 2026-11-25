@@ -1,4 +1,4 @@
-.PHONY: check backend frontend dev setup start
+.PHONY: check backend compact frontend dev setup start
 
 setup:          ## install backend and frontend dependencies and git hooks
 	cd backend && uv sync
@@ -20,3 +20,6 @@ dev:            ## run both (backend in background; Ctrl-C stops the frontend)
 start:          ## build the web app and serve everything from http://127.0.0.1:8000
 	cd frontend && npm run build
 	cd backend && TRADEDISHA_SERVE_FRONTEND=true TRADEDISHA_RELOAD=false uv run tradedisha
+
+compact:        ## give deleted ticks' space back to the disk (stop the app first)
+	cd backend && uv run python -m tradedisha.tools.compact

@@ -1098,8 +1098,12 @@ Nothing else is deleted; `candles_1m`, `chain_minutes`, `bias_minutes`, `signals
 returns a preview (`GET /data/usage?until_date=`: day count, row count, estimated MB, both
 tables together) and the UI requires confirmation. Deletion runs in batches of 50 k rows,
 yielding to the event loop between batches so the feed keeps flowing, followed by
-`PRAGMA incremental_vacuum`. Pruning the
+`PRAGMA incremental_vacuum`, which gives the freed pages back to the disk. Pruning the
 current day while the feed is live is allowed; the tick store simply continues appending.
+Until 25/11/2026 the connection switched to WAL before setting `auto_vacuum`, which left
+it off, so a file made before then only reuses pruned space and never shrinks: `make
+compact` (`tradedisha.tools.compact`) rewrites such a file once with `VACUUM` and turns
+incremental vacuum on. It refuses while the app answers on its port.
 A `feed_events` row (`ticks_pruned`, with the date and row count) is written.
 
 ### 10.5 Paper bank
@@ -1176,7 +1180,8 @@ Schema managed with plain versioned SQL migrations applied at startup.
 Volume estimate: ~45 instruments × ~2 ticks/s × 6.25 h ≈ 2 M tick rows/day ≈ 150 MB/day
 uncompressed. Nothing is pruned automatically; the trader prunes ticks up to a chosen date
 from the Data panel (§10.4). The database uses `auto_vacuum = INCREMENTAL` so pruned space
-is reclaimable without a full rewrite.
+is reclaimable without a full rewrite; it is set before `journal_mode = WAL`, since a file
+takes it only before its header is first written.
 
 ---
 
@@ -1676,7 +1681,15 @@ wall-clock fallback when ticks are sparse; the detection delay is reported separ
 ### Frontend techniques
 See §13.3 Performance. Additionally: WS parsing in the main thread (frames are small);
 React 19 automatic batching; no state in context that changes per tick; `React.memo` on
-chain rows keyed by strike; chart updates via `series.update()` not `setData()`. The
+chain rows keyed by strike; chart updates via `series.update()` not `setData()`.
+- A store slice that changes with the frames (prices, chains, bullion, flow, stats, the
+  live signal and trades) is read by the component that shows it (`components/Live/`),
+  never by `App`, so a tick re-renders the tiles and the top bar, not the page
+  (25/11/2026: from 135 components per commit to about 36, the ones that show time).
+- The clock (`useNow`) is one shared timer per interval: every reader sees the same
+  moment, and only readers re-render. Headline rows and Trades-page rows are memoised and
+  given what they show (a headline's freshness band, `now` only for an open trade), so
+  the clock does not re-render a row whose text cannot change. The
 production build (`vite.config.ts`) splits the libraries from the app's code: `charts`
 (`lightweight-charts`), `vendor` (React, Zustand) and the app, so no file passes Vite's
 500 kB warning and the library files stay cached when only the app changes.
@@ -1684,7 +1697,9 @@ production build (`vite.config.ts`) splits the libraries from the app's code: `c
 ### Measurement
 - Every WS frame carries `t_src`, `t_in`, `t_out`; the client stamps `t_recv` and
   `t_paint` (via `requestAnimationFrame` after store commit) and posts a per-minute
-  summary to `POST /api/metrics/client`.
+  summary to `POST /api/metrics/client`. One animation-frame callback stamps every frame
+  received since the last paint, and none is queued while the tab is hidden (a hidden tab
+  paints nothing; the callbacks used to pile up and report minutes of "paint" time).
 - `/api/metrics` and the dev overlay (toggle with `?debug=1`) show per-hop p50/p95/p99.
 - Per-minute summaries are stored in `latency_samples` so a slow afternoon can be
   diagnosed afterwards.

@@ -14,9 +14,12 @@ def connect(path: Path | str) -> sqlite3.Connection:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
     conn.row_factory = sqlite3.Row
+    # First: auto_vacuum only takes on a file before anything is written to it, and switching
+    # to WAL writes the header. An older file made the other way round has auto_vacuum off
+    # until `tradedisha.tools.compact` rewrites it.
+    conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
     conn.execute("PRAGMA foreign_keys=ON")
     migrate(conn)
     return conn

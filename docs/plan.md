@@ -1013,6 +1013,43 @@ in the app.
 
 **Design:** spec §13.2 (Trades page), §12 (API).
 
+## Performance pass (25/11/2026, not a milestone)
+
+**Goal:** the owner asked for a performance review with changes that keep behaviour and
+look as they are. Measured on the running app first: the backend had headroom (3–4% CPU,
+ingest to send p99 16 ms in market hours); the cost was in the browser, plus two bugs.
+
+- Latency (`lib/latency.ts`): one animation-frame callback per paint for every frame
+  received since the last one, none while the tab is hidden. Before, each tick frame
+  queued its own callback; a hidden tab piled them up (about 144,000 an hour) and its
+  `recv_to_paint` read minutes (p50 60 s, worst 50 min on 16/11).
+- SQLite (`store/db.py`): `auto_vacuum = INCREMENTAL` before `journal_mode = WAL`; the
+  other order left every file at 0, so pruning never shrank one (live.sqlite: 1.05 GB of
+  1.55 GB free pages). `tools/compact.py` (`make compact`, app stopped; refuses while the
+  port answers) rewrites an old file once with `VACUUM`. `recorded_days()` reads MIN and
+  MAX as two subqueries (84 ms → 0.07 ms on 2.9 M rows).
+- Rendering: `App` no longer reads the slices that change with the frames;
+  `components/Live/` panels read them (tiles, bullion cards, signal, market view and flow
+  line, open trades, history, chain, headlines, the top bar's clock and feed age, the
+  Journal's bank, the Trades page). `App` selects small values instead (metal names,
+  trade revision, the active signal's id, the open trades' ids; `lib/marketViews.ts`).
+  `useNow` is one shared timer per interval. Headline and Trades-page rows are memoised
+  and given what they show (freshness band; `now` only for open trades).
+- Tests: the sampler (one callback, hidden tab, dropped on hide), the shared clock, the
+  market views, `App` not re-rendering for ticks, chains or flow (fails on the old `App`),
+  rows skipping the clock (fail on the old components), a new file's vacuum mode, a prune
+  shrinking the file, the compact command and its refusal.
+
+**Measured** (production builds of before and after, alternating, same live backend):
+components rendered per commit 135 → about 36; script time in quiet minutes 11.7 → 4.1
+ms/s. Layout, text and element positions identical on the dashboard, BULLION, Journal
+and Trades pages; no console errors.
+
+**Status (2026-11-25):** built, with unit tests; `make check` green. `make compact` not
+yet run on live.sqlite (needs the app stopped).
+
+**Design:** spec §10.4, §11, §14a.
+
 ## Top bar redesign (25/11/2026, not a milestone)
 
 **Goal:** the owner found the top bar scrolling sideways (Logout hidden off the edge at

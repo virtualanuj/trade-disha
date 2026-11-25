@@ -129,8 +129,10 @@ class TickStore:
 
     def recorded_days(self) -> list[date]:
         """Distinct IST dates that have ticks, newest first."""
+        # Two subqueries: MIN and MAX in one SELECT cannot use the ts index and read every row
         rows = self._conn.execute(
-            f"SELECT MIN(ts) AS lo, MAX(ts) AS hi FROM {self._table}"
+            f"SELECT (SELECT MIN(ts) FROM {self._table}) AS lo,"
+            f" (SELECT MAX(ts) FROM {self._table}) AS hi"
         ).fetchone()
         if rows["lo"] is None:
             return []

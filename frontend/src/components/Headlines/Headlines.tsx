@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 
 import type { HeadlineOut, NewsOut } from '../../api/types'
 import {
@@ -41,14 +41,14 @@ const CHIP_TITLE: Record<ChipKind, (indices: string[]) => string> = {
 interface RowProps {
   h: HeadlineOut
   unseen: boolean
-  now: number
+  /** worked out by the list from the clock, so a row re-renders only when it changes */
+  fresh: Freshness
   stockIndices: Record<string, string[]>
 }
 
-function Row({ h, unseen, now, stockIndices }: RowProps) {
+const Row = memo(function Row({ h, unseen, fresh, stockIndices }: RowProps) {
   const [open, setOpen] = useState(false)
   const href = safeLink(h.link)
-  const fresh = freshness(h.published_ts, now)
   return (
     <li
       className={`border-b border-l-2 border-b-border/40 py-2 pr-3 pl-2.5 last:border-b-0 ${
@@ -116,7 +116,7 @@ function Row({ h, unseen, now, stockIndices }: RowProps) {
       ) : null}
     </li>
   )
-}
+})
 
 /**
  * Upstox headlines for the heaviest index stocks, newest first and grouped by IST day
@@ -155,7 +155,7 @@ export function Headlines({ news, seenTs, now }: Props) {
                     key={h.link ?? h.heading}
                     h={h}
                     unseen={seenTs != null && h.published_ts > seenTs}
-                    now={now}
+                    fresh={freshness(h.published_ts, now)}
                     stockIndices={stockIndices}
                   />
                 ))}
