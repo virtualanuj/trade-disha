@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { fetchPaperTradeDetail, fetchPaperTrades } from '../../api/client'
+import { closePaperTrade, fetchPaperTradeDetail, fetchPaperTrades } from '../../api/client'
 import type { JournalQuery } from '../../api/client'
 import type {
   ExitReason,
@@ -27,7 +27,8 @@ import { QUALITY_TEXT, REASON_TEXT } from '../../lib/tradeText'
 import { ConfigVersionChip } from '../ConfigVersionChip/ConfigVersionChip'
 import { EvidenceTable } from '../EvidenceTable/EvidenceTable'
 
-const COLUMNS = 9
+/** trade, qty, in, out, entry, exit, reason, held, net, and the Close button */
+const COLUMNS = 10
 
 const RULE_TEXT: Record<SignalOut['entry_mode'], string> = {
   minute_close: 'minute close',
@@ -51,19 +52,35 @@ interface Props {
   markets: string[]
   /** bumps when a trade changes, so the page refetches */
   revision: number
+  /**
+   * the socket's copies of open and today's trades: newer than the page's fetch, so an open
+   * trade's price and P&L tick, and a close shows before the refetch lands
+   */
+  latest?: PaperTradeOut[]
+  /** for how long an open trade has been held */
+  now: number
   load?: (q: JournalQuery, signal: AbortSignal) => Promise<PaperTradeOut[]>
   loadDetail?: (tradeId: string, signal?: AbortSignal) => Promise<PaperTradeDetailOut>
+  /** closes an open trade at the current price; rejects with the server's reason */
+  onClose?: (tradeId: string) => Promise<unknown>
+  /** why a trade cannot be closed right now (its market has no live price), or null */
+  closeBlock?: ((t: PaperTradeOut) => string | null) | undefined
 }
 
 /**
- * Executed paper trades (E19): closed trades by day, each opening to its levels and fills,
- * the signal it was taken on, what the instrument did after it, and the evidence then.
+ * Executed paper trades (E19): the open ones at the current price, then closed trades by
+ * day; each opens to its levels and fills, the signal it was taken on, what the instrument
+ * did after it, and the evidence then.
  */
 export function TradeLog({
   markets,
   revision,
+  latest = [],
+  now,
   load = fetchPaperTrades,
   loadDetail = fetchPaperTradeDetail,
+  onClose = closePaperTrade,
+  closeBlock,
 }: Props) {
   const [market, setMarket] = useState('')
   const [from, setFrom] = useState('')
@@ -74,6 +91,9 @@ export function TradeLog({
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const [details, setDetails] = useState<Partial<Record<string, Detail>>>({})
+  /** the trade being closed, and why the last close was refused */
+  const [closing, setClosing] = useState<string | null>(null)
+  const [closeError, setCloseError] = useState<string | null>(null)
   /** aborts detail fetches still running when the page goes away */
   const detailCtl = useRef<AbortController | null>(null)
 
@@ -87,7 +107,7 @@ export function TradeLog({
 
   useEffect(() => {
     const ctl = new AbortController()
-    load({ index: market, from, to, status: 'closed' }, ctl.signal)
+    load({ index: market, from, to }, ctl.signal)
       .then((t) => {
         setTrades(t)
         setError(null)
@@ -129,18 +149,67 @@ export function TradeLog({
     if (opening && (known === undefined || known.kind === 'error')) fetchDetail(id)
   }
 
-  /** exit reason and fill are narrowed here; the server already gave every closed trade */
+  /** the server says which trades match; the socket's copy of each is the newer one */
+  const current = useMemo(() => {
+    const byId = new Map(latest.map((t) => [t.id, t]))
+    return (trades ?? []).map((t) => byId.get(t.id) ?? t)
+  }, [trades, latest])
+  /** exit reason and fill are narrowed here, and only a closed trade has either */
+  const exitFilter = reason !== '' || quality !== ''
+  const openRows = useMemo(
+    () =>
+      exitFilter
+        ? []
+        : current.filter((t) => t.status === 'open').sort((a, b) => b.entry_ts - a.entry_ts),
+    [current, exitFilter],
+  )
   const days = useMemo(
     () =>
       byDay(
-        (trades ?? []).filter(
+        current.filter(
           (t) =>
+            t.status === 'closed' &&
             (reason === '' || t.exit_reason === reason) &&
             (quality === '' || t.exit_fill_quality === quality),
         ),
       ),
-    [trades, reason, quality],
+    [current, reason, quality],
   )
+
+  /** the socket's paper_trade frame then moves the row; the revision refetches the list */
+  const close = (id: string) => {
+    setClosing(id)
+    setCloseError(null)
+    onClose(id)
+      .catch((e: unknown) => {
+        setCloseError(e instanceof Error ? e.message : 'could not close')
+      })
+      .finally(() => {
+        setClosing(null)
+      })
+  }
+
+  const rowsOf = (list: PaperTradeOut[]) =>
+    list.map((t) => (
+      <TradeRows
+        key={t.id}
+        t={t}
+        now={now}
+        open={expanded.has(t.id)}
+        detail={details[t.id]}
+        onToggle={() => {
+          toggle(t.id)
+        }}
+        onRetry={() => {
+          fetchDetail(t.id)
+        }}
+        closing={closing === t.id}
+        closeBlock={t.status === 'open' ? (closeBlock?.(t) ?? null) : null}
+        onClose={() => {
+          close(t.id)
+        }}
+      />
+    ))
 
   const field = 'rounded border border-border bg-bg px-2 py-1 text-fg'
   return (
@@ -221,7 +290,6 @@ export function TradeLog({
             <option value="stale">Stale price</option>
           </select>
         </label>
-        <span className="pb-1 text-fg-muted">Open trades are on the dashboard.</span>
       </div>
 
       {error ? (
@@ -229,12 +297,15 @@ export function TradeLog({
           Could not load the trades: {error}
         </div>
       ) : null}
+      {closeError ? (
+        <div className="text-bear" role="alert">
+          Not closed: {closeError}
+        </div>
+      ) : null}
 
       <div className="rounded border border-border bg-bg-elev p-3">
-        {days.length === 0 ? (
-          <div className="text-fg-muted">
-            {trades ? 'No closed paper trades match.' : 'Loading…'}
-          </div>
+        {days.length === 0 && openRows.length === 0 ? (
+          <div className="text-fg-muted">{trades ? 'No paper trades match.' : 'Loading…'}</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full font-mono whitespace-nowrap">
@@ -249,25 +320,19 @@ export function TradeLog({
                   <th className="pl-3 text-left font-normal">Reason</th>
                   <th className="text-right font-normal">Held</th>
                   <th className="text-right font-normal">Net</th>
+                  <th />
                 </tr>
               </thead>
+              {openRows.length > 0 ? (
+                <tbody>
+                  <OpenRow trades={openRows} />
+                  {rowsOf(openRows)}
+                </tbody>
+              ) : null}
               {days.map((d) => (
                 <tbody key={d.day}>
                   <DayRow day={d.day} trades={d.trades} />
-                  {d.trades.map((t) => (
-                    <TradeRows
-                      key={t.id}
-                      t={t}
-                      open={expanded.has(t.id)}
-                      detail={details[t.id]}
-                      onToggle={() => {
-                        toggle(t.id)
-                      }}
-                      onRetry={() => {
-                        fetchDetail(t.id)
-                      }}
-                    />
-                  ))}
+                  {rowsOf(d.trades)}
                 </tbody>
               ))}
             </table>
@@ -297,30 +362,69 @@ function DayRow({ day, trades }: { day: string; trades: PaperTradeOut[] }) {
   const n = trades.length
   return (
     <tr className="h-8 border-t border-border bg-bg-row/40 font-sans" data-testid={`day-${day}`}>
-      <td colSpan={COLUMNS - 1} className="font-semibold">
+      <td colSpan={COLUMNS - 2} className="font-semibold">
         {day}
         <span className="ml-3 font-normal text-fg-muted">
           {n} trade{n === 1 ? '' : 's'} · {won} won · {n - won} lost
         </span>
       </td>
       <td className={`text-right font-mono font-semibold ${pnlColour(net)}`}>{fmtMoney(net)}</td>
+      <td />
     </tr>
   )
 }
 
+/** The open trades' heading: how many, and their net so far at the current price. */
+function OpenRow({ trades }: { trades: PaperTradeOut[] }) {
+  const net = trades.reduce((sum, t) => sum + (t.live_net ?? 0), 0)
+  const n = trades.length
+  return (
+    <tr className="h-8 border-t border-border bg-accent/10 font-sans" data-testid="open-group">
+      <td colSpan={COLUMNS - 2} className="font-semibold text-accent">
+        Open now
+        <span className="ml-3 font-normal text-fg-muted">
+          {n} trade{n === 1 ? '' : 's'} · unrealised, at the current price
+        </span>
+      </td>
+      <td className={`text-right font-mono font-semibold ${pnlColour(net)}`}>{fmtMoney(net)}</td>
+      <td />
+    </tr>
+  )
+}
+
+/** Net P&L: realised once closed, at the current price while open. */
+function netOf(t: PaperTradeOut): number | null {
+  return t.status === 'open' ? t.live_net : t.net
+}
+
+function heldMs(t: PaperTradeOut, now: number): number | null {
+  if (t.status === 'open') return now - t.entry_ts
+  return t.exit_ts == null ? null : t.exit_ts - t.entry_ts
+}
+
 function TradeRows({
   t,
+  now,
   open,
   detail,
   onToggle,
   onRetry,
+  closing,
+  closeBlock,
+  onClose,
 }: {
   t: PaperTradeOut
+  now: number
   open: boolean
   detail: Detail | undefined
   onToggle: () => void
   onRetry: () => void
+  closing: boolean
+  closeBlock: string | null
+  onClose: () => void
 }) {
+  const live = t.status === 'open'
+  const net = netOf(t)
   const badge =
     t.exit_fill_quality && t.exit_fill_quality !== 'live' ? QUALITY_TEXT[t.exit_fill_quality] : null
   const panelId = `trade-detail-${t.id}`
@@ -347,9 +451,23 @@ function TradeRows({
         <td className="text-right">{fmtIstTime(t.entry_ts)}</td>
         <td className="text-right">{t.exit_ts == null ? '—' : fmtIstTime(t.exit_ts)}</td>
         <td className="text-right">{fmtPrice(t.entry_price)}</td>
-        <td className="text-right">{fmtPrice(t.exit_price)}</td>
+        <td className={`text-right ${live ? 'text-fg-muted' : ''}`}>
+          {live ? <span title="The price now">{fmtPrice(t.ltp)}</span> : fmtPrice(t.exit_price)}
+        </td>
         <td className="pl-3 font-sans">
-          {(t.exit_reason && REASON_TEXT[t.exit_reason]) ?? '—'}
+          {live ? (
+            <span className="text-accent">open</span>
+          ) : (
+            ((t.exit_reason && REASON_TEXT[t.exit_reason]) ?? '—')
+          )}
+          {live && t.warning === 'bias_reversed' ? (
+            <span
+              className="ml-2 rounded bg-warn/20 px-1 text-warn"
+              title="The current market view opposes this trade. Nothing is closed for you."
+            >
+              bias reversed
+            </span>
+          ) : null}
           {badge ? (
             <span className="ml-2 rounded bg-warn/20 px-1 text-warn" title={badge.title}>
               {badge.label}
@@ -357,15 +475,31 @@ function TradeRows({
             </span>
           ) : null}
         </td>
-        <td className="text-right text-fg-muted">
-          {t.exit_ts == null ? '—' : fmtDuration(t.exit_ts - t.entry_ts)}
+        <td className="text-right text-fg-muted">{fmtDuration(heldMs(t, now))}</td>
+        <td
+          className={`text-right ${pnlColour(net)}`}
+          title={live ? 'So far, at the current price' : undefined}
+        >
+          {fmtMoney(net)}
         </td>
-        <td className={`text-right ${pnlColour(t.net)}`}>{fmtMoney(t.net)}</td>
+        <td className="pl-3 text-right font-sans">
+          {live ? (
+            <button
+              type="button"
+              className="rounded border border-border px-2 py-0.5 text-fg-muted hover:text-fg disabled:opacity-50"
+              disabled={closeBlock !== null || closing}
+              title={closeBlock ?? 'Close at the current price'}
+              onClick={onClose}
+            >
+              {closing ? 'Closing…' : 'Close'}
+            </button>
+          ) : null}
+        </td>
       </tr>
       {open ? (
         <tr>
           <td colSpan={COLUMNS} className="pb-3 font-sans whitespace-normal">
-            <DetailBody t={t} detail={detail} onRetry={onRetry} panelId={panelId} />
+            <DetailBody t={t} now={now} detail={detail} onRetry={onRetry} panelId={panelId} />
           </td>
         </tr>
       ) : null}
@@ -375,11 +509,13 @@ function TradeRows({
 
 function DetailBody({
   t,
+  now,
   detail,
   onRetry,
   panelId,
 }: {
   t: PaperTradeOut
+  now: number
   detail: Detail | undefined
   onRetry: () => void
   panelId: string
@@ -401,8 +537,7 @@ function DetailBody({
       </div>
     )
   }
-  // the fetched trade is the newer copy; fall back to the row's
-  const trade = detail.detail.trade.id === t.id ? detail.detail.trade : t
+  // the row's trade, not the fetched copy: it carries the live price while the trade is open
   const signal = detail.detail.signal
   return (
     <div
@@ -411,7 +546,7 @@ function DetailBody({
       data-testid={panelId}
     >
       <div className="grid gap-4 md:grid-cols-3">
-        <TradeFacts t={trade} />
+        <TradeFacts t={t} now={now} />
         {signal ? (
           <>
             <SignalFacts s={signal} />
@@ -464,9 +599,12 @@ function riskReward(t: PaperTradeOut): { risk: number; reward: number } {
   return { risk, reward }
 }
 
-function TradeFacts({ t }: { t: PaperTradeOut }) {
+function TradeFacts({ t, now }: { t: PaperTradeOut; now: number }) {
   const { risk, reward } = riskReward(t)
   const riskMoney = risk * t.qty
+  const live = t.status === 'open'
+  const net = netOf(t)
+  const gross = live ? t.live_gross : t.gross
   const badge =
     t.exit_fill_quality && t.exit_fill_quality !== 'live' ? QUALITY_TEXT[t.exit_fill_quality] : null
   return (
@@ -486,13 +624,21 @@ function TradeFacts({ t }: { t: PaperTradeOut }) {
         <Fact id="rr" label="Risk : reward" title="From the fill to the stop, and to the target">
           {risk > 0 ? `1 : ${(reward / risk).toFixed(1)}` : '—'}
         </Fact>
-        <Fact id="exit" label="Exit">
-          {fmtPrice(t.exit_price)}
-          {t.exit_ts != null ? <span className="ml-2">{fmtIstTime(t.exit_ts)}</span> : null}
-          <span className="ml-2 font-sans">
-            {(t.exit_reason && REASON_TEXT[t.exit_reason]) ?? '—'}
-          </span>
-        </Fact>
+        {live ? (
+          <Fact id="exit" label="Now" title="The last price; the trade is still open">
+            {fmtPrice(t.ltp)}
+            {t.ltp_ts != null ? <span className="ml-2">{fmtIstTime(t.ltp_ts)}</span> : null}
+            <span className="ml-2 font-sans text-accent">open</span>
+          </Fact>
+        ) : (
+          <Fact id="exit" label="Exit">
+            {fmtPrice(t.exit_price)}
+            {t.exit_ts != null ? <span className="ml-2">{fmtIstTime(t.exit_ts)}</span> : null}
+            <span className="ml-2 font-sans">
+              {(t.exit_reason && REASON_TEXT[t.exit_reason]) ?? '—'}
+            </span>
+          </Fact>
+        )}
         {badge ? (
           <Fact id="quality" label="Exit price" title={badge.title}>
             <span className="text-warn">
@@ -501,23 +647,23 @@ function TradeFacts({ t }: { t: PaperTradeOut }) {
             </span>
           </Fact>
         ) : null}
-        <Fact id="held" label="Held">
-          {t.exit_ts == null ? '—' : fmtDuration(t.exit_ts - t.entry_ts)}
+        <Fact id="held" label={live ? 'Held so far' : 'Held'}>
+          {fmtDuration(heldMs(t, now))}
         </Fact>
         <Fact id="gross" label="Gross / cost">
-          <span className={pnlColour(t.gross)}>{fmtMoney(t.gross)}</span>
+          <span className={pnlColour(gross)}>{fmtMoney(gross)}</span>
           {' / '}
           {fmtRupees(t.cost)}
         </Fact>
-        <Fact id="net" label="Net">
-          <span className={`font-semibold ${pnlColour(t.net)}`}>{fmtMoney(t.net)}</span>
+        <Fact id="net" label={live ? 'Net so far' : 'Net'}>
+          <span className={`font-semibold ${pnlColour(net)}`}>{fmtMoney(net)}</span>
         </Fact>
         <Fact
           id="r"
-          label="Result in R"
+          label={live ? 'Result so far in R' : 'Result in R'}
           title={`Net over the money at risk from fill to stop (${fmtRupees(riskMoney)})`}
         >
-          {riskMoney > 0 && t.net != null ? `${fmtSigned(t.net / riskMoney, 1)} R` : '—'}
+          {riskMoney > 0 && net != null ? `${fmtSigned(net / riskMoney, 1)} R` : '—'}
         </Fact>
         <Fact id="blocked" label="Held in the bank" title="Premium or margin, plus cost">
           {fmtRupees(t.blocked)}

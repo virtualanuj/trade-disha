@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { logout, openPaperTrade } from './api/client'
-import type { SignalOut } from './api/types'
+import type { PaperTradeOut, SignalOut } from './api/types'
 import { MarketSocket } from './api/ws'
 import { BiasMeter } from './components/BiasMeter/BiasMeter'
 import { BullionCards, MetalSwitch } from './components/BullionView/BullionView'
@@ -205,6 +205,18 @@ export default function App() {
     ? 'Bullion prices not live: no price to trade at'
     : 'Feed not live: no price to trade at'
 
+  /** on the Trades page each open trade is judged by its own market's prices */
+  const closeBlock = useCallback(
+    (t: PaperTradeOut) =>
+      METALS.includes(t.index)
+        ? bullionLive
+          ? null
+          : 'Bullion prices not live: no price to close at'
+        : feedLive
+          ? null
+          : 'Feed not live: no price to close at',
+    [bullionLive, feedLive],
+  )
   const { open: openPanel } = panels
   /** the props that give a panel its minimise control and, in the left column, its move buttons */
   const frame = (id: PanelId) => {
@@ -418,7 +430,13 @@ export default function App() {
             bank={<Bank bank={bank} openTrades={openTrades} showLedger />}
           />
         ) : view === 'trades' ? (
-          <TradeLog markets={tradeMarkets} revision={journalRevision} />
+          <TradeLog
+            markets={tradeMarkets}
+            revision={journalRevision}
+            latest={trades}
+            now={now}
+            closeBlock={closeBlock}
+          />
         ) : (
           <>
             <section

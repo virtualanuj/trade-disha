@@ -986,12 +986,22 @@ it, and the evidence at the minute it fired. Display only; nothing new is stored
   owner's follow-up: no trade listed twice). It keeps the bank, the ledger and the summary
   cards, loads only `/journal/stats`, and links to the Trades page, which takes the Exit
   and Fill filters.
+- Open trades too (the owner's second follow-up): the page loads every status; open trades
+  head it under "Open now" with their unrealised total. `TradeLog` takes the store's trades
+  (`latest`) and `now`, so an open trade's price, net and time held tick from the socket and
+  a close moves the row before the refetch; its detail reads "Now", "Net so far" and
+  "Result so far in R". The Exit and Fill filters hide open trades.
+- Close from the page (the third follow-up): each open row has a Close button calling
+  `closePaperTrade`; App's `closeBlock` disables it with the reason while that trade's
+  market (index feed, or MCX for a metal) has no live price; a refusal shows "Not closed:".
 - Tests: the endpoint for an open, a closed, an unknown and a bullion trade, and the outcome
   read without the tracker; the page's filters, day grouping and totals, detail facts
   (slippage, risk : reward for a bought option and a short future, result in R, signal,
   outcome, evidence), the detail cache, a failed detail and its retry, a missing signal,
-  the Exit and Fill filters; the Journal with no trade table and a link to the page; the
-  hash mapping; the TopBar buttons.
+  the Exit and Fill filters; open trades first with live P&L, a socket update and a close
+  without a refetch, the filters hiding them, an open trade's detail; closing from a row,
+  a refused close, a market with no live price; the Journal with no trade table and a link
+  to the page; the hash mapping; the TopBar buttons.
 
 **Demo:** paper-trade a signal and close it from Open paper trades. Trades in the TopBar
 lists it under today with the day's net; open it: the fill against the signal price, target

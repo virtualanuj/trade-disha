@@ -645,6 +645,15 @@ shows. The Journal's trade table is gone; it keeps the bank, the ledger and the 
 cards, and links to the Trades page. The table's Exit and Fill filters moved to the Trades
 page.
 
+Follow-up from the owner (2026-11-25): include open trades in the Trades page. They head
+the page under "Open now" with their unrealised total, at the live price from the socket;
+the Exit and Fill filters, which only a closed trade can match, hide them.
+
+Follow-up from the owner (2026-11-25): an open trade can be closed from the Trades page.
+Each open row has the dashboard's Close button: one click closes at the current price
+(no confirm step, as on the dashboard), disabled while that trade's market has no live
+price, and a refusal is shown with the server's reason.
+
 ## Deferred
 
 ### Strike ladder (ATM ±3)

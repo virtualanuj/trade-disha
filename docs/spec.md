@@ -1502,15 +1502,21 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   net P&L, avg win/loss, exits by reason, exits not on a live price) overall, per index
   and for bullion, filtered by index and date range. It lists no trades: since E19 each
   trade is on the Trades page, which it links to.
-- **Trades page** (E19, `#trades`): closed paper trades, index options and bullion, by IST
-  entry day (count, won/lost by net, net), filtered by market and dates on the server and
-  by exit reason and fill quality on the page; non-`live` fills badged. A trade's row
+- **Trades page** (E19, `#trades`): paper trades, index options and bullion, filtered by
+  market and dates on the server. Open trades come first under "Open now" with their
+  unrealised total: the price now, net so far and time held, ticking from the socket's
+  `paper_trade` frames (a close shows before the page refetches). Each has a Close button
+  (`POST /paper-trades/{id}/close`, as on the dashboard), disabled while its own market has
+  no live price: the index feed for NIFTY and BANK NIFTY, MCX for GOLD and SILVER. Closed trades follow by IST entry day (count, won/lost by net, net);
+  the exit-reason and fill-quality filters narrow them on the page and hide the open
+  ones; non-`live` fills badged. A trade's row
   opens its detail from `GET /paper-trades/{id}`: signal price, fill and slippage; target
   and stop; risk : reward from the fill; exit with reason and fill quality; gross, cost,
   net and the result in R (net over the money from fill to stop); the money held in the
   bank; the signal (time, call, bias and strength, entry rule, order flow, spread, expiry,
   config version chip); what its instrument did after (§9.5 outcome); and the evidence
-  table rebuilt from the signal's stored breakdown. Open trades stay on the dashboard.
+  table rebuilt from the signal's stored breakdown. An open trade's detail shows the price
+  now, net and R so far instead of the exit.
 - **Data panel** (drawer from the TopBar): DB size, tick days held, oldest/newest tick
   date; a date picker for "delete ticks up to and including"; a preview line ("N days,
   M rows, ~X MB") fetched from `/data/usage`; a confirm step that requires typing the date;

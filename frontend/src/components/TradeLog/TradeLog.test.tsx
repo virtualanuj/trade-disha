@@ -125,7 +125,18 @@ const signal: SignalOut = {
 
 const detailOf = (t: PaperTradeOut): PaperTradeDetailOut => ({ trade: t, signal })
 
-function setup(trades: PaperTradeOut[] = [win, loss, gold]) {
+/** still open: entered two hours after `win`, 111 now, +₹590 net so far */
+const opened: PaperTradeOut = { ...trade, id: 'o1', entry_ts: win.entry_ts + 2 * 3_600_000 }
+const NOW = opened.entry_ts + 25 * 60_000
+
+interface Extra {
+  latest?: PaperTradeOut[]
+  closeBlock?: (t: PaperTradeOut) => string | null
+}
+
+function setup(trades: PaperTradeOut[] = [win, loss, gold], extra: Extra = {}) {
+  const { latest = [], closeBlock } = extra
+  const onClose = vi.fn<(id: string) => Promise<unknown>>(() => Promise.resolve({}))
   const load = vi.fn<(q: JournalQuery, signal: AbortSignal) => Promise<PaperTradeOut[]>>(() =>
     Promise.resolve(trades),
   )
@@ -135,32 +146,41 @@ function setup(trades: PaperTradeOut[] = [win, loss, gold]) {
       return t ? Promise.resolve(detailOf(t)) : Promise.reject(new Error('unknown trade'))
     },
   )
-  render(
+  const page = (store: PaperTradeOut[]) => (
     <TradeLog
       markets={['NIFTY', 'BANKNIFTY', 'GOLD', 'SILVER']}
       revision={0}
+      latest={store}
+      now={NOW}
       load={load}
       loadDetail={loadDetail}
-    />,
+      onClose={onClose}
+      closeBlock={closeBlock}
+    />
   )
-  return { load, loadDetail }
+  const { rerender } = render(page(latest))
+  return {
+    load,
+    loadDetail,
+    onClose,
+    pushLive: (store: PaperTradeOut[]) => {
+      rerender(page(store))
+    },
+  }
 }
 
 const toggle = (id: string) => screen.getByTestId(`trade-toggle-${id}`)
 
 describe('TradeLog', () => {
-  it('asks only for closed trades, and passes the market and dates', async () => {
+  it('asks for open and closed trades, and passes the market and dates', async () => {
     const { load } = setup()
     await screen.findByTestId('trade-w1')
-    expect(load).toHaveBeenLastCalledWith(
-      { index: '', from: '', to: '', status: 'closed' },
-      expect.any(AbortSignal),
-    )
+    expect(load).toHaveBeenLastCalledWith({ index: '', from: '', to: '' }, expect.any(AbortSignal))
     fireEvent.change(screen.getByLabelText('Market'), { target: { value: 'GOLD' } })
     fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-11-01' } })
     await waitFor(() => {
       expect(load).toHaveBeenLastCalledWith(
-        { index: 'GOLD', from: '2026-11-01', to: '', status: 'closed' },
+        { index: 'GOLD', from: '2026-11-01', to: '' },
         expect.any(AbortSignal),
       )
     })
@@ -193,15 +213,127 @@ describe('TradeLog', () => {
     expect(screen.getByTestId('day-15/11/2023')).toHaveTextContent('1 trade')
 
     fireEvent.change(screen.getByLabelText('Fill'), { target: { value: 'live' } })
-    expect(await screen.findByText('No closed paper trades match.')).toBeInTheDocument()
+    expect(await screen.findByText('No paper trades match.')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Exit'), { target: { value: '' } })
     expect(screen.getAllByTestId(/^trade-[wlg]1$/)).toHaveLength(2)
     expect(load).toHaveBeenCalledTimes(1)
   })
 
+  it('lists open trades first, with live P&L and an unrealised total', async () => {
+    setup([opened, win, loss, gold])
+    const group = await screen.findByTestId('open-group')
+    expect(group).toHaveTextContent('Open now')
+    expect(group).toHaveTextContent('1 trade')
+    expect(group).toHaveTextContent('unrealised')
+    expect(group).toHaveTextContent('+₹590')
+    const order = screen.getAllByTestId(/^trade-[owlg]1$/).map((r) => r.dataset.testid)
+    expect(order).toEqual(['trade-o1', 'trade-l1', 'trade-w1', 'trade-g1'])
+    const row = screen.getByTestId('trade-o1')
+    expect(row).toHaveTextContent('111.00') // the price now
+    expect(row).toHaveTextContent('open')
+    expect(row).toHaveTextContent('25m')
+    expect(row).toHaveTextContent('+₹590')
+    // the day's result counts only closed trades
+    expect(screen.getByTestId('day-15/11/2023')).toHaveTextContent('2 trades')
+    expect(screen.getByTestId('day-15/11/2023')).toHaveTextContent('+₹725')
+  })
+
+  it('takes the live price from the socket, and moves a trade the moment it closes', async () => {
+    const { pushLive, load } = setup([opened, win])
+    await screen.findByTestId('trade-o1')
+    pushLive([{ ...opened, ltp: 120, live_gross: 1235, live_net: 1175 }])
+    expect(screen.getByTestId('trade-o1')).toHaveTextContent('120.00')
+    expect(screen.getByTestId('open-group')).toHaveTextContent('+₹1,175')
+
+    const closedNow: PaperTradeOut = {
+      ...opened,
+      status: 'closed',
+      exit_price: 130,
+      exit_ts: NOW,
+      exit_reason: 'TARGET',
+      exit_fill_quality: 'live',
+      gross: 1885,
+      net: 1825,
+    }
+    pushLive([closedNow])
+    expect(screen.queryByTestId('open-group')).not.toBeInTheDocument()
+    expect(screen.getByTestId('trade-o1')).toHaveTextContent('Target')
+    expect(load).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes an open trade from its row; a closed trade has no button', async () => {
+    const { onClose } = setup([opened, win])
+    await screen.findByTestId('trade-o1')
+    expect(within(screen.getByTestId('trade-w1')).queryByRole('button', { name: /Close/ })).toBe(
+      null,
+    )
+    let finish: (v: unknown) => void = () => undefined
+    onClose.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    const button = within(screen.getByTestId('trade-o1')).getByRole('button', { name: 'Close' })
+    expect(button).toHaveAttribute('title', 'Close at the current price')
+    fireEvent.click(button)
+    expect(onClose).toHaveBeenCalledWith('o1')
+    expect(button).toBeDisabled()
+    expect(button).toHaveTextContent('Closing…')
+    await act(async () => {
+      finish({})
+      await Promise.resolve()
+    })
+    expect(button).toHaveTextContent('Close')
+    expect(button).toBeEnabled()
+  })
+
+  it('shows why a close was refused', async () => {
+    const { onClose } = setup([opened])
+    await screen.findByTestId('trade-o1')
+    onClose.mockRejectedValueOnce(new Error('feed not live'))
+    fireEvent.click(within(screen.getByTestId('trade-o1')).getByRole('button', { name: 'Close' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Not closed: feed not live')
+  })
+
+  it('cannot close while that market has no live price', async () => {
+    const { onClose } = setup([opened], {
+      closeBlock: (t) => (t.index === 'NIFTY' ? 'Feed not live: no price to close at' : null),
+    })
+    await screen.findByTestId('trade-o1')
+    const button = within(screen.getByTestId('trade-o1')).getByRole('button', { name: 'Close' })
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute('title', 'Feed not live: no price to close at')
+    fireEvent.click(button)
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('shows only closed trades while an exit or fill filter is set', async () => {
+    setup([opened, win])
+    await screen.findByTestId('open-group')
+    fireEvent.change(screen.getByLabelText('Fill'), { target: { value: 'live' } })
+    expect(screen.queryByTestId('open-group')).not.toBeInTheDocument()
+    expect(screen.getByTestId('trade-w1')).toBeInTheDocument()
+  })
+
+  it('shows an open trade’s detail at the current price', async () => {
+    const { pushLive } = setup([opened])
+    await screen.findByTestId('trade-o1')
+    fireEvent.click(toggle('o1'))
+    const detail = within(await screen.findByTestId('trade-detail-o1'))
+    expect(detail.getByTestId('fact-exit')).toHaveTextContent('111.00')
+    expect(detail.getByTestId('fact-exit')).toHaveTextContent('open')
+    expect(detail.getByTestId('fact-held')).toHaveTextContent('25m')
+    expect(detail.getByTestId('fact-net')).toHaveTextContent('Net so far')
+    expect(detail.getByTestId('fact-net')).toHaveTextContent('+₹590')
+    pushLive([{ ...opened, ltp: 120, live_gross: 1235, live_net: 1175 }])
+    expect(detail.getByTestId('fact-exit')).toHaveTextContent('120.00')
+    expect(detail.getByTestId('fact-net')).toHaveTextContent('+₹1,175')
+  })
+
   it('says so when no trade matches', async () => {
     setup([])
-    expect(await screen.findByText('No closed paper trades match.')).toBeInTheDocument()
+    expect(await screen.findByText('No paper trades match.')).toBeInTheDocument()
   })
 
   it('opens a trade’s detail on click: levels, signal, outcome and evidence', async () => {
@@ -266,7 +398,9 @@ describe('TradeLog', () => {
   it('still shows the trade when its signal is missing', async () => {
     const load = vi.fn(() => Promise.resolve([win]))
     const loadDetail = vi.fn(() => Promise.resolve({ trade: win, signal: null }))
-    render(<TradeLog markets={['NIFTY']} revision={0} load={load} loadDetail={loadDetail} />)
+    render(
+      <TradeLog markets={['NIFTY']} now={NOW} revision={0} load={load} loadDetail={loadDetail} />,
+    )
     await screen.findByTestId('trade-w1')
     await act(async () => {
       fireEvent.click(toggle('w1'))
@@ -281,10 +415,12 @@ describe('TradeLog', () => {
     const load = vi.fn(() => Promise.resolve([win]))
     const loadDetail = vi.fn(() => Promise.resolve(detailOf(win)))
     const { rerender } = render(
-      <TradeLog markets={['NIFTY']} revision={0} load={load} loadDetail={loadDetail} />,
+      <TradeLog markets={['NIFTY']} now={NOW} revision={0} load={load} loadDetail={loadDetail} />,
     )
     await screen.findByTestId('trade-w1')
-    rerender(<TradeLog markets={['NIFTY']} revision={1} load={load} loadDetail={loadDetail} />)
+    rerender(
+      <TradeLog markets={['NIFTY']} now={NOW} revision={1} load={load} loadDetail={loadDetail} />,
+    )
     await waitFor(() => {
       expect(load).toHaveBeenCalledTimes(2)
     })
