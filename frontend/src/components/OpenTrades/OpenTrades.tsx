@@ -177,3 +177,50 @@ export function OpenTrades({
     </div>
   )
 }
+
+/**
+ * The Trades tab's hover card (E27): every open trade, all markets, one line each with its
+ * live net P&L, and the total. Read only: closing and levels stay on the panel and the page.
+ */
+export function OpenTradesPeek({ trades }: { trades: PaperTradeOut[] }) {
+  const open = trades.filter((t) => t.status === 'open')
+  if (open.length === 0) {
+    return (
+      <div className="text-fg-muted" data-testid="trades-peek">
+        No open paper trades.
+      </div>
+    )
+  }
+  const total = open.reduce((sum, t) => sum + (t.live_net ?? 0), 0)
+  const known = open.some((t) => t.live_net != null)
+  return (
+    <div data-testid="trades-peek">
+      <div className="mb-1 font-semibold">Open paper trades ({open.length})</div>
+      <table className="font-mono">
+        <tbody>
+          {open.map((t) => (
+            <tr key={t.id} className="h-5">
+              <td className={`pr-3 ${isLong(t.direction) ? 'text-bull' : 'text-bear'}`}>
+                {t.index} {instrumentLabel(t)}
+                <span className="ml-1 text-fg-muted">×{t.qty}</span>
+              </td>
+              <td className="pr-3 text-right whitespace-nowrap">
+                {fmtPrice(t.entry_price)} → {fmtPrice(t.ltp)}
+              </td>
+              <td className={`text-right ${pnlColour(t.live_net)}`}>{fmtMoney(t.live_net)}</td>
+            </tr>
+          ))}
+          <tr className="h-6 border-t border-border/60">
+            <td className="pr-3 font-sans text-fg-muted" colSpan={2}>
+              Total net P&amp;L
+            </td>
+            <td className={`text-right font-semibold ${pnlColour(known ? total : null)}`}>
+              {fmtMoney(known ? total : null)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="mt-2 text-fg-muted">Click for the Trades page.</div>
+    </div>
+  )
+}

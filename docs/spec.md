@@ -1440,6 +1440,21 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   status and the newest index tick; on BULLION they read `MCX LIVE` / `MCX CLOSED` and the
   newest bullion tick. While that market is closed, a quiet feed is shown muted instead of
   amber or red; a dropped connection is always red.
+  - **Hover cards** (`HoverCard`): Trades, Data and Latency show a read-only preview under
+    the button, after a quarter-second hover (a pass across the bar opens nothing) or on
+    keyboard focus; it stays while the pointer moves into it and closes on leaving, Esc or
+    a click, which does the button's own thing unchanged. No card while its full view is
+    showing (the Trades page, the Data panel open, the latency overlay on), and the
+    buttons carry no native `title`, which would cover the card. A card is mounted only
+    while open, so what it reads costs nothing otherwise.
+    - Trades: every open paper trade in all markets, one line each (market, instrument,
+      quantity, entry → now, live net P&L, live from `paper_trade` frames), the total, or
+      "No open paper trades." (`OpenTradesPeek`).
+    - Data: the Data panel's "Stored data" figures, fetched as it opens; deleting stays
+      behind the click.
+    - Latency: p95 per hop over the last minute against its budget, over budget in red, and
+      the browser's live receive and paint times, refreshed every 2 s while open
+      (`LatencyPeek`, sharing the overlay's fetch).
 - **RatesStrip**: a thin strip under the top bar on every page: NIFTY, SENSEX, GOLD,
   SILVER, GOLDBEES and SILVERBEES, always all six in that order, each with its price and
   day change % (green up, red down by sign, muted flat). NIFTY is the live spot against

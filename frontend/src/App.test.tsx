@@ -66,7 +66,7 @@ describe('App', () => {
     expect(useMarketStore.getState().prices.NIFTY?.spot_ts).toBe(5)
   })
 
-  it('shows the rates strip, which reads its prices itself (E22)', () => {
+  it('shows the rates strip, which reads its prices itself (E26)', () => {
     render(<App />)
     const before = chartRenders.n
     act(() => {

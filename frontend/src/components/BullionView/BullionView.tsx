@@ -58,7 +58,7 @@ export function MetalSwitch({
 }
 
 /**
- * The BULLION tab's tiles: a card per metal, its NSE ETF under it (E21), and the
+ * The BULLION tab's tiles: a card per metal, its NSE ETF under it (E25), and the
  * gold/silver ratio (spec §6.6, §13.2). With `onTrade` (stable), each metal's card has Buy
  * and Sell for a paper trade by hand (E23); the ETFs are display only.
  */
@@ -219,7 +219,7 @@ function DetailsToggle({ open, onToggle }: { open: boolean; onToggle: () => void
   )
 }
 
-/** GOLDBEES / SILVERBEES: the NSE ETF's own quote, under its metal (E21). No trading. */
+/** GOLDBEES / SILVERBEES: the NSE ETF's own quote, under its metal (E25). No trading. */
 const EtfCard = memo(function EtfCard({
   e,
   note,

@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 
 import type { UsageOut } from '../../api/types'
+import { OPEN_DELAY_MS } from '../HoverCard/HoverCard'
 import { DataPanel } from './DataPanel'
 
 const held: UsageOut = {
@@ -69,5 +70,39 @@ describe('DataPanel', () => {
       'No ticks on or before 01/11/2026',
     )
     expect(screen.queryByRole('button', { name: 'Delete ticks' })).not.toBeInTheDocument()
+  })
+})
+
+describe('DataPanel hover card (E27)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('shows the stored figures on hover, and nothing extra once the panel is open', async () => {
+    const usage = vi.fn(() => Promise.resolve(held))
+    render(<DataPanel usage={usage} prune={vi.fn()} />)
+    const button = screen.getByRole('button', { name: /Data/ })
+    fireEvent.mouseEnter(button)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(OPEN_DELAY_MS)
+    })
+    const peek = screen.getByTestId('data-peek')
+    expect(peek).toHaveTextContent('Database size150 MB')
+    expect(peek).toHaveTextContent('Newest tick day13/11/2026')
+    expect(peek).not.toHaveTextContent('Delete ticks')
+    expect(usage).toHaveBeenCalledWith(undefined, expect.any(AbortSignal))
+
+    fireEvent.click(button)
+    expect(screen.queryByTestId('data-peek')).not.toBeInTheDocument()
+    expect(screen.getByTestId('data-panel')).toBeInTheDocument()
+    fireEvent.mouseLeave(button)
+    fireEvent.mouseEnter(button)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(OPEN_DELAY_MS)
+    })
+    expect(screen.queryByTestId('data-peek')).not.toBeInTheDocument()
   })
 })

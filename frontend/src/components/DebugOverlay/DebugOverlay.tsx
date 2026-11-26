@@ -35,9 +35,10 @@ function Row({ h }: { h: HopOut }) {
   )
 }
 
-export function DebugOverlay() {
+/** The backend's latency figures, fetched now and every 2 s while mounted. */
+function useMetrics(): MetricsResponse | null {
   const [m, setM] = useState<MetricsResponse | null>(null)
-  const [, tick] = useState(0)
+  const [, tick] = useState(0) // re-render for the browser's live figures too
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -54,6 +55,47 @@ export function DebugOverlay() {
       ctrl.abort()
     }
   }, [])
+  return m
+}
+
+/** The Latency button's hover card (E27): p95 per hop against its budget, and the live figures. */
+export function LatencyPeek() {
+  const m = useMetrics()
+  return (
+    <div data-testid="latency-peek">
+      <div className="mb-1 font-semibold">Latency, last 1 min: p95 (ms)</div>
+      <table className="font-mono">
+        <tbody>
+          {m
+            ? m.last_1m.map((h) => {
+                const budget = BUDGET_P95[h.hop]
+                const over = budget !== undefined && h.n > 0 && h.p95 > budget
+                return (
+                  <tr key={h.hop} className={over ? 'text-bear' : ''}>
+                    <td className="pr-3 text-left font-sans text-fg-muted">
+                      {HOP_LABEL[h.hop] ?? h.hop}
+                    </td>
+                    <td className="pr-2 text-right">{h.n > 0 ? fmtMs(h.p95) : '—'}</td>
+                    <td className="text-right text-fg-muted">
+                      {budget === undefined ? '' : `/ ${String(budget)}`}
+                    </td>
+                  </tr>
+                )
+              })
+            : null}
+        </tbody>
+      </table>
+      <div className="mt-2 font-mono text-fg-muted">
+        live: recv {fmtMs(clientLatency.latest.out_to_recv)} · paint{' '}
+        {fmtMs(clientLatency.latest.recv_to_paint)}
+      </div>
+      <div className="mt-1 text-fg-muted">Click to keep the full table on screen.</div>
+    </div>
+  )
+}
+
+export function DebugOverlay() {
+  const m = useMetrics()
 
   return (
     <div className="fixed right-4 bottom-4 z-10 rounded border border-border bg-bg-elev p-3 text-xs shadow-lg">

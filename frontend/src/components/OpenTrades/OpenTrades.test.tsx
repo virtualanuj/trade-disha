@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 
 import type { PaperTradeOut } from '../../api/types'
 import { trade } from './fixtures'
-import { OpenTrades } from './OpenTrades'
+import { OpenTrades, OpenTradesPeek } from './OpenTrades'
 
 describe('OpenTrades', () => {
   it('says so when no trade is open, rather than disappearing', () => {
@@ -103,5 +103,38 @@ describe('OpenTrades levels and trades opened by hand', () => {
   it('cannot change levels while the feed is down', () => {
     render(<OpenTrades trades={[trade]} now={0} canClose={false} />)
     expect(screen.getByRole('button', { name: 'Levels' })).toBeDisabled()
+  })
+})
+
+describe('OpenTradesPeek (E27)', () => {
+  it('lists every open trade, all markets, with live net P&L and the total', () => {
+    const gold: PaperTradeOut = {
+      ...trade,
+      id: 't2',
+      index: 'GOLD',
+      direction: 'SELL_FUT',
+      qty: 1,
+      entry_price: 134_914,
+      ltp: 134_700,
+      live_net: -669,
+    }
+    const closed: PaperTradeOut = { ...trade, id: 't3', status: 'closed' }
+    render(<OpenTradesPeek trades={[trade, gold, closed]} />)
+    const peek = screen.getByTestId('trades-peek')
+    expect(peek).toHaveTextContent('Open paper trades (2)')
+    expect(peek).toHaveTextContent('NIFTY 25000 CE×65101.00 → 111.00+₹590')
+    expect(peek).toHaveTextContent('GOLD FUT short×11,34,914.00 → 1,34,700.00−₹669')
+    expect(peek).toHaveTextContent('Total net P&L−₹79')
+    expect(screen.getAllByRole('row')).toHaveLength(3) // two trades and the total
+  })
+
+  it('says so when none is open', () => {
+    render(<OpenTradesPeek trades={[{ ...trade, status: 'closed' }]} />)
+    expect(screen.getByTestId('trades-peek')).toHaveTextContent('No open paper trades.')
+  })
+
+  it('has no total before any live P&L is known', () => {
+    render(<OpenTradesPeek trades={[{ ...trade, live_net: null, ltp: null }]} />)
+    expect(screen.getByTestId('trades-peek')).toHaveTextContent('Total net P&L—')
   })
 })

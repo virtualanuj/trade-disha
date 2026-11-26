@@ -777,6 +777,31 @@ Builder's calls:
   small move still shows its side.
 - A narrow window scrolls the strip sideways rather than wrapping it.
 
+### 27. Hover previews on Trades, Data and Latency
+
+Asked for (2026-11-26): hovering on Trades shows the open trades, on Data the data, and
+on Latency the latency numbers.
+
+Status: built in Milestone E23. Design in [spec.md](spec.md) §13.2 (TopBar, "Hover
+cards"); planned in [plan.md](plan.md) Milestone E23.
+
+Decided with the owner on 2026-11-26 (on the builder's proposal):
+- Clicks are unchanged; hovering adds a read-only card under the button.
+- Trades: every open paper trade, all markets, one line each with entry, now and live net
+  P&L, and the total. Data: the stored-data figures (database size, ticks, days, oldest and
+  newest day); deleting stays behind the click. Latency: p95 per hop against its budget,
+  over budget in red, and the live receive and paint times.
+- The card opens after about a quarter of a second (so passing over the bar opens
+  nothing), also on keyboard focus, and closes on leaving or Esc; none while the full view
+  is already showing.
+
+Builder's calls:
+- A click closes the card (the click does the button's own thing).
+- The buttons' native tooltips are dropped, since they would cover the card; each card
+  ends with a line on what the click does.
+- The Latency card refreshes every 2 s while open, like the overlay; the Data card fetches
+  once as it opens.
+
 ## Deferred
 
 ### Strike ladder (ATM ±3)

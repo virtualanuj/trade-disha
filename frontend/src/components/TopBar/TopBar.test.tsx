@@ -1,8 +1,9 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { HealthResponse } from '../../api/types'
 import { fmtTickAge, tickAgeColour } from '../../lib/format'
+import { OPEN_DELAY_MS } from '../HoverCard/HoverCard'
 import { TopBar } from './TopBar'
 
 const health: HealthResponse = {
@@ -452,5 +453,65 @@ describe('TopBar', () => {
       expect(screen.getByTestId('feed-pill')).toHaveClass('text-fg-muted')
       expect(screen.getByTestId('market-pill')).toHaveTextContent('MCX CLOSED')
     })
+  })
+})
+
+vi.mock('../DebugOverlay/DebugOverlay', () => ({
+  LatencyPeek: () => <div data-testid="latency-peek" />,
+}))
+
+describe('TopBar hover cards (E27)', () => {
+  const bar = (view: 'dashboard' | 'trades', debug = false) =>
+    render(
+      <TopBar
+        health={health}
+        ws="open"
+        now={1400}
+        lastTickTs={1000}
+        theme="dark"
+        onToggleTheme={noop}
+        debug={debug}
+        onToggleDebug={noop}
+        view={view}
+        onView={noop}
+        tradesPeek={<div data-testid="trades-peek" />}
+      />,
+    )
+  const hover = (el: Element) => {
+    fireEvent.mouseEnter(el)
+    act(() => {
+      vi.advanceTimersByTime(OPEN_DELAY_MS)
+    })
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('previews the open trades on the Trades tab, but not on the Trades page', () => {
+    const { unmount } = bar('dashboard')
+    hover(screen.getByRole('button', { name: /Trades/ }))
+    expect(screen.getByRole('tooltip', { name: 'Open trades' })).toContainElement(
+      screen.getByTestId('trades-peek'),
+    )
+    unmount()
+    bar('trades')
+    hover(screen.getByRole('button', { name: /Trades/ }))
+    expect(screen.queryByTestId('trades-peek')).not.toBeInTheDocument()
+  })
+
+  it('previews the latency, but not while the overlay is on', () => {
+    const { unmount } = bar('dashboard')
+    hover(screen.getByRole('button', { name: 'Latency' }))
+    expect(screen.getByRole('tooltip', { name: 'Latency' })).toContainElement(
+      screen.getByTestId('latency-peek'),
+    )
+    unmount()
+    bar('dashboard', true)
+    hover(screen.getByRole('button', { name: 'Latency' }))
+    expect(screen.queryByTestId('latency-peek')).not.toBeInTheDocument()
   })
 })

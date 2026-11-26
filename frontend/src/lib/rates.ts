@@ -1,7 +1,7 @@
 import type { BullionOut, IndexPrices, IndexStatsOut, QuoteOut } from '../api/types'
 import { BULLION_TAB } from '../state/store'
 
-/** One entry on the rates strip (E22). `tab` is where a click goes; null: not clickable. */
+/** One entry on the rates strip (E26). `tab` is where a click goes; null: not clickable. */
 export interface Rate {
   name: string
   ltp: number | null

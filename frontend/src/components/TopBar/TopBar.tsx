@@ -1,9 +1,11 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
 
 import type { HealthResponse } from '../../api/types'
 import { fmtDate, fmtIstTime, fmtTickAge, tickAgeColour } from '../../lib/format'
 import { toolClass } from '../../lib/toolbar'
 import { VIEW_LABEL, VIEWS, type View } from '../../lib/view'
+import { LatencyPeek } from '../DebugOverlay/DebugOverlay'
+import { HoverCard } from '../HoverCard/HoverCard'
 import {
   DashboardIcon,
   JournalIcon,
@@ -43,6 +45,8 @@ interface Props {
   view?: View
   onView?: (view: View) => void
   openTradeCount?: number
+  /** the Trades tab's hover card (E27); it reads the trades itself, so it is passed in */
+  tradesPeek?: ReactNode
   /** a panel is minimised */
   panelsChanged?: boolean
   onRestorePanels?: () => void
@@ -249,10 +253,12 @@ function PageTabs({
   view,
   onView,
   openTradeCount,
+  tradesPeek,
 }: {
   view: View
   onView: (view: View) => void
   openTradeCount: number
+  tradesPeek: ReactNode
 }) {
   return (
     <nav
@@ -261,7 +267,7 @@ function PageTabs({
     >
       {VIEWS.map((v) => {
         const Icon = VIEW_ICON[v]
-        return (
+        const tab = (
           <button
             key={v}
             type="button"
@@ -288,6 +294,14 @@ function PageTabs({
             ) : null}
           </button>
         )
+        // hovered, the open trades (E27); not on the Trades page, which lists them
+        return v === 'trades' && tradesPeek != null ? (
+          <HoverCard key={v} card={view === 'trades' ? null : tradesPeek} label="Open trades">
+            {tab}
+          </HoverCard>
+        ) : (
+          <Fragment key={v}>{tab}</Fragment>
+        )
       })}
     </nav>
   )
@@ -302,7 +316,7 @@ function PageTabs({
 export function TopBar(props: Props) {
   const { health, ws, now, lastTickTs, theme, onToggleTheme, debug, onToggleDebug, configControl } =
     props
-  const { view, onView, openTradeCount = 0, dataControl, bullionTab = false } = props
+  const { view, onView, openTradeCount = 0, tradesPeek, dataControl, bullionTab = false } = props
   const { panelsChanged = false, onRestorePanels, newsHidden = false, onToggleNews } = props
   const { onLogout } = props
   /** panel controls only mean something on the dashboard; no view given is the dashboard */
@@ -350,7 +364,12 @@ export function TopBar(props: Props) {
       <div className="ml-auto flex flex-wrap items-center gap-x-1 gap-y-1.5">
         {view && onView ? (
           <>
-            <PageTabs view={view} onView={onView} openTradeCount={openTradeCount} />
+            <PageTabs
+              view={view}
+              onView={onView}
+              openTradeCount={openTradeCount}
+              tradesPeek={tradesPeek}
+            />
             <Rule />
           </>
         ) : null}
@@ -380,16 +399,18 @@ export function TopBar(props: Props) {
         {restore || news ? <Rule /> : null}
         {dataControl}
         {configControl}
-        <button
-          type="button"
-          onClick={onToggleDebug}
-          className={toolClass(debug)}
-          aria-pressed={debug}
-          title="Show the latency overlay"
-        >
-          <LatencyIcon />
-          Latency
-        </button>
+        {/* hovered, the p95s (E27); the click keeps the full overlay on screen */}
+        <HoverCard card={debug ? null : <LatencyPeek />} label="Latency">
+          <button
+            type="button"
+            onClick={onToggleDebug}
+            className={toolClass(debug)}
+            aria-pressed={debug}
+          >
+            <LatencyIcon />
+            Latency
+          </button>
+        </HoverCard>
         <button
           type="button"
           onClick={onToggleTheme}

@@ -185,7 +185,7 @@ const goldbees: BullionEtfOut = {
 const silverbees: BullionEtfOut = { ...goldbees, metal: 'SILVER', symbol: 'SILVERBEES' }
 const withEtfs: BullionOut = { ...bullion, etfs: [silverbees, goldbees] }
 
-describe('BullionCards ETFs (E21)', () => {
+describe('BullionCards ETFs (E25)', () => {
   beforeEach(() => {
     localStorage.clear()
   })

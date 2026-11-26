@@ -10,7 +10,7 @@ function changeColour(v: number | null): string {
 }
 
 /**
- * The rates strip under the top bar (E22, spec §13.2): NIFTY, SENSEX, the metals and
+ * The rates strip under the top bar (E26, spec §13.2): NIFTY, SENSEX, the metals and
  * their ETFs, each with its price and day change %. An entry with a tab opens it.
  */
 export function RatesStrip({

@@ -133,7 +133,7 @@ export interface HelloFrame extends FrameBase {
   }
 }
 
-/** A market-wide rate on the rates strip that no other view carries: SENSEX (E22). */
+/** A market-wide rate on the rates strip that no other view carries: SENSEX (E26). */
 export interface QuoteOut {
   name: string
   ltp: number | null
@@ -734,7 +734,7 @@ export interface BullionMetalOut {
   updated_ts: number | null
 }
 
-/** GOLDBEES / SILVERBEES: an NSE ETF shown under its metal (E21). Display only. */
+/** GOLDBEES / SILVERBEES: an NSE ETF shown under its metal (E25). Display only. */
 export interface BullionEtfOut {
   /** the metal whose card it sits under */
   metal: string

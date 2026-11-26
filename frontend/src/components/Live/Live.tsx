@@ -28,7 +28,7 @@ import { EvidenceTable } from '../EvidenceTable/EvidenceTable'
 import { FlowLine } from '../FlowLine/FlowLine'
 import { Headlines } from '../Headlines/Headlines'
 import { IndexTiles } from '../IndexTiles/IndexTiles'
-import { OpenTrades } from '../OpenTrades/OpenTrades'
+import { OpenTrades, OpenTradesPeek } from '../OpenTrades/OpenTrades'
 import { OptionChain } from '../OptionChain/OptionChain'
 import { PanelFrame } from '../PanelFrame/PanelFrame'
 import { SignalCard } from '../SignalCard/SignalCard'
@@ -57,6 +57,14 @@ function useOpenTrades() {
 }
 
 /** The top bar's clock, feed age and open-trade count move here, not in `App`. */
+/** The Trades tab's hover card: mounted only while it is open, so trades cost nothing else. */
+function LiveTradesPeek() {
+  const trades = useMarketStore((s) => s.trades)
+  return <OpenTradesPeek trades={trades} />
+}
+
+const TRADES_PEEK = <LiveTradesPeek />
+
 export function LiveTopBar(
   props: Omit<ComponentProps<typeof TopBar>, 'now' | 'lastTickTs' | 'openTradeCount'>,
 ) {
@@ -66,10 +74,18 @@ export function LiveTopBar(
     bullionTab ? newestBullionTs(s.bullion) : newestIndexTickTs(s.prices),
   )
   const count = useMarketStore((s) => openTradeCount(s.trades))
-  return <TopBar {...props} now={now} lastTickTs={lastTickTs} openTradeCount={count} />
+  return (
+    <TopBar
+      {...props}
+      now={now}
+      lastTickTs={lastTickTs}
+      openTradeCount={count}
+      tradesPeek={TRADES_PEEK}
+    />
+  )
 }
 
-/** The rates strip (E22), reading its own prices so their frames re-render only it. */
+/** The rates strip (E26), reading its own prices so their frames re-render only it. */
 export function LiveRatesStrip({
   tabs,
   onOpen,

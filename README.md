@@ -42,7 +42,7 @@ milestone, is in [docs/plan.md](docs/plan.md).
   ones by day, each opening to its fills, signal, outcome and evidence.
 - **Screen:** NIFTY, BANK NIFTY and BULLION tabs; panels that resize, minimise and
   re-order; a top bar with the market and feed status, the pages, the tools and Login or
-  Logout; under it a strip of rates (NIFTY, SENSEX, gold, silver and their ETFs, with the
+  Logout (hover Trades, Data or Latency for a quick look); under it a strip of rates (NIFTY, SENSEX, gold, silver and their ETFs, with the
   day's change; a click opens the tab); DD/MM/YYYY dates; dark and light themes. A banner says why the screen isn't
   live.
 - **Config:** every tunable value is edited in the app (a drawer with Parameters, Factors

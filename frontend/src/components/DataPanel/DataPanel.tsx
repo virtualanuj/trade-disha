@@ -4,6 +4,7 @@ import { fetchUsage, pruneTicks } from '../../api/client'
 import type { PruneOut, UsageOut } from '../../api/types'
 import { fmtBytes, fmtCount, fmtDate } from '../../lib/format'
 import { toolClass } from '../../lib/toolbar'
+import { HoverCard } from '../HoverCard/HoverCard'
 import { DataIcon } from '../Icons/Icons'
 
 interface Props {
@@ -60,33 +61,27 @@ export function DataPanel({ usage = fetchUsage, prune = pruneTicks }: Props) {
   const field = 'rounded border border-border bg-bg px-2 py-1 font-mono text-fg'
   return (
     <div className="relative text-xs">
-      <button
-        type="button"
-        className={toolClass(open)}
-        aria-expanded={open}
-        title="Recorded ticks: how much is held, and deleting old days"
-        onClick={() => {
-          setOpen((o) => !o)
-        }}
-      >
-        <DataIcon />
-        Data
-      </button>
+      {/* hovered, the figures alone (E27); the click opens them with the delete */}
+      <HoverCard card={open ? null : <DataPeek usage={usage} />} label="Stored data">
+        <button
+          type="button"
+          className={toolClass(open)}
+          aria-expanded={open}
+          onClick={() => {
+            setOpen((o) => !o)
+          }}
+        >
+          <DataIcon />
+          Data
+        </button>
+      </HoverCard>
       {open ? (
         <div
           className="absolute top-7 right-0 z-20 w-[380px] rounded border border-border bg-bg-elev p-3 whitespace-normal shadow-lg"
           data-testid="data-panel"
         >
           <div className="font-semibold">Stored data</div>
-          <table className="mt-2 w-full font-mono">
-            <tbody>
-              <Row label="Database size" value={fmtBytes(data?.db_bytes)} />
-              <Row label="Raw ticks" value={fmtCount(data?.tick_rows)} />
-              <Row label="Days of ticks" value={fmtCount(data?.tick_days)} />
-              <Row label="Oldest tick day" value={fmtDate(data?.oldest)} />
-              <Row label="Newest tick day" value={fmtDate(data?.newest)} />
-            </tbody>
-          </table>
+          <UsageTable data={data} />
 
           <div className="mt-3 border-t border-border pt-3 font-semibold">Delete raw ticks</div>
           <p className="mt-1 text-fg-muted">
@@ -158,6 +153,41 @@ export function DataPanel({ usage = fetchUsage, prune = pruneTicks }: Props) {
         </div>
       ) : null}
     </div>
+  )
+}
+
+/** The hover card: what is held, fetched once as it opens; no delete here. */
+function DataPeek({ usage }: { usage: NonNullable<Props['usage']> }) {
+  const [data, setData] = useState<UsageOut | null>(null)
+  useEffect(() => {
+    const ctl = new AbortController()
+    usage(undefined, ctl.signal)
+      .then(setData)
+      .catch(() => undefined)
+    return () => {
+      ctl.abort()
+    }
+  }, [usage])
+  return (
+    <div className="w-64" data-testid="data-peek">
+      <div className="font-semibold">Stored data</div>
+      <UsageTable data={data} />
+      <div className="mt-2 text-fg-muted">Click to delete old days.</div>
+    </div>
+  )
+}
+
+function UsageTable({ data }: { data: UsageOut | null }) {
+  return (
+    <table className="mt-2 w-full font-mono">
+      <tbody>
+        <Row label="Database size" value={fmtBytes(data?.db_bytes)} />
+        <Row label="Raw ticks" value={fmtCount(data?.tick_rows)} />
+        <Row label="Days of ticks" value={fmtCount(data?.tick_days)} />
+        <Row label="Oldest tick day" value={fmtDate(data?.oldest)} />
+        <Row label="Newest tick day" value={fmtDate(data?.newest)} />
+      </tbody>
+    </table>
   )
 }
 

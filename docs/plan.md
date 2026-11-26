@@ -1130,6 +1130,33 @@ GOLDBEES on the Journal page: the dashboard opens on BULLION with GOLD in focus.
 **Status (2026-11-26):** built, with unit tests; `make check` green. Accepted by the owner
 without an end-to-end check in the running app.
 
+## Milestone E23 — Hover previews on Trades, Data and Latency
+
+**Goal:** a read-only card on hovering the Trades tab (open trades), Data (stored data) and
+Latency (latency numbers), with clicks unchanged (enhancement 27).
+
+- `components/HoverCard`: the shared card (`OPEN_DELAY_MS` 250, `CLOSE_DELAY_MS` 150;
+  keyboard focus via `:focus-visible`; Esc and a click close it; `card` null shows none).
+- `OpenTrades.tsx:OpenTradesPeek` (pure) and `LiveTradesPeek` in `Live.tsx` (reads the
+  store's trades, mounted only while open), passed to `TopBar` as `tradesPeek` and put on
+  the Trades tab by `PageTabs`.
+- `DataPanel`: `DataPeek` (fetches the usage once) and `UsageTable`, shared with the panel.
+- `DebugOverlay`: `useMetrics` (the 2 s fetch) shared by the overlay and `LatencyPeek`.
+- Tests (Vitest): `HoverCard` (delay, a pass across opens nothing, moving into the card,
+  Esc, click, nothing to preview); `OpenTradesPeek` (all markets, closed left out, total,
+  none open, no live P&L yet); the Data card's figures and none once the panel is open;
+  `LatencyPeek` (p95 against budget, over budget red, no samples); `TopBar` (the Trades and
+  Latency cards, and none on the Trades page or with the overlay on).
+- Code comments' enhancement tags corrected: the ETF code read `(E21)` and the rates strip
+  `(E22)`, which are other enhancements' numbers; they are `(E25)` and `(E26)`.
+
+**Demo:** hover Trades with two trades open: both are listed with live P&L and a total.
+Hover Data: the stored figures. Hover Latency: p95s against budgets. Click Latency: the
+overlay opens and hovering shows no card.
+
+**Status (2026-11-26):** built, with unit tests; `make check` green. Accepted by the owner
+without an end-to-end check in the running app.
+
 ## Frontend review fixes (26/11/2026, not a milestone)
 
 **Goal:** the owner asked for a review of the frontend and its five most important
