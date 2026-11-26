@@ -1219,6 +1219,35 @@ money follow; open it.
 **Status (2026-11-27):** built, with unit tests; `make check` green. Accepted by the owner
 without an end-to-end check in the running app.
 
+## Milestone E25 — Tabs by exchange: NSE and MCX
+
+**Goal:** the dashboard's tabs grouped by exchange, NSE (NIFTY, BANKNIFTY, BULLION with the
+ETFs) and MCX (GOLD, SILVER), in place of one BULLION tab with a metal switch
+(enhancement 32). Frontend only.
+
+- `state/store.ts`: `ETF_TAB` and `METAL_TABS` in place of `BULLION_TAB`; a selected
+  bullion tab survives a hello and falls back to the first index once the snapshot lacks
+  its data (`bullionTabGone`).
+- `lib/tabs.ts`: `tabGroups`, `tabIds`. `IndexTabs` draws the groups with their labels.
+- `App.tsx`: the MCX tab is the metal in focus; NSE's BULLION renders `EtfTilesPanel`
+  alone and no chain; `MetalSwitch` and `lib/useBullionMetal.ts` removed.
+- `BullionView`: `BullionCards` without the ETFs (metal and mini side by side);
+  `EtfCards` for NSE's BULLION. `Live.tsx`: `EtfTilesPanel`; `BullionTilesPanel` titled by
+  its metal. `panelSummary.ts`: `bullionSummary(bullion, metal)`, `etfSummary`.
+- `lib/rates.ts`: a rate's `tab` is the metal's or `ETF_TAB` (no `metal`); `RatesStrip`'s
+  `onOpen(tab)`.
+- Tests (Vitest): `lib/tabs.test.ts`, `IndexTabs.test.tsx`, the store's fallbacks, the
+  MCX and ETF cards, the summaries, the rates' tabs, and `App` (the groups; NSE BULLION
+  shows the ETFs alone and no chart; MCX GOLD shows its metal and chart, no switch).
+
+**Demo:** on the live feed the tab row reads `NSE [NIFTY] [BANKNIFTY] [BULLION] │ MCX
+[GOLD] [SILVER]`. NSE BULLION shows the two ETF cards alone; MCX SILVER shows the SILVER
+and SILVERM cards, its signal, view, chart and trades. Click GOLDBEES on the rates strip:
+NSE BULLION opens.
+
+**Status (2026-11-27):** built, with unit tests; `make check` green. Accepted by the owner
+without an end-to-end check in the running app.
+
 ## Frontend review fixes (26/11/2026, not a milestone)
 
 **Goal:** the owner asked for a review of the frontend and its five most important

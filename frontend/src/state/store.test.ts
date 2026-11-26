@@ -1,5 +1,6 @@
 import type {
   BankOut,
+  BullionEtfOut,
   BullionMetalOut,
   CandleOut,
   FlowOut,
@@ -10,7 +11,7 @@ import type {
   ResolvedIndexOut,
   SignalOut,
 } from '../api/types'
-import { BULLION_TAB, useMarketStore } from './store'
+import { ETF_TAB, useMarketStore } from './store'
 
 const sig = (over: Partial<SignalOut>): SignalOut =>
   ({
@@ -97,9 +98,9 @@ describe('bullion in the store', () => {
     })
   })
 
-  it('keeps the BULLION tab selected across a hello', () => {
+  it('keeps a metal tab selected across a hello', () => {
     const s = useMarketStore.getState()
-    s.selectIndex(BULLION_TAB)
+    s.selectIndex('GOLD')
     s.applyHello(
       {} as HealthResponse,
       [{ index: 'NIFTY' } as ResolvedIndexOut],
@@ -119,14 +120,23 @@ describe('bullion in the store', () => {
       { metal: 'GOLD', candles: [{ t: 1 } as CandleOut], overlays: [] },
     ])
     const after = useMarketStore.getState()
-    expect(after.selectedIndex).toBe(BULLION_TAB)
+    expect(after.selectedIndex).toBe('GOLD')
     expect(after.bullionCandles.GOLD).toHaveLength(1)
   })
 
-  it('leaves the BULLION tab when there is no bullion', () => {
+  it('leaves a metal tab when that metal is not loaded (E32)', () => {
     const s = useMarketStore.getState()
-    s.selectIndex(BULLION_TAB)
-    s.applyBullion({ metals: [], ratio: null, etfs: [] })
+    s.selectIndex('SILVER')
+    s.applyBullion({ metals: [metal], ratio: null, etfs: [] })
+    expect(useMarketStore.getState().selectedIndex).toBe('NIFTY')
+  })
+
+  it('keeps the NSE bullion tab while there are ETFs, and leaves it without (E32)', () => {
+    const s = useMarketStore.getState()
+    s.selectIndex(ETF_TAB)
+    s.applyBullion({ metals: [], ratio: null, etfs: [{ metal: 'GOLD' } as BullionEtfOut] })
+    expect(useMarketStore.getState().selectedIndex).toBe(ETF_TAB)
+    s.applyBullion({ metals: [metal], ratio: null, etfs: [] })
     expect(useMarketStore.getState().selectedIndex).toBe('NIFTY')
   })
 

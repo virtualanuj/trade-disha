@@ -1,7 +1,14 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { CandleOut, FlowOut, IndexPrices } from './api/types'
+import type {
+  BullionEtfOut,
+  BullionMetalOut,
+  CandleOut,
+  FlowOut,
+  IndexPrices,
+  ResolvedIndexOut,
+} from './api/types'
 import { useMarketStore } from './state/store'
 
 /** App renders the chart itself and the chart reads nothing from the store: so the chart
@@ -85,5 +92,31 @@ describe('App', () => {
     expect(chartRenders.n).toBe(before)
     expect(screen.getByTestId('rate-NIFTY')).toHaveTextContent('25,005.00')
     expect(screen.getByTestId('rate-SENSEX')).toHaveTextContent('80,911.05+0.38%')
+  })
+
+  it('groups the tabs by exchange; NSE BULLION shows the ETFs alone, MCX GOLD its metal (E32)', () => {
+    const gold = { metal: 'GOLD', ltp: 134_914, mini: null } as unknown as BullionMetalOut
+    const etf = { metal: 'GOLD', symbol: 'GOLDBEES', ltp: 108.42 } as unknown as BullionEtfOut
+    act(() => {
+      useMarketStore.setState({
+        instruments: [{ index: 'NIFTY', future: { expiry: null } } as unknown as ResolvedIndexOut],
+        bullion: { metals: [gold], ratio: null, etfs: [etf] },
+      })
+    })
+    render(<App />)
+    expect(screen.getByRole('tablist', { name: 'Market' })).toHaveTextContent(
+      'NSENIFTYBULLIONMCXGOLD',
+    )
+
+    fireEvent.click(screen.getByRole('tab', { name: 'NSE BULLION' }))
+    expect(screen.getByTestId('etf-view')).toBeInTheDocument()
+    expect(screen.queryByTestId('price-chart')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('bullion-GOLD')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'MCX GOLD' }))
+    expect(screen.getByTestId('bullion-GOLD')).toBeInTheDocument()
+    expect(screen.getByTestId('price-chart')).toBeInTheDocument()
+    expect(screen.queryByTestId('etf-view')).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Metal' })).not.toBeInTheDocument() // no switch
   })
 })

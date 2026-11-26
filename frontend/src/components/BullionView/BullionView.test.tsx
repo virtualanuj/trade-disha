@@ -1,9 +1,7 @@
-import { fireEvent, render, renderHook, screen, within } from '@testing-library/react'
-import { act } from 'react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 
 import type { BullionEtfOut, BullionMetalOut, BullionOut } from '../../api/types'
-import { useBullionMetal } from '../../lib/useBullionMetal'
-import { BullionCards, MetalSwitch } from './BullionView'
+import { BullionCards, EtfCards } from './BullionView'
 
 const gold: BullionMetalOut = {
   metal: 'GOLD',
@@ -126,36 +124,6 @@ describe('BullionCards', () => {
   })
 })
 
-describe('the metal in focus', () => {
-  beforeEach(() => {
-    localStorage.clear()
-  })
-
-  it('starts on gold, switches to silver, and remembers the choice', () => {
-    const { result, rerender } = renderHook(() => useBullionMetal(['GOLD', 'SILVER']))
-    expect(result.current[0]).toBe('GOLD')
-    act(() => {
-      result.current[1]('SILVER')
-    })
-    rerender()
-    expect(result.current[0]).toBe('SILVER')
-    expect(renderHook(() => useBullionMetal(['GOLD', 'SILVER'])).result.current[0]).toBe('SILVER')
-  })
-
-  it('falls back to the first metal on offer', () => {
-    localStorage.setItem('tradedisha.bullionChart', JSON.stringify('COPPER'))
-    expect(renderHook(() => useBullionMetal(['SILVER'])).result.current[0]).toBe('SILVER')
-  })
-
-  it('offers each metal as a pressed-or-not button', () => {
-    const pick = vi.fn()
-    render(<MetalSwitch names={['GOLD', 'SILVER']} metal="GOLD" onSelect={pick} />)
-    expect(screen.getByRole('button', { name: 'GOLD' })).toHaveAttribute('aria-pressed', 'true')
-    fireEvent.click(screen.getByRole('button', { name: 'SILVER' }))
-    expect(pick).toHaveBeenCalledWith('SILVER')
-  })
-})
-
 describe('BullionCards paper trades by hand', () => {
   it('buys or sells each metal future from its card', () => {
     const onTrade = vi.fn()
@@ -197,17 +165,15 @@ const goldbees: BullionEtfOut = {
   updated_ts: 1_794_820_957_000,
 }
 const silverbees: BullionEtfOut = { ...goldbees, metal: 'SILVER', symbol: 'SILVERBEES' }
-const withEtfs: BullionOut = { ...bullion, etfs: [silverbees, goldbees] }
-
-describe('BullionCards ETFs (E25)', () => {
+describe('EtfCards: NSE BULLION (E25, E32)', () => {
   beforeEach(() => {
     localStorage.clear()
   })
 
-  it('puts each ETF under its metal, with its price and change', () => {
-    render(<BullionCards bullion={withEtfs} nseStatus="live" />)
+  it('shows both ETFs, with their price and change', () => {
+    render(<EtfCards etfs={[goldbees, silverbees]} nseStatus="live" />)
     const cards = screen.getAllByTestId(/^(bullion|etf)-[A-Z]+$/).map((el) => el.dataset.testid)
-    expect(cards).toEqual(['bullion-GOLD', 'etf-GOLDBEES', 'bullion-SILVER', 'etf-SILVERBEES'])
+    expect(cards).toEqual(['etf-GOLDBEES', 'etf-SILVERBEES'])
     const g = screen.getByTestId('etf-GOLDBEES')
     expect(g).toHaveTextContent('LTP ₹ / unit')
     expect(g).toHaveTextContent('108.42')
@@ -216,9 +182,8 @@ describe('BullionCards ETFs (E25)', () => {
   })
 
   it('opens its own details only, and has no trade buttons', () => {
-    const onTrade = vi.fn()
-    render(<BullionCards bullion={withEtfs} nseStatus="live" onTrade={onTrade} />)
-    expect(screen.getAllByRole('button', { name: 'Buy' })).toHaveLength(2) // the metals only
+    render(<EtfCards etfs={[goldbees, silverbees]} nseStatus="live" />)
+    expect(screen.queryByRole('button', { name: 'Buy' })).not.toBeInTheDocument()
     fireEvent.click(
       within(screen.getByTestId('etf-GOLDBEES')).getByRole('button', { name: /Details/ }),
     )
@@ -230,13 +195,17 @@ describe('BullionCards ETFs (E25)', () => {
     expect(d).toHaveTextContent('High110.00')
     expect(d).not.toHaveTextContent('Open interest')
     expect(screen.queryByTestId('etf-details-SILVERBEES')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('bullion-details-GOLD')).not.toBeInTheDocument()
   })
 
-  it('says when NSE is not trading, while MCX carries on', () => {
-    render(<BullionCards bullion={withEtfs} nseStatus="closed" />)
+  it('says when NSE is not trading', () => {
+    render(<EtfCards etfs={[goldbees, silverbees]} nseStatus="closed" />)
     expect(screen.getByTestId('etf-GOLDBEES')).toHaveTextContent('NSE closed')
-    expect(screen.getByTestId('bullion-GOLD')).not.toHaveTextContent('NSE closed')
+    expect(screen.getByTestId('etf-SILVERBEES')).toHaveTextContent('NSE closed')
+  })
+
+  it('explains that the ETFs need the live feed', () => {
+    render(<EtfCards etfs={[]} />)
+    expect(screen.getByText(/GOLDBEES and SILVERBEES come from NSE/)).toBeInTheDocument()
   })
 })
 
@@ -294,7 +263,7 @@ describe('BullionCards minis (E28)', () => {
   })
 })
 
-describe('BullionCards for the metal in focus (E29)', () => {
+describe('BullionCards on an MCX tab (E29, E32)', () => {
   const both: BullionOut = {
     ...bullion,
     metals: [
@@ -309,22 +278,22 @@ describe('BullionCards for the metal in focus (E29)', () => {
   const shown = () =>
     screen.getAllByTestId(/^(bullion|mini|etf)-[A-Z]+$/).map((el) => el.dataset.testid)
 
-  it('shows only gold, its mini and its ETF on GOLD', () => {
+  it('shows only gold and its mini on GOLD; the ETFs are on NSE', () => {
     render(<BullionCards bullion={both} metal="GOLD" />)
-    expect(shown()).toEqual(['bullion-GOLD', 'mini-GOLDM', 'etf-GOLDBEES'])
+    expect(shown()).toEqual(['bullion-GOLD', 'mini-GOLDM'])
     expect(screen.getByTestId('bullion-ratio')).toHaveTextContent('79.31') // still both metals'
   })
 
-  it('shows only silver and its ETF on SILVER', () => {
+  it('shows only silver on SILVER', () => {
     render(<BullionCards bullion={both} metal="SILVER" />)
-    expect(shown()).toEqual(['bullion-SILVER', 'etf-SILVERBEES'])
+    expect(shown()).toEqual(['bullion-SILVER'])
   })
 
   it('shows every metal with no focus, or one it does not have', () => {
     const { unmount } = render(<BullionCards bullion={both} />)
-    expect(shown()).toHaveLength(5)
+    expect(shown()).toEqual(['bullion-GOLD', 'mini-GOLDM', 'bullion-SILVER'])
     unmount()
     render(<BullionCards bullion={both} metal="COPPER" />)
-    expect(shown()).toHaveLength(5)
+    expect(shown()).toHaveLength(3)
   })
 })

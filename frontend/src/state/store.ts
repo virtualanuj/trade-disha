@@ -25,8 +25,16 @@ import type {
 const MAX_CANDLES = 400
 /** MCX trades 09:00 to 23:30 */
 const MAX_BULLION_CANDLES = 900
-/** the tab beside the indices; not an index, so not in `instruments` */
-export const BULLION_TAB = 'BULLION'
+/** NSE's third tab, the gold and silver ETFs (E32); not an index, so not in `instruments` */
+export const ETF_TAB = 'NSE_BULLION'
+/** MCX's tabs, one per metal (E32): what bullion trades are kept for (`engine/paper.py`) */
+export const METAL_TABS: readonly string[] = ['GOLD', 'SILVER']
+
+/** A bullion tab whose data the snapshot does not have: a metal not loaded, or no ETFs. */
+function bullionTabGone(selected: string, bullion: BullionOut): boolean {
+  if (selected === ETF_TAB) return bullion.etfs.length === 0
+  return METAL_TABS.includes(selected) && !bullion.metals.some((m) => m.metal === selected)
+}
 
 function gatesByIndex(gates: GateOut[]): Record<string, GateOut> {
   const out: Record<string, GateOut> = {}
@@ -78,7 +86,7 @@ interface MarketStore {
   news: NewsOut | null
   /** the paper bank (spec §10.5); null until the first hello */
   bank: BankOut | null
-  /** an index, or BULLION_TAB */
+  /** an index (NSE), ETF_TAB (NSE's bullion ETFs) or a metal (MCX) */
   selectedIndex: string
 
   setWs: (s: WsState) => void
@@ -209,8 +217,11 @@ export const useMarketStore = create<MarketStore>((set) => ({
       flow: Object.fromEntries(flow.map((x) => [x.index, x])),
       trades,
       stats: Object.fromEntries(stats.map((x) => [x.index, x])),
+      // the bullion tabs are judged when bullion arrives, just after
       selectedIndex:
-        s.selectedIndex === BULLION_TAB || instruments.some((i) => i.index === s.selectedIndex)
+        s.selectedIndex === ETF_TAB ||
+        METAL_TABS.includes(s.selectedIndex) ||
+        instruments.some((i) => i.index === s.selectedIndex)
           ? s.selectedIndex
           : (instruments[0]?.index ?? s.selectedIndex),
     }))
@@ -224,11 +235,10 @@ export const useMarketStore = create<MarketStore>((set) => ({
             bullionOverlays: Object.fromEntries(candles.map((c) => [c.metal, c.overlays])),
           }
         : {}),
-      // no bullion (synthetic, replay, or the MCX file failed): leave the tab
-      selectedIndex:
-        s.selectedIndex === BULLION_TAB && bullion.metals.length === 0
-          ? (s.instruments[0]?.index ?? 'NIFTY')
-          : s.selectedIndex,
+      // no data for the tab (synthetic, replay, or the file failed): back to the first index
+      selectedIndex: bullionTabGone(s.selectedIndex, bullion)
+        ? (s.instruments[0]?.index ?? 'NIFTY')
+        : s.selectedIndex,
     }))
   },
   applyQuotes: (quotes) => {

@@ -744,7 +744,8 @@ Builder's calls:
   in a setting (`bullion_etfs`), not a config parameter: they change the subscription,
   which is made at start.
 - Each ETF's card sits under its metal's card and opens with the same Details toggle.
-  *(Superseded by item 31: each card opens on its own.)*
+  *(Superseded by item 31: each card opens on its own; and by item 32: the ETFs have
+  their own tab, NSE's BULLION.)*
 - They are NSE instruments: NSE hours, counted as NSE ticks and recorded in `ticks` like
   the sector indices, so a replay of a later day shows them. While NSE is not trading the
   card keeps the last price with a muted "NSE closed" (or holiday, pre-open) note, since MCX
@@ -845,7 +846,8 @@ Status: built as a follow-up in Milestone E24. Design in [spec.md](spec.md) §13
 Decided with the owner on 2026-11-27:
 - The GOLD / SILVER switch, which already picks the metal for every other panel, also
   picks the cards: GOLD shows GOLD, GOLDM and GOLDBEES; SILVER shows SILVER, SILVERM and
-  SILVERBEES.
+  SILVERBEES. *(Superseded by item 32: GOLD and SILVER are MCX tabs, and the ETFs are on
+  NSE's BULLION tab.)*
 
 Builder's calls:
 - The metal's card runs across the panel, with the mini's and the ETF's cards side by side
@@ -887,6 +889,31 @@ Decided with the owner on 2026-11-27:
 Builder's calls:
 - Each card's choice is remembered on its own (`tradedisha.bullionDetailsOpen.<card>`), so
   a reload keeps it; every card starts closed, and the old shared key is no longer read.
+
+### 32. Tabs by exchange: NSE and MCX
+
+Asked for (2026-11-27): NIFTY and BANK NIFTY are tabs in NSE, with a third NSE tab,
+BULLION, showing SILVERBEES and GOLDBEES.
+
+Status: built in Milestone E25. Design in [spec.md](spec.md) §13.1 and §13.2 (IndexTabs,
+MCX tabs, NSE BULLION tab, RatesStrip); planned in [plan.md](plan.md) Milestone E25.
+
+Decided with the owner on 2026-11-27:
+- The tabs are grouped by exchange: NSE — NIFTY, BANKNIFTY, BULLION (the two ETFs); MCX —
+  GOLD and SILVER.
+- NSE's BULLION shows only GOLDBEES and SILVERBEES. Each MCX tab is what the BULLION tab
+  was for that metal: the future, its mini, signal, market view, chart, open trades and
+  signals today. The GOLD / SILVER switch goes; the tab picks the metal.
+
+Builder's calls:
+- Each group shows while it has data; a group with no tabs is left out.
+- NSE's BULLION has no signal, market view, chart or trades to show, so its main column is
+  the ETF panel alone and there is no option chain; the top bar and banner follow NSE.
+- On an MCX tab the metal's card and its mini's sit side by side, with the gold/silver
+  ratio under them.
+- The rates strip opens GOLD and SILVER on their MCX tab and the ETFs on NSE's BULLION.
+- The panel layout is shared by every tab, as before; the remembered metal choice
+  (`tradedisha.bullionChart`) is no longer used.
 
 ## Deferred
 

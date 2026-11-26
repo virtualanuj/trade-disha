@@ -8,7 +8,7 @@ TradeDisha is a single-user, localhost trading assistant for NSE index options (
 BANK NIFTY). It takes a live broker feed, computes a bullish/bearish bias at each
 1-minute close, raises buy-call / buy-put signals with the evidence shown, and tracks
 paper trades. It does the same for MCX gold and silver futures (buy or sell the near-month
-future, BULLION tab). One Python process (FastAPI + asyncio + one SQLite file) and one React
+future, MCX tabs). One Python process (FastAPI + asyncio + one SQLite file) and one React
 page.
 
 **Hard rule: there is no real-order code path, and none is ever added, not even behind a
@@ -180,11 +180,13 @@ Things that are easy to get wrong:
   never in `App`: read there, every frame re-renders the whole page (`App.test.tsx`
   checks). `App` selects small values (`lib/marketViews.ts`, `useShallow`). `useNow` is
   one shared timer per interval.
-- `selectedIndex` is an index or `BULLION_TAB` (`state/store.ts`), which is not in
-  `instruments`; code keyed by the selected index must allow for it. The tab shows only
-  while bullion data exists. The main-column panels show the **focus** (`App.tsx`): the
-  selected index, or on BULLION the metal picked by `MetalSwitch`
-  (`lib/useBullionMetal.ts`); bias, signals and gates are keyed by that name.
+- The tabs are grouped by exchange (`lib/tabs.ts`): NSE has the indices and `ETF_TAB`
+  (BULLION: the gold and silver ETFs, display only); MCX has one tab per metal (`GOLD`,
+  `SILVER`, `METAL_TABS` in `state/store.ts`). `selectedIndex` is any of those ids, and
+  `ETF_TAB` and the metals are not in `instruments`; code keyed by the selected index
+  must allow for it. A bullion tab shows only while its data exists. The main-column
+  panels show the **focus** (`App.tsx`): the selected tab's index or metal; bias, signals
+  and gates are keyed by that name. On `ETF_TAB` the main column is the ETF panel alone.
 - A waiting signal carries `live` levels (entry, target, stop at the current price); the
   `signal_live` frame refreshes them once a second and never revives an ended signal.
 - `api/client.ts` is plain `fetch` for history, the journal and mutations. Paper-trade

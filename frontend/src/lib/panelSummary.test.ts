@@ -1,4 +1,5 @@
 import type {
+  BullionEtfOut,
   BiasOut,
   BullionOut,
   CandleOut,
@@ -12,6 +13,7 @@ import {
   biasSummary,
   bullionSummary,
   chainSummary,
+  etfSummary,
   chartSummary,
   historySummary,
   signalSummary,
@@ -42,6 +44,25 @@ describe('panel summaries', () => {
     } as BullionOut
     expect(bullionSummary(b)).toBe('GOLD 1,35,312.00 · SILVER — · ratio 79.51')
     expect(bullionSummary(null)).toBe('—')
+  })
+
+  it('an MCX tab: its metal and mini, and the ratio; the ETFs on their own (E32)', () => {
+    const b = {
+      metals: [
+        { metal: 'GOLD', ltp: 135312, mini: { metal: 'GOLDM', ltp: 135320 } },
+        { metal: 'SILVER', ltp: 170115, mini: null },
+      ],
+      ratio: 79.51,
+    } as BullionOut
+    expect(bullionSummary(b, 'GOLD')).toBe('GOLD 1,35,312.00 · GOLDM 1,35,320.00 · ratio 79.51')
+    expect(bullionSummary(b, 'SILVER')).toBe('SILVER 1,70,115.00 · ratio 79.51')
+    expect(
+      etfSummary([
+        { symbol: 'GOLDBEES', ltp: 108.42 },
+        { symbol: 'SILVERBEES', ltp: null },
+      ] as BullionEtfOut[]),
+    ).toBe('GOLDBEES 108.42 · SILVERBEES —')
+    expect(etfSummary([])).toBe('—')
   })
 
   it('index: spot and change on the day', () => {

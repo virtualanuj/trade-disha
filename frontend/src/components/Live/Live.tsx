@@ -1,7 +1,14 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { ComponentProps } from 'react'
 
-import type { BullionOut, NewsOut, PaperTradeOut, SignalOut, TicketTarget } from '../../api/types'
+import type {
+  BullionEtfOut,
+  BullionOut,
+  NewsOut,
+  PaperTradeOut,
+  SignalOut,
+  TicketTarget,
+} from '../../api/types'
 import { isLong } from '../../lib/direction'
 import { factorSwitches } from '../../lib/factors'
 import { newestBullionTs, newestIndexTickTs, openTradeCount } from '../../lib/marketViews'
@@ -9,6 +16,7 @@ import { newsSummary } from '../../lib/news'
 import {
   biasSummary,
   bullionSummary,
+  etfSummary,
   chainSummary,
   historySummary,
   signalSummary,
@@ -22,7 +30,7 @@ import { useMarketStore } from '../../state/store'
 import { Bank } from '../Bank/Bank'
 import { BiasMeter } from '../BiasMeter/BiasMeter'
 import { stripRates } from '../../lib/rates'
-import { BullionCards } from '../BullionView/BullionView'
+import { BullionCards, EtfCards } from '../BullionView/BullionView'
 import { RatesStrip } from '../RatesStrip/RatesStrip'
 import { EvidenceTable } from '../EvidenceTable/EvidenceTable'
 import { FlowLine } from '../FlowLine/FlowLine'
@@ -91,7 +99,7 @@ export function LiveRatesStrip({
   onOpen,
 }: {
   tabs: readonly string[]
-  onOpen: (tab: string, metal: string | null) => void
+  onOpen: (tab: string) => void
 }) {
   const nifty = useMarketStore((s) => s.prices.NIFTY)
   const niftyStats = useMarketStore((s) => s.stats.NIFTY)
@@ -139,18 +147,31 @@ function ticketLtp(bullion: BullionOut | null, t: TicketTarget): number | null {
   return t.contract && t.contract !== t.index ? (m.mini?.ltp ?? null) : m.ltp
 }
 
+/** An MCX tab's tiles (E32): the metal's future and its mini. */
 export function BullionTilesPanel({ frame, metal }: { frame: FrameProps; metal: string }) {
   const bullion = useMarketStore((s) => s.bullion)
-  const nseStatus = useMarketStore((s) => s.health?.market_status ?? null)
   const { ticket, setTicket, close, opened } = useTicket()
   const ltp = ticket ? ticketLtp(bullion, ticket) : null
   return (
-    <PanelFrame {...frame} title="Bullion" summary={bullionSummary(bullion)}>
-      <BullionCards bullion={bullion} metal={metal} nseStatus={nseStatus} onTrade={setTicket} />
+    <PanelFrame {...frame} title={metal} summary={bullionSummary(bullion, metal)}>
+      <BullionCards bullion={bullion} metal={metal} onTrade={setTicket} />
       {ticket ? <TradeTicket target={ticket} ltp={ltp} onClose={close} onOpened={opened} /> : null}
     </PanelFrame>
   )
 }
+
+/** NSE's BULLION tab (E32): the gold and silver ETFs, display only. */
+export function EtfTilesPanel({ frame }: { frame: FrameProps }) {
+  const etfs = useMarketStore((s) => s.bullion?.etfs) ?? NO_ETFS
+  const nseStatus = useMarketStore((s) => s.health?.market_status ?? null)
+  return (
+    <PanelFrame {...frame} title="Bullion ETFs" summary={etfSummary(etfs)}>
+      <EtfCards etfs={etfs} nseStatus={nseStatus} />
+    </PanelFrame>
+  )
+}
+
+const NO_ETFS: BullionEtfOut[] = []
 
 export function SignalPanel({
   frame,

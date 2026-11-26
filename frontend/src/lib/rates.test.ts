@@ -1,4 +1,5 @@
 import type { BullionOut, IndexPrices, IndexStatsOut, QuoteOut } from '../api/types'
+import { ETF_TAB } from '../state/store'
 import { stripRates } from './rates'
 
 const nifty: IndexPrices = {
@@ -30,19 +31,20 @@ const bullion = {
 } as unknown as BullionOut
 
 describe('stripRates', () => {
-  it('lists the six rates in order, each with its change and where a click goes', () => {
-    const got = stripRates(nifty, niftyStats, [sensex], bullion, ['NIFTY', 'BANKNIFTY', 'BULLION'])
+  it('lists the six rates in order, each opening its tab (E32)', () => {
+    const tabs = ['NIFTY', 'BANKNIFTY', ETF_TAB, 'GOLD', 'SILVER']
+    const got = stripRates(nifty, niftyStats, [sensex], bullion, tabs)
     expect(got).toEqual([
-      { name: 'NIFTY', ltp: 24_512.3, changePct: 0.42, metal: null, tab: 'NIFTY' },
-      { name: 'SENSEX', ltp: 80_911.05, changePct: 0.38, metal: null, tab: null },
-      { name: 'GOLD', ltp: 134_914, changePct: -1.31, metal: 'GOLD', tab: 'BULLION' },
-      { name: 'SILVER', ltp: 170_115, changePct: 0.2, metal: 'SILVER', tab: 'BULLION' },
-      { name: 'GOLDBEES', ltp: 108.42, changePct: 0.57, metal: 'GOLD', tab: 'BULLION' },
-      { name: 'SILVERBEES', ltp: 150.1, changePct: 0.31, metal: 'SILVER', tab: 'BULLION' },
+      { name: 'NIFTY', ltp: 24_512.3, changePct: 0.42, tab: 'NIFTY' },
+      { name: 'SENSEX', ltp: 80_911.05, changePct: 0.38, tab: null },
+      { name: 'GOLD', ltp: 134_914, changePct: -1.31, tab: 'GOLD' },
+      { name: 'SILVER', ltp: 170_115, changePct: 0.2, tab: 'SILVER' },
+      { name: 'GOLDBEES', ltp: 108.42, changePct: 0.57, tab: ETF_TAB },
+      { name: 'SILVERBEES', ltp: 150.1, changePct: 0.31, tab: ETF_TAB },
     ])
   })
 
-  it('keeps every entry with nothing known, and offers no BULLION tab without bullion', () => {
+  it('keeps every entry with nothing known, and offers no tab without its data', () => {
     const got = stripRates(undefined, undefined, [], null, ['NIFTY', 'BANKNIFTY'])
     expect(got.map((r) => r.name)).toEqual([
       'NIFTY',

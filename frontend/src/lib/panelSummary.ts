@@ -1,5 +1,6 @@
 import type {
   BiasOut,
+  BullionEtfOut,
   BullionOut,
   CandleOut,
   ChainOut,
@@ -64,10 +65,20 @@ export function chainSummary(chain: ChainOut | undefined): string {
   return `PCR ${pcr} · max pain ${pain}`
 }
 
-export function bullionSummary(bullion: BullionOut | null): string {
-  const metals = bullion?.metals ?? []
+/** A bullion tiles panel minimised: its metal's (or every metal's) prices and the ratio. */
+export function bullionSummary(bullion: BullionOut | null, metal?: string): string {
+  const all = bullion?.metals ?? []
+  const metals = metal === undefined ? all : all.filter((m) => m.metal === metal)
   if (metals.length === 0) return '—'
-  const parts = metals.map((m) => `${m.metal} ${fmtPrice(m.ltp)}`)
+  const parts = metals.flatMap((m) => [
+    `${m.metal} ${fmtPrice(m.ltp)}`,
+    ...(m.mini ? [`${m.mini.metal} ${fmtPrice(m.mini.ltp)}`] : []),
+  ])
   if (bullion?.ratio != null) parts.push(`ratio ${bullion.ratio.toFixed(2)}`)
   return parts.join(' · ')
+}
+
+/** The ETF panel minimised (E32): each ETF's price. */
+export function etfSummary(etfs: BullionEtfOut[]): string {
+  return etfs.length === 0 ? '—' : etfs.map((e) => `${e.symbol} ${fmtPrice(e.ltp)}`).join(' · ')
 }

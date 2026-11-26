@@ -33,7 +33,7 @@ changes.
           EventBus (low-rate state: feed health, auth, window, parameters, news)► WS hub
                                                                                  │
                                                        HTTP + WS (localhost)     ▼
-              Frontend (React, single page): top bar, NIFTY / BANKNIFTY / BULLION tabs,
+              Frontend (React, single page): top bar, NSE and MCX tabs,
               panels, option chain, Journal page
 ```
 
@@ -487,11 +487,11 @@ or the `ticks` table, and there is no real-order path for it.
 - **API:**
   - `GET /api/bullion` (the snapshot, with the ETFs as `etfs`) and
     `GET /api/bullion/{metal}/candles`
-  - `bullion` (status and `since_ms`) in the health response and `health` frame. On the
-    BULLION tab the banner follows it instead of the NSE session: no "Market closed" while
+  - `bullion` (status and `since_ms`) in the health response and `health` frame. On an
+    MCX tab the banner follows it instead of the NSE session: no "Market closed" while
     MCX trades, "Bullion prices are not updating" when stale. Login and connection banners
     still come first, and an index outage is still shown there, without dimming bullion.
-  - The top bar follows the tab too: on BULLION the market pill reads `MCX LIVE` /
+  - The top bar follows the tab too: on an MCX tab the market pill reads `MCX LIVE` /
     `MCX CLOSED` and the feed pill's tick age is the newest bullion tick. On any tab, a
     tick age turns amber or red only while that market is open; a closed market's
     silence is shown muted.
@@ -1386,7 +1386,7 @@ On reconnect the client receives a fresh `hello`, so no event replay is needed.
 │ TradeDisha ● LIVE 11:42:07 ● Feed 0.4s ● Login  [Dashboard|Journal|Trades] │
 │ NIFTY 24,512.40 +0.42% │ SENSEX 80,911.05 +0.38% │ GOLD 1,34,914.00 −1.31% │…│
 ├────────────────────────────────────────────────┬─────────────────────────────┤
-│  [NIFTY]  [BANKNIFTY]                          │ OPTION CHAIN             [–]│
+│ NSE [NIFTY] [BANKNIFTY] [BULLION] │ MCX [GOLD] [SILVER] │ OPTION CHAIN      [–]│
 │  ┌ INDEX ─────────────────────────────── [–] ┐ │ NIFTY  17/11/2026           │
 │  │ Spot 24,512.40  Fut 24,548.10             │ │ PCR 1.18   Max pain 24500   │
 │  │ [AUTO 24,512 +0.82%] [IT 37,880 +1.24%] … │ │                             │
@@ -1450,8 +1450,8 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   click when lit hides them, otherwise it shows them expanded, minimised or not.
 - Nothing expanded (chain minimised or absent, headlines minimised or hidden): the column
   becomes the 28 px strip; its button expands both and shows headlines again.
-- BULLION tab: there is no chain, so the column shows headlines alone; with headlines
-  hidden there is no column.
+- MCX tabs and NSE's BULLION tab: there is no chain, so the column shows headlines alone;
+  with headlines hidden there is no column.
 
 ### 13.2 Components
 - **TopBar**: the brand, a link home to the dashboard; a
@@ -1461,7 +1461,7 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   (`#journal`, `#trades`) with icons, the open-trade count on Trades, then icon tools (Restore panels and Headlines on the dashboard;
   Data, Config with its version, Latency, theme) and Login or Logout last. The tick age is
   fixed-width so nothing moves as it changes; the bar wraps instead of scrolling. Both pills follow the tab: on an index tab they read NSE
-  status and the newest index tick; on BULLION they read `MCX LIVE` / `MCX CLOSED` and the
+  status and the newest index tick (NSE's BULLION tab too); on an MCX tab they read `MCX LIVE` / `MCX CLOSED` and the
   newest bullion tick. While that market is closed, a quiet feed is shown muted instead of
   amber or red; a dropped connection is always red.
   - **Hover cards** (`HoverCard`): Trades, Data and Latency show a read-only preview under
@@ -1484,30 +1484,35 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   day change % (green up, red down by sign, muted flat). NIFTY is the live spot against
   the stats' previous close; SENSEX comes from `quotes`; the metals and ETFs from
   `bullion`. A rate not known yet (synthetic has only NIFTY) shows "—". A click opens the
-  entry's tab on the dashboard: NIFTY its tab, a metal or ETF BULLION with that metal in
-  focus (GOLDBEES → GOLD); SENSEX has no tab and is not a button, nor is BULLION while
-  there is no bullion. Too narrow a window scrolls it sideways. `lib/rates.ts:stripRates`
+  entry's tab on the dashboard: NIFTY its tab, GOLD or SILVER its MCX tab, GOLDBEES or
+  SILVERBEES NSE's BULLION; SENSEX has no tab and is not a button, nor is an entry whose
+  tab is not there. Too narrow a window scrolls it sideways. `lib/rates.ts:stripRates`
   builds the entries; `LiveRatesStrip` reads the store, so its frames never re-render `App`.
 - **StatusBanner**: one band under the rates strip. Errors (login, feed gap, lost backend) are
   red with ⚠. A market's session state (closed, holiday, pre-open; NSE, or MCX on
   BULLION) is an amber band with ⏸ and a bold title such as "NSE MARKET CLOSED", so it
-  is never mistaken for a quiet feed. On BULLION the bullion status decides the
+  is never mistaken for a quiet feed. On an MCX tab the bullion status decides the
   banner; login and connection problems still come first.
-- **IndexTabs**: NIFTY / BANKNIFTY, and BULLION while there is bullion data (§6.6);
-  selection drives chart, meter, signal, evidence, and chain panel. A selected BULLION
-  survives a reconnect, and falls back to the first index if bullion goes away.
-- **BULLION tab**. The main column's panels, the same units in the same
-  trader-set order with the same ↑ ↓ and minimise controls as the index tabs, for the metal
-  picked by a GOLD / SILVER switch above them (`MetalSwitch`, remembered in `localStorage`
-  as `tradedisha.bullionChart`). The tiles unit is `BullionCards` (below) instead of the
-  index tiles; Signal, Market view (its evidence has the trend, OI, flow and macro groups,
-  and no order-flow line), Price chart, Open paper trades and Signals today show the metal
-  (§9a). The option-chain column
-  and its divider are not shown.
-- **BullionCards** (the BULLION tiles): the metal in focus only, as the MetalSwitch picks
-  for every panel: its card across the panel, its mini's and its ETF's cards side by side
-  under it, then the gold/silver ratio (still of both metals). Given no metal in focus (or
-  one it has no data for) it shows every metal side by side, each column stacked.
+- **IndexTabs**: the tabs grouped by exchange, each group behind a small muted label
+  with a thin rule between (`lib/tabs.ts:tabGroups`): **NSE** — NIFTY, BANKNIFTY, and
+  BULLION (the gold and silver ETFs) while there are ETFs; **MCX** — GOLD and SILVER, one
+  tab per metal loaded (§6.6). A group with no tabs is left out. Each tab is named for
+  assistive tech with its exchange ("MCX GOLD"). Selection drives chart, meter, signal,
+  evidence and chain panel. The selected tab survives a reconnect and falls back to the
+  first index when its data goes away (a metal not loaded, no ETFs).
+- **MCX tabs** (GOLD, SILVER). The main column's panels, the same units in the same
+  trader-set order with the same ↑ ↓ and minimise controls as the index tabs, for that
+  metal. The tiles unit is `BullionCards` (below) instead of the index tiles; Signal,
+  Market view (its evidence has the trend, OI, flow and macro groups, and no order-flow
+  line), Price chart, Open paper trades and Signals today show the metal (§9a). The
+  option-chain column and its divider are not shown. The top bar and banner follow MCX.
+- **NSE BULLION tab** (`ETF_TAB`). The ETFs have no signal, market view, chart or trades,
+  so the main column is one panel, **Bullion ETFs** (`EtfTilesPanel`, the tiles unit's
+  frame): `EtfCards`, the GOLDBEES and SILVERBEES cards side by side. No option chain.
+  The top bar and banner follow NSE.
+- **BullionCards** (an MCX tab's tiles): the metal's card and its mini's side by side,
+  then the gold/silver ratio (still of both metals). Given no metal (or one it has no
+  data for) it shows every metal side by side, each column stacked.
   - A card per metal, headed by the contract, expiry and lot:
     - LTP with unit, change and change % (always shown)
     - a **Details** toggle, like the index tile's, closed by default. Each card opens and
@@ -1523,7 +1528,7 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
     the same Details (Today, Liquidity, Contract 1 year, Next month) on its own toggle,
     and its own Buy and Sell, opening the TradeTicket for the mini. Above the ETF card.
     Every card's heading also gives the rupees per point a lot.
-  - Under each metal, a card for its NSE ETF (GOLDBEES, SILVERBEES), headed by the symbol
+  - On NSE's BULLION tab (`EtfCards`), a card for each NSE ETF (GOLDBEES, SILVERBEES), headed by the symbol
     and "NSE ETF":
     - LTP in ₹ per unit, change and change %; while NSE is not trading, a muted note
       ("NSE closed", "NSE holiday", "NSE pre-open") from the health's `market_status`,
@@ -1779,7 +1784,7 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   try/catch fallback to defaults: theme (existing), `layout` (`{chainWidth, chartHeight}`),
   `panels` (which panels are minimised; an older `chainOpen` key is read once to carry
   the choice over), `panelOrder` (the order of the main column's units),
-  `detailsOpen`, `bullionDetailsOpen.<card>` (one per bullion card), `sectorsOpen`, `bullionChart` (the metal picked),
+  `detailsOpen`, `bullionDetailsOpen.<card>` (one per bullion card), `sectorsOpen`,
   `newsHidden` and `newsSeen`. All keys are prefixed `tradedisha.`.
 - REST via plain `fetch` (`api/client.ts`) for history, the journal and mutations
   (`POST /paper-trades`).

@@ -2,6 +2,12 @@ import { memo } from 'react'
 
 import { fmtPrice, fmtSigned } from '../../lib/format'
 import type { Rate } from '../../lib/rates'
+import { ETF_TAB } from '../../state/store'
+
+/** How a click's tab reads: "NSE BULLION" for the ETF tab, else its name. */
+function tabTitle(tab: string): string {
+  return tab === ETF_TAB ? 'NSE BULLION' : tab
+}
 
 /** Green up, red down, muted flat or unknown: by sign, since a small % still has a side. */
 function changeColour(v: number | null): string {
@@ -18,8 +24,8 @@ export function RatesStrip({
   onOpen,
 }: {
   rates: Rate[]
-  /** stable: the tab to show and, on BULLION, the metal to focus */
-  onOpen: (tab: string, metal: string | null) => void
+  /** stable: the tab to show */
+  onOpen: (tab: string) => void
 }) {
   return (
     <div
@@ -47,7 +53,7 @@ const RateEntry = memo(function RateEntry({
   onOpen,
 }: {
   r: Rate
-  onOpen: (tab: string, metal: string | null) => void
+  onOpen: (tab: string) => void
 }) {
   const body = (
     <>
@@ -71,9 +77,9 @@ const RateEntry = memo(function RateEntry({
       type="button"
       className="flex items-baseline gap-1.5 rounded px-1 hover:bg-accent/10"
       data-testid={`rate-${r.name}`}
-      title={r.metal ? `Open BULLION on ${r.metal}` : `Open ${tab}`}
+      title={`Open ${tabTitle(tab)}`}
       onClick={() => {
-        onOpen(tab, r.metal)
+        onOpen(tab)
       }}
     >
       {body}

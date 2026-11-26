@@ -909,7 +909,7 @@ Group scores: trend (−0.56 − 1.00 − 1.00) / 3 = −0.85, OI −0.47, flow 
 **−0.67**: Bearish, strength 67, above 0.60, so a short (`SELL_FUT`) fires.
 
 Each minute's bias is stored in `bias_minutes` under `GOLD` or `SILVER`, with its full
-breakdown, and shown in the Market view and Evidence panels of the BULLION tab.
+breakdown, and shown in the Market view and Evidence panels of the metal's MCX tab.
 
 ### 13.5 When it is worked out: the 20-second offset
 

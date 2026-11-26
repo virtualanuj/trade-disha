@@ -26,61 +26,25 @@ const NSE_NOTE: Record<MarketStatus, string> = {
 const DETAILS_KEY = 'tradedisha.bullionDetailsOpen'
 const asOpen = (v: unknown): boolean => v === true
 
-/** Picks the metal every BULLION panel shows: market view, signal, chart, evidence, trades. */
-export function MetalSwitch({
-  names,
-  metal,
-  onSelect,
-}: {
-  names: string[]
-  metal: string
-  onSelect: (metal: string) => void
-}) {
-  return (
-    <div className="flex items-center gap-1" role="group" aria-label="Metal">
-      {names.map((n) => (
-        <button
-          key={n}
-          type="button"
-          aria-pressed={n === metal}
-          onClick={() => {
-            onSelect(n)
-          }}
-          className={`rounded px-2 py-0.5 text-xs font-medium ${
-            n === metal ? 'bg-accent/20 text-fg' : 'text-fg-muted hover:text-fg'
-          }`}
-        >
-          {n}
-        </button>
-      ))}
-    </div>
-  )
-}
-
 /**
- * The BULLION tab's tiles: a card per metal, its mini (E28) and NSE ETF (E25) under it,
- * and the gold/silver ratio (spec §6.6, §13.2). With `metal`, only that metal's cards
- * (E29), as the MetalSwitch picks for every panel. With `onTrade` (stable), the metal's and
- * the mini's cards have Buy and Sell for a paper trade by hand (E23); the ETFs are display
- * only.
+ * An MCX tab's tiles (E32): the metal's future and its mini (E28) side by side, then the
+ * gold/silver ratio (spec §6.6, §13.2). With `metal`, only that metal; left out, every
+ * metal, each column stacked. With `onTrade` (stable), each card has Buy and Sell for a
+ * paper trade by hand (E23).
  */
 export function BullionCards({
   bullion,
   metal,
-  nseStatus = null,
   onTrade,
 }: {
   bullion: BullionOut | null
-  /** the metal in focus; left out, every metal side by side */
+  /** the metal tab; left out, every metal side by side */
   metal?: string
-  /** the NSE session, for the ETFs' hours */
-  nseStatus?: MarketStatus | null
   onTrade?: (t: TicketTarget) => void
 }) {
   const all = bullion?.metals ?? EMPTY
   const focused = metal === undefined ? undefined : all.find((m) => m.metal === metal)
   const metals = focused ? [focused] : all
-  const etfs = bullion?.etfs ?? EMPTY
   if (metals.length === 0) {
     return (
       <p className="text-xs text-fg-muted">
@@ -91,32 +55,19 @@ export function BullionCards({
   return (
     <div className="flex flex-col gap-3" data-testid="bullion-view">
       <div className="grid gap-3 lg:grid-cols-2">
-        {metals.map((m) => {
-          const etf = etfs.find((e) => e.metal === m.metal)
-          return (
-            <div
-              key={m.metal}
-              // one metal: its card across the panel, the mini and the ETF side by side
-              className={focused ? 'contents' : 'flex flex-col gap-3'}
-            >
-              <div className={focused ? 'lg:col-span-2' : 'contents'}>
-                <Box>
-                  <MetalCard m={m} onTrade={onTrade} />
-                </Box>
-              </div>
-              {m.mini ? (
-                <Box>
-                  <MetalCard m={m.mini} metal={m.metal} onTrade={onTrade} />
-                </Box>
-              ) : null}
-              {etf ? (
-                <Box>
-                  <EtfCard e={etf} note={nseStatus ? NSE_NOTE[nseStatus] : ''} />
-                </Box>
-              ) : null}
-            </div>
-          )
-        })}
+        {metals.map((m) => (
+          // one metal: the future and the mini side by side; every metal: a column each
+          <div key={m.metal} className={focused ? 'contents' : 'flex flex-col gap-3'}>
+            <Box>
+              <MetalCard m={m} onTrade={onTrade} />
+            </Box>
+            {m.mini ? (
+              <Box>
+                <MetalCard m={m.mini} metal={m.metal} onTrade={onTrade} />
+              </Box>
+            ) : null}
+          </div>
+        ))}
       </div>
       <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-xs">
         <span
@@ -129,6 +80,36 @@ export function BullionCards({
           {bullion?.ratio == null ? '—' : bullion.ratio.toFixed(2)}
         </span>
       </div>
+    </div>
+  )
+}
+
+/**
+ * NSE's BULLION tab (E32): the gold and silver ETFs (E25) side by side, each with its own
+ * Details. Display only. `nseStatus` notes when NSE is not trading.
+ */
+export function EtfCards({
+  etfs,
+  nseStatus = null,
+}: {
+  etfs: BullionEtfOut[]
+  nseStatus?: MarketStatus | null
+}) {
+  if (etfs.length === 0) {
+    return (
+      <p className="text-xs text-fg-muted">
+        Live feed only: GOLDBEES and SILVERBEES come from NSE through Upstox.
+      </p>
+    )
+  }
+  const note = nseStatus ? NSE_NOTE[nseStatus] : ''
+  return (
+    <div className="grid gap-3 lg:grid-cols-2" data-testid="etf-view">
+      {etfs.map((e) => (
+        <Box key={e.symbol}>
+          <EtfCard e={e} note={note} />
+        </Box>
+      ))}
     </div>
   )
 }

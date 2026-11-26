@@ -5,7 +5,6 @@ import { useShallow } from 'zustand/react/shallow'
 import { logout, openPaperTrade } from './api/client'
 import type { PaperTradeOut, SignalOut } from './api/types'
 import { MarketSocket } from './api/ws'
-import { MetalSwitch } from './components/BullionView/BullionView'
 import { ConfigControl } from './components/ConfigControl/ConfigControl'
 import { DataPanel } from './components/DataPanel/DataPanel'
 import { DebugOverlay } from './components/DebugOverlay/DebugOverlay'
@@ -16,6 +15,7 @@ import {
   BiasPanel,
   BullionTilesPanel,
   ChainPanel,
+  EtfTilesPanel,
   HistoryPanel,
   IndexTilesPanel,
   LiveBank,
@@ -37,11 +37,11 @@ import { tradeRevision } from './lib/marketViews'
 import { unitOf, useOpenOnNew, usePanels } from './lib/panels'
 import type { PanelId, UnitId } from './lib/panels'
 import { chartSummary } from './lib/panelSummary'
-import { useBullionMetal } from './lib/useBullionMetal'
+import { tabGroups, tabIds } from './lib/tabs'
 import { useNewsSeen } from './lib/useNewsSeen'
 import { usePref } from './lib/usePref'
 import { hashFor, viewFromHash, type View } from './lib/view'
-import { BULLION_TAB, useMarketStore } from './state/store'
+import { ETF_TAB, METAL_TABS, useMarketStore } from './state/store'
 import { useTheme } from './theme/useTheme'
 
 const EMPTY: never[] = []
@@ -55,9 +55,6 @@ function useDebugFlag(): [boolean, () => void] {
     },
   ]
 }
-
-/** bullion trades are kept for these metals (`engine/paper.py:METALS`), loaded or not */
-const METALS = ['GOLD', 'SILVER']
 
 const LAYOUT_KEY = 'tradedisha.layout'
 
@@ -140,37 +137,47 @@ export default function App() {
   const metalNames = useMarketStore(
     useShallow((s) => (s.bullion?.metals ?? []).map((m) => m.metal)),
   )
+  /** whether NSE's BULLION tab has its ETFs (E32) */
+  const hasEtfs = useMarketStore((s) => (s.bullion?.etfs.length ?? 0) > 0)
   /** changes whenever a trade opens or closes, so the journal refetches */
   const journalRevision = useMarketStore((s) => tradeRevision(s.trades))
   /** the headlines list is on screen: dots stay, and the newest is recorded as seen */
   const newsVisible = view === 'dashboard' && !panels.newsHidden && !panels.minimised.news
   const newsSeenTs = useNewsSeen(news, newsVisible)
-  const onBullion = selected === BULLION_TAB
-  const [metal, setMetal] = useBullionMetal(metalNames)
+  /** an MCX tab: one metal's future, signals and trades (E32, spec §9a) */
+  const onBullion = metalNames.includes(selected)
+  /** NSE's BULLION tab: the gold and silver ETFs, display only (E32) */
+  const onEtfs = selected === ETF_TAB
+  const metal = onBullion ? selected : (metalNames[0] ?? 'GOLD')
   /** what the Trades page filters by: every index, and the metals even before bullion loads */
   const tradeMarkets = useMemo(
-    () => [...new Set([...instruments.map((i) => i.index), ...METALS, ...metalNames])],
+    () => [...new Set([...instruments.map((i) => i.index), ...METAL_TABS, ...metalNames])],
     [instruments, metalNames],
   )
-  /** what the panels show: the selected index, or on BULLION the selected metal (spec §9a) */
-  const focus = onBullion ? metal : selected
+  /** what the panels show: the selected index, or on an MCX tab its metal (spec §9a) */
+  const focus = selected
   const candles = onBullion ? (bullionCandles[metal] ?? EMPTY) : indexCandles
   const overlays = onBullion ? (bullionOverlays[metal] ?? EMPTY) : indexOverlays
   /** net volume comes from a traded future: the index's, or the metal itself */
   const netVolume = onBullion ? candles : indexFutCandles
-  const tabs = useMemo(() => {
-    const indices = instruments.map((i) => i.index)
-    return metalNames.length ? [...indices, BULLION_TAB] : indices
-  }, [instruments, metalNames])
+  const groups = useMemo(
+    () =>
+      tabGroups(
+        instruments.map((i) => i.index),
+        hasEtfs,
+        metalNames,
+      ),
+    [instruments, hasEtfs, metalNames],
+  )
+  const tabs = useMemo(() => tabIds(groups), [groups])
   const applyTrades = useMarketStore((s) => s.applyTrades)
-  /** a click on the rates strip: that tab (and metal) on the dashboard */
+  /** a click on the rates strip: that tab on the dashboard */
   const openRate = useCallback(
-    (tab: string, rateMetal: string | null) => {
+    (tab: string) => {
       selectIndex(tab)
-      if (rateMetal) setMetal(rateMetal)
       if (view !== 'dashboard') showView('dashboard')
     },
-    [selectIndex, setMetal, view, showView],
+    [selectIndex, view, showView],
   )
 
   const feedLive = ws === 'open' && health?.feed_live === true
@@ -194,7 +201,7 @@ export default function App() {
   /** on the Trades page each open trade is judged by its own market's prices */
   const closeBlock = useCallback(
     (t: PaperTradeOut) =>
-      METALS.includes(t.index)
+      METAL_TABS.includes(t.index)
         ? bullionLive
           ? null
           : 'Bullion prices not live: no price to close at'
@@ -357,16 +364,18 @@ export default function App() {
               className={`flex min-w-0 flex-1 flex-col gap-3 overflow-auto p-4 ${staleCls}`}
               data-stale={banner?.stale ? 'true' : undefined}
             >
-              <IndexTabs indices={tabs} selected={selected} onSelect={selectIndex} />
-              {onBullion && metalNames.length > 0 ? (
-                <MetalSwitch names={metalNames} metal={metal} onSelect={setMetal} />
-              ) : null}
-              {panels.order.map((unit) => (
-                <Fragment key={unit}>{units[unit]}</Fragment>
-              ))}
+              <IndexTabs groups={groups} selected={selected} onSelect={selectIndex} />
+              {onEtfs ? (
+                // the ETFs have no signal, view, chart or trades: their panel alone
+                <EtfTilesPanel frame={frame('tiles')} />
+              ) : (
+                panels.order.map((unit) => <Fragment key={unit}>{units[unit]}</Fragment>)
+              )}
             </section>
             <RightColumn
-              chain={onBullion ? null : <ChainPanel frame={frame('chain')} index={selected} />}
+              chain={
+                onBullion || onEtfs ? null : <ChainPanel frame={frame('chain')} index={selected} />
+              }
               chainMinimised={panels.minimised.chain}
               news={
                 <NewsPanel

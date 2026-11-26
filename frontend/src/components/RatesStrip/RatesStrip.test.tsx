@@ -4,10 +4,10 @@ import type { Rate } from '../../lib/rates'
 import { RatesStrip } from './RatesStrip'
 
 const rates: Rate[] = [
-  { name: 'NIFTY', ltp: 24_512.3, changePct: 0.42, metal: null, tab: 'NIFTY' },
-  { name: 'SENSEX', ltp: 80_911.05, changePct: -0.38, metal: null, tab: null },
-  { name: 'GOLD', ltp: null, changePct: null, metal: 'GOLD', tab: 'BULLION' },
-  { name: 'GOLDBEES', ltp: 108.42, changePct: 0, metal: 'GOLD', tab: 'BULLION' },
+  { name: 'NIFTY', ltp: 24_512.3, changePct: 0.42, tab: 'NIFTY' },
+  { name: 'SENSEX', ltp: 80_911.05, changePct: -0.38, tab: null },
+  { name: 'GOLD', ltp: null, changePct: null, tab: 'GOLD' },
+  { name: 'GOLDBEES', ltp: 108.42, changePct: 0, tab: 'NSE_BULLION' },
 ]
 
 describe('RatesStrip', () => {
@@ -21,15 +21,12 @@ describe('RatesStrip', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(4)
   })
 
-  it('opens the tab, and the metal on BULLION; SENSEX has nowhere to go', () => {
+  it('opens the tab: NIFTY, an MCX metal or NSE BULLION; SENSEX has nowhere to go', () => {
     const onOpen = vi.fn()
     render(<RatesStrip rates={rates} onOpen={onOpen} />)
     fireEvent.click(screen.getByTestId('rate-NIFTY'))
     fireEvent.click(screen.getByTestId('rate-GOLDBEES'))
-    expect(onOpen.mock.calls).toEqual([
-      ['NIFTY', null],
-      ['BULLION', 'GOLD'],
-    ])
+    expect(onOpen.mock.calls).toEqual([['NIFTY'], ['NSE_BULLION']])
     expect(screen.getByTestId('rate-SENSEX').tagName).toBe('SPAN')
   })
 })
