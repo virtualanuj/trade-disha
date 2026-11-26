@@ -1072,6 +1072,38 @@ in the detail.
 **Status (2026-11-26):** built, with unit tests; `make check` green. End-to-end check in
 the running app to be asked of the owner.
 
+## Milestone E21 — Gold BeES and Silver BeES on the BULLION tab
+
+**Goal:** show the NSE gold and silver ETFs under their metals on the BULLION tab
+(enhancement 25), display only.
+
+- `config.py`: `bullion_etfs` (metal → symbol and `NSE_EQ` key), GOLDBEES and SILVERBEES.
+- `market/etfs.py`: `EtfQuote`, `EtfSnapshot`, pure `etf_snapshot`, `EtfTracker` (latest
+  merged tick and the day's range), `etfs_from` (none on synthetic) and `enrich_etfs`
+  (start quote and 52-week range, each failing soft). `market/bullion.py` shares
+  `day_position`, `year_range`, `widen_day`, `pct` and `diff` with it.
+- `market/session.py`: `_load_etfs` / `attach_etfs` in a new `_load_side_markets` (bullion,
+  macro, ETFs, GIFT Nifty, moved out of `_start`); the ETF keys are subscribed; their ticks
+  keep the NSE path (`prices`, `ticks`). `api/bullion.py`: `BullionEtfOut`, `BullionOut.etfs`;
+  `api/ws.py`: an ETF tick marks the `bullion` frame due.
+- Frontend: `BullionEtfOut` in `api/types.ts`; `BullionCards` puts an `EtfCard` under each
+  metal (shared Details toggle, `DetailsToggle`; "NSE closed" note from `market_status`,
+  passed by `BullionTilesPanel`).
+- Tests: `tests/market/test_etfs.py` (the default setting, none on synthetic, table-driven
+  snapshot maths, the 52-week range widened by today, the tracker's merge and day range,
+  the start data and its failing soft, the API, `ticks` and the `bullion` frame). Vitest
+  for the ETF cards: order under the metals, details, no trade buttons, the NSE note.
+- Test fixes found on the way: `test_level_rounding`'s property test generated a short
+  future whose target was zero (it failed on main once Hypothesis found it), and
+  `test_net_volume` raced the synthetic feed for the volume baseline.
+
+**Demo:** on the live feed during NSE hours, open BULLION: GOLDBEES under GOLD and
+SILVERBEES under SILVER, ticking; Details opens all four cards. After 15:30 the ETFs keep
+their close with "NSE closed" while the futures tick on.
+
+**Status (2026-11-26):** built, with unit tests; `make check` green. Accepted by the owner
+without an end-to-end check in the running app.
+
 ## Frontend review fixes (26/11/2026, not a milestone)
 
 **Goal:** the owner asked for a review of the frontend and its five most important

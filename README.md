@@ -15,7 +15,8 @@ milestone, is in [docs/plan.md](docs/plan.md).
 
 - **Market data:** the live Upstox feed (daily login, Logout at any time), with synthetic
   and replay feeds for testing. Index spot and futures, the option chain around ATM, India
-  VIX and the sector indices; MCX GOLD and SILVER near-month futures; the currency futures
+  VIX and the sector indices; MCX GOLD and SILVER near-month futures, with the GOLDBEES and
+  SILVERBEES ETFs under them; the currency futures
   and crude behind the macro evidence; GIFT Nifty for the opening gap; headlines for the
   heaviest index stocks. Ticks are recorded (bullion apart from the NSE day) and can be
   replayed; starting after the open backfills the day. NSE and MCX keep their own hours

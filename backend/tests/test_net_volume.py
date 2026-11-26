@@ -61,9 +61,17 @@ def test_index_candles_carry_the_futures_net_volume(client: TestClient) -> None:
     # Well ahead of the synthetic feed, so its own ticks for this key arrive late and are
     # ignored; one closed minute of ours.
     t0 = (epoch_ms_now() // M + 600) * M
+
+    def feed() -> None:
+        # One call, so no synthetic tick lands between ours, and a first tick of ours just
+        # before the minute: a synthetic tick before it would otherwise set the volume
+        # baseline, and its volume would count in our first tick (seen as v=881).
+        td.session.candles.apply(Tick(key=fut, ts=t0 - 1, ltp=100.0, volume=1_000))
+        for t in _trades(fut, t0):
+            td.session.candles.apply(t)
+
     assert client.portal is not None
-    for t in _trades(fut, t0):
-        client.portal.call(td.session.candles.apply, t)
+    client.portal.call(feed)
 
     body = client.get("/api/candles/NIFTY?minutes=400").json()
     mine = [c for c in body["fut_candles"] if c["t"] == t0]

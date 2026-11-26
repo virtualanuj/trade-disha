@@ -97,11 +97,12 @@ function useTicket() {
 
 export function BullionTilesPanel({ frame }: { frame: FrameProps }) {
   const bullion = useMarketStore((s) => s.bullion)
+  const nseStatus = useMarketStore((s) => s.health?.market_status ?? null)
   const { ticket, setTicket, close, opened } = useTicket()
   const ltp = ticket ? (bullion?.metals.find((m) => m.metal === ticket.index)?.ltp ?? null) : null
   return (
     <PanelFrame {...frame} title="Bullion" summary={bullionSummary(bullion)}>
-      <BullionCards bullion={bullion} onTrade={setTicket} />
+      <BullionCards bullion={bullion} nseStatus={nseStatus} onTrade={setTicket} />
       {ticket ? <TradeTicket target={ticket} ltp={ltp} onClose={close} onOpened={opened} /> : null}
     </PanelFrame>
   )

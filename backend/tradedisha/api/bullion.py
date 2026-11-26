@@ -1,4 +1,4 @@
-"""BULLION tab: gold and silver MCX futures, display only. Spec §6.6."""
+"""BULLION tab: gold and silver MCX futures and the NSE gold and silver ETFs. Spec §6.6."""
 
 from __future__ import annotations
 
@@ -53,9 +53,35 @@ class BullionMetalOut(BaseModel):
     updated_ts: int | None
 
 
+class BullionEtfOut(BaseModel):
+    """GOLDBEES / SILVERBEES: an NSE ETF shown under its metal; display only."""
+
+    metal: str
+    symbol: str
+    ltp: float | None
+    prev_close: float | None
+    change: float | None
+    change_pct: float | None
+    day_open: float | None
+    day_high: float | None
+    day_low: float | None
+    range_pos: float | None
+    atp: float | None
+    volume: int | None
+    bid: float | None
+    ask: float | None
+    bid_qty: int | None
+    ask_qty: int | None
+    spread: float | None
+    range_high: float | None
+    range_low: float | None
+    updated_ts: int | None
+
+
 class BullionOut(BaseModel):
     metals: list[BullionMetalOut]
     ratio: float | None
+    etfs: list[BullionEtfOut] = []
 
 
 class BullionCandlesOut(BaseModel):
@@ -65,11 +91,15 @@ class BullionCandlesOut(BaseModel):
 
 
 def bullion_out(state: AppState) -> BullionOut:
+    etf_tracker = state.session.etfs
+    etfs = [BullionEtfOut(**asdict(e)) for e in etf_tracker.snapshot()] if etf_tracker else []
     tracker = state.session.bullion
     if tracker is None:
-        return BullionOut(metals=[], ratio=None)
+        return BullionOut(metals=[], ratio=None, etfs=etfs)
     snap = tracker.snapshot()
-    return BullionOut(metals=[BullionMetalOut(**asdict(m)) for m in snap.metals], ratio=snap.ratio)
+    return BullionOut(
+        metals=[BullionMetalOut(**asdict(m)) for m in snap.metals], ratio=snap.ratio, etfs=etfs
+    )
 
 
 def vwap_overlays(candles: list[Candle]) -> list[OverlayOut]:

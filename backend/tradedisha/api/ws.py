@@ -103,7 +103,8 @@ class WsHub:
     # -- inbound -----------------------------------------------------------
 
     def _on_tick(self, st: StampedTick) -> None:
-        if st.tick.key in self._state.session.bullion_keys:
+        session = self._state.session
+        if st.tick.key in session.bullion_keys or st.tick.key in session.etf_keys:
             self._bullion_dirty = st.t_in
             return
         index = self._index_for(st.tick.key)

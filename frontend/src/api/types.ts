@@ -717,11 +717,39 @@ export interface BullionMetalOut {
   updated_ts: number | null
 }
 
+/** GOLDBEES / SILVERBEES: an NSE ETF shown under its metal (E21). Display only. */
+export interface BullionEtfOut {
+  /** the metal whose card it sits under */
+  metal: string
+  symbol: string
+  ltp: number | null
+  prev_close: number | null
+  change: number | null
+  change_pct: number | null
+  day_open: number | null
+  day_high: number | null
+  day_low: number | null
+  range_pos: number | null
+  atp: number | null
+  volume: number | null
+  bid: number | null
+  ask: number | null
+  bid_qty: number | null
+  ask_qty: number | null
+  spread: number | null
+  /** 52 weeks, widened by today */
+  range_high: number | null
+  range_low: number | null
+  updated_ts: number | null
+}
+
 export interface BullionOut {
   /** empty without the live Upstox feed */
   metals: BullionMetalOut[]
   /** kilograms of silver one kilogram of gold buys */
   ratio: number | null
+  /** the NSE gold and silver ETFs; empty without the live feed or a replay */
+  etfs: BullionEtfOut[]
 }
 
 export interface BullionCandlesOut {

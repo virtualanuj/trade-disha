@@ -57,6 +57,7 @@ from tradedisha.instruments.upstox_master import (
     read_master,
 )
 from tradedisha.market import bullion as bullion_mod
+from tradedisha.market import etfs as etfs_mod
 from tradedisha.market import macro as macro_mod
 from tradedisha.market.backfill import (
     apply_baseline,
@@ -67,6 +68,7 @@ from tradedisha.market.backfill import (
 from tradedisha.market.bullion import BullionTracker
 from tradedisha.market.candles import MINUTE_MS, Candle, CandleBuilder, CandleStore
 from tradedisha.market.chain_manager import ChainManager, SubscriptionChange
+from tradedisha.market.etfs import EtfTracker
 from tradedisha.market.flow import FlowReading, FlowTracker
 from tradedisha.market.gift import GiftNifty
 from tradedisha.market.macro import MacroTracker, build_view
@@ -158,6 +160,7 @@ class FeedSession:
     bullion_desk: BullionDesk | None = None  # bullion bias, signals, paper (§9a)
     macro: MacroTracker | None = None  # dollar legs and crude, live feed only (§6.8)
     gift: GiftNifty | None = None  # GIFT Nifty's overnight move: live, or stored for replay
+    etfs: EtfTracker | None = None  # GOLDBEES / SILVERBEES: NSE ETFs on the BULLION tab (§6.6)
 
     def __init__(
         self,
@@ -304,6 +307,28 @@ class FeedSession:
         self.tick_bus.subscribe(self.paper.on_tick)
         self.bias_listeners.append(self.paper.on_bias)
         await self._backfill()
+        await self._load_side_markets(today)
+        self.provider = self._build_provider()
+        await self.provider.connect()
+        keys = [k for r in self.resolved.values() for k in r.all_keys]
+        keys += market_wide_keys(self.settings)  # India VIX and the sector indices
+        keys.extend(sorted(self.bullion_keys))
+        keys.extend(sorted(self.macro_keys))
+        keys.extend(sorted(self.etf_keys))
+        await self.provider.subscribe(keys)
+        self.feed_log.write(
+            epoch_ms_now(), "session_start", f"provider={self.provider.name} keys={len(keys)}"
+        )
+        self._tasks = [
+            asyncio.create_task(self._pump(), name="feed-pump"),
+            asyncio.create_task(self._housekeeping(), name="feed-housekeeping"),
+            asyncio.create_task(self._apply_subscription_changes(), name="feed-resubscribe"),
+        ]
+        if self.settings.feed_provider == "upstox" and self.gift is not None:
+            self._tasks.append(asyncio.create_task(self._gift_poll(), name="gift-nifty"))
+
+    async def _load_side_markets(self, today: date) -> None:
+        """Bullion, macro, the ETFs and GIFT Nifty; each fails soft (§6.6, §6.8)."""
         tracker: BullionTracker | None = None
         if self.settings.feed_provider == "upstox":
             tracker = await self._load_bullion(today)
@@ -318,25 +343,11 @@ class FeedSession:
             macro = await self._load_recorded_macro(self.replay_day or self._replay_day())
         if macro is not None:
             self.attach_macro(macro)
+        etfs = await self._load_etfs(today)
+        if etfs is not None:
+            self.attach_etfs(etfs)
         if self.settings.feed_provider in ("upstox", "replay"):
             self.gift = GiftNifty(GiftStore(self._conn), self.clock)
-        self.provider = self._build_provider()
-        await self.provider.connect()
-        keys = [k for r in self.resolved.values() for k in r.all_keys]
-        keys += market_wide_keys(self.settings)  # India VIX and the sector indices
-        keys.extend(sorted(self.bullion_keys))
-        keys.extend(sorted(self.macro_keys))
-        await self.provider.subscribe(keys)
-        self.feed_log.write(
-            epoch_ms_now(), "session_start", f"provider={self.provider.name} keys={len(keys)}"
-        )
-        self._tasks = [
-            asyncio.create_task(self._pump(), name="feed-pump"),
-            asyncio.create_task(self._housekeeping(), name="feed-housekeeping"),
-            asyncio.create_task(self._apply_subscription_changes(), name="feed-resubscribe"),
-        ]
-        if self.settings.feed_provider == "upstox" and self.gift is not None:
-            self._tasks.append(asyncio.create_task(self._gift_poll(), name="gift-nifty"))
 
     async def stop(self) -> None:
         for t in self._tasks:
@@ -707,6 +718,10 @@ class FeedSession:
         return self.bullion.keys if self.bullion is not None else frozenset()
 
     @property
+    def etf_keys(self) -> frozenset[str]:
+        return self.etfs.keys if self.etfs is not None else frozenset()
+
+    @property
     def macro_keys(self) -> frozenset[str]:
         return self.macro.keys if self.macro is not None else frozenset()
 
@@ -789,6 +804,28 @@ class FeedSession:
 
     def attach_macro(self, tracker: MacroTracker) -> None:
         self.macro = tracker
+        self.tick_bus.subscribe(tracker.on_tick)
+
+    async def _load_etfs(self, today: date) -> EtfTracker | None:
+        """The gold and silver ETFs; their start quote and 52-week range on the live feed.
+
+        Replay has their recorded ticks but makes no network call. Fails soft.
+        """
+        etfs = etfs_mod.etfs_from(self.settings)
+        if not etfs:
+            return None
+        token = self.auth.token if self.auth is not None else None
+        if self.settings.feed_provider == "upstox" and token is not None:
+            try:
+                async with httpx.AsyncClient(timeout=20, transport=self.http_transport) as c:
+                    etfs = await etfs_mod.enrich_etfs(c, token, etfs, today)
+            except Exception as exc:
+                log.warning("ETF start data failed: %s", type(exc).__name__)
+        return EtfTracker(etfs)
+
+    def attach_etfs(self, tracker: EtfTracker) -> None:
+        """NSE ticks: they keep the ordinary path (`prices`, `ticks`); this is the view."""
+        self.etfs = tracker
         self.tick_bus.subscribe(tracker.on_tick)
 
     async def _load_bullion(self, today: date) -> BullionTracker | None:

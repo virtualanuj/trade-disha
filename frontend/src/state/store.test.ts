@@ -115,7 +115,7 @@ describe('bullion in the store', () => {
       [],
       [],
     )
-    s.applyBullion({ metals: [metal], ratio: null }, [
+    s.applyBullion({ metals: [metal], ratio: null, etfs: [] }, [
       { metal: 'GOLD', candles: [{ t: 1 } as CandleOut], overlays: [] },
     ])
     const after = useMarketStore.getState()
@@ -126,7 +126,7 @@ describe('bullion in the store', () => {
   it('leaves the BULLION tab when there is no bullion', () => {
     const s = useMarketStore.getState()
     s.selectIndex(BULLION_TAB)
-    s.applyBullion({ metals: [], ratio: null })
+    s.applyBullion({ metals: [], ratio: null, etfs: [] })
     expect(useMarketStore.getState().selectedIndex).toBe('NIFTY')
   })
 

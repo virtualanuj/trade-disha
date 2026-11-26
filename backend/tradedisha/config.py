@@ -57,6 +57,13 @@ class Settings(BaseSettings):
         ],
         "BANKNIFTY": ["Nifty PSU Bank", "Nifty Pvt Bank", "Nifty Fin Service"],
     }
+    # The NSE gold and silver ETFs on the BULLION tab, under their metal (display only,
+    # Milestone E21): metal -> (trading symbol, NSE_EQ instrument key from the Upstox NSE
+    # file). Changing them changes the subscription, so it needs a restart.
+    bullion_etfs: dict[str, tuple[str, str]] = {
+        "GOLD": ("GOLDBEES", "NSE_EQ|INF204KB17I5"),
+        "SILVER": ("SILVERBEES", "NSE_EQ|INF204KC1402"),
+    }
     market_open: time = time(9, 15)
     market_close: time = time(15, 30)
     pre_open_start: time = time(9, 0)

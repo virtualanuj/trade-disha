@@ -361,7 +361,7 @@ def test_bullion_ticks_are_tracked_but_not_recorded(client: TestClient) -> None:
 
 
 def test_synthetic_feed_has_no_bullion(client: TestClient) -> None:
-    assert client.get("/api/bullion").json() == {"metals": [], "ratio": None}
+    assert client.get("/api/bullion").json() == {"metals": [], "ratio": None, "etfs": []}
     assert client.get("/api/bullion/GOLD/candles").status_code == 404
 
 

@@ -726,6 +726,32 @@ Builder's calls:
 - The ticket's and the editor's boxes step by a rupee; a decimal can still be typed and is
   rounded by the server.
 
+### 25. Gold BeES and Silver BeES on the BULLION tab
+
+Asked for (2026-11-26): add Silver BeES and Gold BeES to the BULLION tab.
+
+Status: built in Milestone E21. Design in [spec.md](spec.md) §6.6 ("Gold and silver
+ETFs") and §13.2 (BullionCards); planned in [plan.md](plan.md) Milestone E21.
+
+Decided with the owner on 2026-11-26:
+- To watch them alongside the MCX futures: display only, no signals or paper trades.
+- Each ETF's own quote only: price, change, the day's range, previous close, ATP, volume,
+  bid and ask, and the 52-week range. No comparison with the MCX price (Upstox sends no
+  iNAV, so any premium would be an estimate).
+
+Builder's calls:
+- Nippon's GOLDBEES and SILVERBEES, by their `NSE_EQ` keys in the Upstox NSE file, listed
+  in a setting (`bullion_etfs`), not a config parameter: they change the subscription,
+  which is made at start.
+- Each ETF's card sits under its metal's card and opens with the same Details toggle.
+- They are NSE instruments: NSE hours, counted as NSE ticks and recorded in `ticks` like
+  the sector indices, so a replay of a later day shows them. While NSE is not trading the
+  card keeps the last price with a muted "NSE closed" (or holiday, pre-open) note, since MCX
+  trades on.
+- They show only where the tab does (while the MCX futures are loaded); synthetic has none.
+- The start quote and 52-week range are fetched on the live feed only; a replay shows
+  them from the recorded ticks.
+
 ## Deferred
 
 ### Strike ladder (ATM ±3)

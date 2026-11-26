@@ -459,8 +459,24 @@ or the `ticks` table, and there is no real-order path for it.
   live no bullion signal fires and no bullion paper trade opens or closes by hand, and a
   bullion trade's first exit after the gap is marked `after_gap` (§9a, §10.1). The index
   side is untouched: no index degraded mode.
+- **Gold and silver ETFs.** Nippon's Gold BeES (`GOLDBEES`, `NSE_EQ|INF204KB17I5`) and
+  Silver BeES (`SILVERBEES`, `NSE_EQ|INF204KC1402`) are shown under their metal's card,
+  display only: no bias, signals or paper trades. They are listed in the `bullion_etfs`
+  setting (metal → symbol and instrument key, from the Upstox NSE file; a restart applies
+  a change) and subscribed with the `upstox` and `replay` providers; synthetic has none.
+  - They are NSE cash instruments, so unlike the MCX futures they keep NSE hours, their
+    ticks count as NSE ticks (like the sector indices) and they are recorded in `ticks`,
+    which is how a replay of the day has them.
+  - `market/etfs.py:EtfTracker` keeps the latest merged tick and the day's open, high and
+    low per ETF; it never reaches a `CandleBuilder`.
+  - From the feed: last price and previous close (`cp`), the day's open, high and low, ATP,
+    volume, best bid and ask with quantities. Once at start, live only: the full quote (the
+    figures before the first tick) and the 52-week high and low to yesterday, widened by
+    today; each fails soft.
+  - Derived as for the metals: change and change %, position in the day's range, spread.
 - **API:**
-  - `GET /api/bullion` (the snapshot) and `GET /api/bullion/{metal}/candles`
+  - `GET /api/bullion` (the snapshot, with the ETFs as `etfs`) and
+    `GET /api/bullion/{metal}/candles`
   - `bullion` (status and `since_ms`) in the health response and `health` frame. On the
     BULLION tab the banner follows it instead of the NSE session: no "Market closed" while
     MCX trades, "Bullion prices are not updating" when stale. Login and connection banners
@@ -470,7 +486,8 @@ or the `ticks` table, and there is no real-order path for it.
     tick age turns amber or red only while that market is open; a closed market's
     silence is shown muted.
   - `bullion` and `bullion_candles` in `hello`
-  - a `bullion` frame throttled like `tick`, and a `bullion_candle` frame on each close
+  - a `bullion` frame throttled like `tick` (an ETF tick sends one too), and a
+    `bullion_candle` frame on each close
 
 ### 6.7 News headlines
 
@@ -1441,6 +1458,16 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
     - Contract, 1 year: high and low with distance and range bar, circuit limits
     - Next month: price, spread over near
     - Buy and Sell, opening the TradeTicket for that metal's future
+  - Under each metal, a card for its NSE ETF (GOLDBEES, SILVERBEES), headed by the symbol
+    and "NSE ETF":
+    - LTP in ₹ per unit, change and change %; while NSE is not trading, a muted note
+      ("NSE closed", "NSE holiday", "NSE pre-open") from the health's `market_status`,
+      since MCX trades on and the price is not stale
+    - the same Details toggle as the metal cards (one choice opens every card). Opened:
+      Today (open, high, low with range bar, previous close, ATP), Liquidity (volume, bid
+      and ask with quantities, spread) and 52 weeks (high and low with distance and range
+      bar)
+    - no Buy or Sell, no OI
   - The gold/silver ratio.
   - `Price`, `Group`, `Fact` and `RangeBar` are shared with IndexTiles (`components/Facts`).
 - **IndexTiles**: spot and futures for the selected index; under them the **Sectors**

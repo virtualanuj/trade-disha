@@ -91,14 +91,41 @@ class BullionSnapshot:
 # -- pure maths -------------------------------------------------------------------
 
 
-def _pct(value: float | None, base: float | None) -> float | None:
+def pct(value: float | None, base: float | None) -> float | None:
     if value is None or not base:
         return None
     return round((value - base) / base * 100, 2)
 
 
-def _diff(a: float | None, b: float | None) -> float | None:
+def diff(a: float | None, b: float | None) -> float | None:
     return None if a is None or b is None else round(a - b, 2)
+
+
+def day_position(ltp: float | None, day: tuple[float, float, float]) -> float | None:
+    """Where `ltp` sits in the day's (open, high, low): 0 at the low, 1 at the high."""
+    _, d_high, d_low = day
+    span = d_high - d_low if d_high and d_low else 0
+    return round((ltp - d_low) / span, 3) if ltp is not None and span > 0 else None
+
+
+def year_range(
+    high: float | None, low: float | None, day: tuple[float, float, float]
+) -> tuple[float | None, float | None]:
+    """A range to yesterday, widened by today's (open, high, low)."""
+    _, d_high, d_low = day
+    hi = max(high, d_high) if high else None
+    lo = min(low, d_low) if low and d_low else low
+    return hi, lo
+
+
+def widen_day(day: tuple[float, float, float], t: Tick) -> tuple[float, float, float]:
+    """The day's (open, high, low) after `t`: the feed's day candle, else widened by price."""
+    o, h, low = day
+    return (
+        t.day_open or o or t.ltp,
+        t.day_high or max(h, t.ltp),
+        t.day_low or (min(low, t.ltp) if low else t.ltp),
+    )
 
 
 def merge_tick(old: Tick | None, new: Tick) -> Tick:
@@ -117,12 +144,9 @@ def metal_snapshot(
     ltp = near.ltp if near else (q.ltp if q else None)
     prev = (near.close_prev if near else None) or (q.prev_close if q else None)
     d_open, d_high, d_low = day
-    span = d_high - d_low if d_high and d_low else 0
-    pos = round((ltp - d_low) / span, 3) if ltp is not None and span > 0 else None
+    pos = day_position(ltp, day)
     tbq, tsq = (near.tbq, near.tsq) if near else (None, None)
-    # the year to yesterday, widened by today
-    hi = max(c.range_high, d_high) if c.range_high else None
-    lo = min(c.range_low, d_low) if c.range_low and d_low else c.range_low
+    hi, lo = year_range(c.range_high, c.range_low, day)
     next_ltp = next_.ltp if next_ else None
     return MetalSnapshot(
         metal=c.metal,
@@ -131,8 +155,8 @@ def metal_snapshot(
         lot_size=c.near.lot_size,
         ltp=ltp,
         prev_close=prev,
-        change=_diff(ltp, prev),
-        change_pct=_pct(ltp, prev),
+        change=diff(ltp, prev),
+        change_pct=pct(ltp, prev),
         day_open=d_open or None,
         day_high=d_high or None,
         day_low=d_low or None,
@@ -144,7 +168,7 @@ def metal_snapshot(
         ask=near.ask if near else None,
         bid_qty=near.bid_qty if near else None,
         ask_qty=near.ask_qty if near else None,
-        spread=_diff(near.ask, near.bid) if near else None,
+        spread=diff(near.ask, near.bid) if near else None,
         tbq=tbq,
         tsq=tsq,
         buy_sell_ratio=round(tbq / tsq, 2) if tbq and tsq else None,
@@ -155,8 +179,8 @@ def metal_snapshot(
         next_symbol=c.next.trading_symbol if c.next else None,
         next_expiry=c.next.expiry if c.next else None,
         next_ltp=next_ltp,
-        calendar_spread=_diff(next_ltp, ltp),
-        calendar_spread_pct=_pct(next_ltp, ltp),
+        calendar_spread=diff(next_ltp, ltp),
+        calendar_spread_pct=pct(next_ltp, ltp),
         updated_ts=near.ts if near else None,
     )
 
@@ -221,12 +245,7 @@ class BullionTracker:
         metal = self._metal_of_near.get(t.key)
         if metal is None:
             return  # a next-month contract: price only
-        o, h, low = self._day.get(metal, (0.0, 0.0, 0.0))
-        self._day[metal] = (
-            t.day_open or o or t.ltp,
-            t.day_high or max(h, t.ltp),
-            t.day_low or (min(low, t.ltp) if low else t.ltp),
-        )
+        self._day[metal] = widen_day(self._day.get(metal, (0.0, 0.0, 0.0)), t)
         self._record_book(self._latest[t.key])
         self.candles.apply(t)
 

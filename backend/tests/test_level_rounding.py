@@ -74,7 +74,9 @@ def test_rounded_levels_are_whole_and_bracket_the_entry(
 ) -> None:
     entry = round(entry, 2)
     if direction in {"BUY_FUT", "SELL_FUT"}:
-        entry = max(entry, 1_000.0)  # a future is priced in thousands; an option can be paise
+        # a future is priced in thousands (an option can be paise); above the largest move,
+        # so a short's target stays above zero
+        entry = max(entry, 2_000.0)
     short = direction == "SELL_FUT"
     target = entry - up if short else entry + up
     stop = entry + down if short else max(0.05, entry - down)

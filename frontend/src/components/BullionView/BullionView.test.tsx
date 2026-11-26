@@ -1,7 +1,7 @@
 import { fireEvent, render, renderHook, screen } from '@testing-library/react'
 import { act } from 'react'
 
-import type { BullionMetalOut, BullionOut } from '../../api/types'
+import type { BullionEtfOut, BullionMetalOut, BullionOut } from '../../api/types'
 import { useBullionMetal } from '../../lib/useBullionMetal'
 import { BullionCards, MetalSwitch } from './BullionView'
 
@@ -41,7 +41,7 @@ const gold: BullionMetalOut = {
   updated_ts: 1_794_820_957_000,
 }
 const silver: BullionMetalOut = { ...gold, metal: 'SILVER', trading_symbol: 'SILVER FUT 04 DEC 26' }
-const bullion: BullionOut = { metals: [gold, silver], ratio: 79.31 }
+const bullion: BullionOut = { metals: [gold, silver], ratio: 79.31, etfs: [] }
 function show(b: BullionOut | null = bullion) {
   return render(<BullionCards bullion={b} />)
 }
@@ -101,13 +101,13 @@ describe('BullionCards', () => {
       updated_ts: null,
     }
     localStorage.setItem('tradedisha.bullionDetailsOpen', 'true')
-    show({ metals: [empty], ratio: null })
+    show({ metals: [empty], ratio: null, etfs: [] })
     expect(screen.getByTestId('bullion-ratio')).toHaveTextContent('—')
     expect(screen.getByTestId('bullion-GOLD')).toHaveTextContent('Spread over near—')
   })
 
   it('explains that bullion needs the live feed', () => {
-    show({ metals: [], ratio: null })
+    show({ metals: [], ratio: null, etfs: [] })
     expect(screen.getByText(/Live feed only/)).toBeInTheDocument()
   })
 })
@@ -157,5 +157,69 @@ describe('BullionCards paper trades by hand', () => {
   it('has no trade buttons without a handler', () => {
     show()
     expect(screen.queryByRole('button', { name: 'Buy' })).not.toBeInTheDocument()
+  })
+})
+
+const goldbees: BullionEtfOut = {
+  metal: 'GOLD',
+  symbol: 'GOLDBEES',
+  ltp: 108.42,
+  prev_close: 107.81,
+  change: 0.61,
+  change_pct: 0.57,
+  day_open: 107.9,
+  day_high: 108.6,
+  day_low: 107.5,
+  range_pos: 0.84,
+  atp: 108.1,
+  volume: 1_234_567,
+  bid: 108.41,
+  ask: 108.43,
+  bid_qty: 900,
+  ask_qty: 1200,
+  spread: 0.02,
+  range_high: 110,
+  range_low: 70,
+  updated_ts: 1_794_820_957_000,
+}
+const silverbees: BullionEtfOut = { ...goldbees, metal: 'SILVER', symbol: 'SILVERBEES' }
+const withEtfs: BullionOut = { ...bullion, etfs: [silverbees, goldbees] }
+
+describe('BullionCards ETFs (E21)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('puts each ETF under its metal, with its price and change', () => {
+    render(<BullionCards bullion={withEtfs} nseStatus="live" />)
+    const cards = screen.getAllByTestId(/^(bullion|etf)-[A-Z]+$/).map((el) => el.dataset.testid)
+    expect(cards).toEqual(['bullion-GOLD', 'etf-GOLDBEES', 'bullion-SILVER', 'etf-SILVERBEES'])
+    const g = screen.getByTestId('etf-GOLDBEES')
+    expect(g).toHaveTextContent('LTP ₹ / unit')
+    expect(g).toHaveTextContent('108.42')
+    expect(g).toHaveTextContent('+0.61 (+0.57%)')
+    expect(g).not.toHaveTextContent('NSE closed')
+  })
+
+  it('opens its details with the metals, and has no trade buttons', () => {
+    const onTrade = vi.fn()
+    render(<BullionCards bullion={withEtfs} nseStatus="live" onTrade={onTrade} />)
+    expect(screen.getAllByRole('button', { name: 'Buy' })).toHaveLength(2) // the metals only
+    const [first] = screen.getAllByRole('button', { name: /Details/ })
+    if (first) fireEvent.click(first)
+    const d = screen.getByTestId('etf-details-GOLDBEES')
+    expect(d).toHaveTextContent('Prev close107.81')
+    expect(d).toHaveTextContent('Bid108.41 × 900')
+    expect(d).toHaveTextContent('Spread0.02')
+    expect(d).toHaveTextContent('52 weeks')
+    expect(d).toHaveTextContent('High110.00')
+    expect(d).not.toHaveTextContent('Open interest')
+    expect(screen.getByTestId('etf-details-SILVERBEES')).toBeInTheDocument()
+  })
+
+  it('says when NSE is not trading, while MCX carries on', () => {
+    render(<BullionCards bullion={withEtfs} nseStatus="closed" />)
+    expect(screen.getByTestId('etf-GOLDBEES')).toHaveTextContent('NSE closed')
+    expect(screen.getByTestId('bullion-GOLD')).not.toHaveTextContent('NSE closed')
   })
 })

@@ -1,7 +1,13 @@
 import { memo, useCallback } from 'react'
 import type { ReactNode } from 'react'
 
-import type { BullionMetalOut, BullionOut, TicketTarget } from '../../api/types'
+import type {
+  BullionEtfOut,
+  BullionMetalOut,
+  BullionOut,
+  MarketStatus,
+  TicketTarget,
+} from '../../api/types'
 import { fmtCount, fmtDate, fmtOi, fmtPrice, fmtSigned, pnlColour } from '../../lib/format'
 import { usePref } from '../../lib/usePref'
 import { Fact, Group, Price, RangeBar } from '../Facts/Facts'
@@ -9,6 +15,13 @@ import { Fact, Group, Price, RangeBar } from '../Facts/Facts'
 /** MCX quotes gold per 10 g and silver per kg. */
 const UNIT: Record<string, string> = { GOLD: '₹ / 10 g', SILVER: '₹ / kg' }
 const EMPTY: never[] = []
+/** an ETF's note while NSE is not trading (MCX trades on, so it is not an outage) */
+const NSE_NOTE: Record<MarketStatus, string> = {
+  pre_open: 'NSE pre-open',
+  live: '',
+  closed: 'NSE closed',
+  holiday: 'NSE holiday',
+}
 /** one remembered choice for both metal cards, apart from the index details' */
 const DETAILS_KEY = 'tradedisha.bullionDetailsOpen'
 const asOpen = (v: unknown): boolean => v === true
@@ -45,17 +58,22 @@ export function MetalSwitch({
 }
 
 /**
- * The BULLION tab's tiles: a card per metal and the gold/silver ratio (spec §6.6, §13.2).
- * With `onTrade` (stable), each card has Buy and Sell for a paper trade by hand (E23).
+ * The BULLION tab's tiles: a card per metal, its NSE ETF under it (E21), and the
+ * gold/silver ratio (spec §6.6, §13.2). With `onTrade` (stable), each metal's card has Buy
+ * and Sell for a paper trade by hand (E23); the ETFs are display only.
  */
 export function BullionCards({
   bullion,
+  nseStatus = null,
   onTrade,
 }: {
   bullion: BullionOut | null
+  /** the NSE session, for the ETFs' hours */
+  nseStatus?: MarketStatus | null
   onTrade?: (t: TicketTarget) => void
 }) {
   const metals = bullion?.metals ?? EMPTY
+  const etfs = bullion?.etfs ?? EMPTY
   // one choice for both cards, like the index details: opening one opens both
   const [open, setOpen] = usePref(DETAILS_KEY, asOpen)
   const toggle = useCallback(() => {
@@ -71,11 +89,26 @@ export function BullionCards({
   return (
     <div className="flex flex-col gap-3" data-testid="bullion-view">
       <div className="grid gap-3 lg:grid-cols-2">
-        {metals.map((m) => (
-          <Box key={m.metal}>
-            <MetalCard m={m} open={open} onToggle={toggle} onTrade={onTrade} />
-          </Box>
-        ))}
+        {metals.map((m) => {
+          const etf = etfs.find((e) => e.metal === m.metal)
+          return (
+            <div key={m.metal} className="flex flex-col gap-3">
+              <Box>
+                <MetalCard m={m} open={open} onToggle={toggle} onTrade={onTrade} />
+              </Box>
+              {etf ? (
+                <Box>
+                  <EtfCard
+                    e={etf}
+                    note={nseStatus ? NSE_NOTE[nseStatus] : ''}
+                    open={open}
+                    onToggle={toggle}
+                  />
+                </Box>
+              ) : null}
+            </div>
+          )
+        })}
       </div>
       <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-xs">
         <span
@@ -100,6 +133,13 @@ function withQty(price: number | null, qty: number | null): string {
   return qty == null ? fmtPrice(price) : `${fmtPrice(price)} × ${fmtCount(qty)}`
 }
 
+/** Where `ltp` sits between `low` and `high`, 0 to 1; null when unknown or flat. */
+function rangePos(ltp: number | null, high: number | null, low: number | null): number | null {
+  return ltp != null && high != null && low != null && high > low
+    ? (ltp - low) / (high - low)
+    : null
+}
+
 /** `ref` as a signed percentage away from `price`. */
 function awayPct(price: number | null, ref: number | null): string {
   if (price == null || !ref) return ''
@@ -117,10 +157,7 @@ const MetalCard = memo(function MetalCard({
   onToggle: () => void
   onTrade: ((t: TicketTarget) => void) | undefined
 }) {
-  const yearPos =
-    m.ltp != null && m.range_high != null && m.range_low != null && m.range_high > m.range_low
-      ? (m.ltp - m.range_low) / (m.range_high - m.range_low)
-      : null
+  const yearPos = rangePos(m.ltp, m.range_high, m.range_low)
   return (
     <div className="flex flex-col gap-3" data-testid={`bullion-${m.metal}`}>
       <div className="flex items-baseline justify-between gap-2">
@@ -160,21 +197,93 @@ const MetalCard = memo(function MetalCard({
           </span>
         ) : null}
       </div>
-      <button
-        type="button"
-        className="flex items-center gap-1 self-start text-xs text-fg-muted hover:text-fg"
-        aria-expanded={open}
-        onClick={onToggle}
-      >
-        <span aria-hidden="true" className="inline-block w-3">
-          {open ? '▾' : '▸'}
-        </span>
-        Details
-      </button>
+      <DetailsToggle open={open} onToggle={onToggle} />
       {open ? <MetalDetails m={m} yearPos={yearPos} /> : null}
     </div>
   )
 })
+
+function DetailsToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      className="flex items-center gap-1 self-start text-xs text-fg-muted hover:text-fg"
+      aria-expanded={open}
+      onClick={onToggle}
+    >
+      <span aria-hidden="true" className="inline-block w-3">
+        {open ? '▾' : '▸'}
+      </span>
+      Details
+    </button>
+  )
+}
+
+/** GOLDBEES / SILVERBEES: the NSE ETF's own quote, under its metal (E21). No trading. */
+const EtfCard = memo(function EtfCard({
+  e,
+  note,
+  open,
+  onToggle,
+}: {
+  e: BullionEtfOut
+  /** why it is not ticking: NSE closed, a holiday, pre-open; empty while NSE trades */
+  note: string
+  open: boolean
+  onToggle: () => void
+}) {
+  return (
+    <div className="flex flex-col gap-3" data-testid={`etf-${e.symbol}`}>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-base font-semibold">{e.symbol}</span>
+        <span className="truncate text-xs text-fg-muted">NSE ETF</span>
+      </div>
+      <div className="flex items-end gap-4">
+        <Price label="LTP ₹ / unit" value={e.ltp} ts={e.updated_ts} />
+        <span className={`pb-5 font-mono text-sm ${pnlColour(e.change)}`}>
+          {e.change == null ? '—' : fmtSigned(e.change, 2)}
+          {e.change_pct == null ? '' : ` (${fmtSigned(e.change_pct, 2)}%)`}
+        </span>
+        {note ? <span className="ml-auto pb-5 text-xs text-fg-muted">{note}</span> : null}
+      </div>
+      <DetailsToggle open={open} onToggle={onToggle} />
+      {open ? <EtfDetails e={e} /> : null}
+    </div>
+  )
+})
+
+/** The ETF's day, liquidity and 52-week figures, shown when opened. */
+function EtfDetails({ e }: { e: BullionEtfOut }) {
+  return (
+    <div
+      className="grid gap-x-6 gap-y-3 border-t border-border pt-3 text-xs sm:grid-cols-2"
+      data-testid={`etf-details-${e.symbol}`}
+    >
+      <Group title="Today">
+        <Fact label="Open" value={fmtPrice(e.day_open)} />
+        <Fact label="High" value={fmtPrice(e.day_high)} />
+        <Fact label="Low" value={fmtPrice(e.day_low)} />
+        <RangeBar pos={e.range_pos} label="Position in the day's range" />
+        <Fact label="Prev close" value={fmtPrice(e.prev_close)} />
+        <Fact label="ATP (VWAP)" value={fmtPrice(e.atp)} />
+      </Group>
+      <Group title="Liquidity">
+        <Fact label="Volume" value={fmtCount(e.volume)} />
+        <Fact label="Bid" value={withQty(e.bid, e.bid_qty)} />
+        <Fact label="Ask" value={withQty(e.ask, e.ask_qty)} />
+        <Fact label="Spread" value={e.spread == null ? '—' : e.spread.toFixed(2)} />
+      </Group>
+      <Group title="52 weeks">
+        <Fact label="High" value={fmtPrice(e.range_high)} sub={awayPct(e.ltp, e.range_high)} />
+        <Fact label="Low" value={fmtPrice(e.range_low)} sub={awayPct(e.ltp, e.range_low)} />
+        <RangeBar
+          pos={rangePos(e.ltp, e.range_high, e.range_low)}
+          label="Position in the 52-week range"
+        />
+      </Group>
+    </div>
+  )
+}
 
 /** The day, liquidity, contract-range and next-month figures, shown when opened. */
 function MetalDetails({ m, yearPos }: { m: BullionMetalOut; yearPos: number | null }) {
