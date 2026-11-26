@@ -852,7 +852,7 @@ class FeedSession:
             log.warning("no MCX instrument file for %s: bullion is not replayed", day)
             return None
         contracts = bullion_mod.contracts_from(
-            await asyncio.to_thread(read_commodities, path, bullion_mod.METALS), day
+            await asyncio.to_thread(read_commodities, path, bullion_mod.CONTRACTS), day
         )
         if not contracts:
             return None

@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { ComponentProps } from 'react'
 
-import type { NewsOut, PaperTradeOut, SignalOut, TicketTarget } from '../../api/types'
+import type { BullionOut, NewsOut, PaperTradeOut, SignalOut, TicketTarget } from '../../api/types'
 import { isLong } from '../../lib/direction'
 import { factorSwitches } from '../../lib/factors'
 import { newestBullionTs, newestIndexTickTs, openTradeCount } from '../../lib/marketViews'
@@ -132,14 +132,21 @@ function useTicket() {
   return { ticket, setTicket, close, opened }
 }
 
-export function BullionTilesPanel({ frame }: { frame: FrameProps }) {
+/** The live price of the contract a bullion ticket is for: the metal's future or its mini. */
+function ticketLtp(bullion: BullionOut | null, t: TicketTarget): number | null {
+  const m = bullion?.metals.find((x) => x.metal === t.index)
+  if (!m) return null
+  return t.contract && t.contract !== t.index ? (m.mini?.ltp ?? null) : m.ltp
+}
+
+export function BullionTilesPanel({ frame, metal }: { frame: FrameProps; metal: string }) {
   const bullion = useMarketStore((s) => s.bullion)
   const nseStatus = useMarketStore((s) => s.health?.market_status ?? null)
   const { ticket, setTicket, close, opened } = useTicket()
-  const ltp = ticket ? (bullion?.metals.find((m) => m.metal === ticket.index)?.ltp ?? null) : null
+  const ltp = ticket ? ticketLtp(bullion, ticket) : null
   return (
     <PanelFrame {...frame} title="Bullion" summary={bullionSummary(bullion)}>
-      <BullionCards bullion={bullion} nseStatus={nseStatus} onTrade={setTicket} />
+      <BullionCards bullion={bullion} metal={metal} nseStatus={nseStatus} onTrade={setTicket} />
       {ticket ? <TradeTicket target={ticket} ltp={ltp} onClose={close} onOpened={opened} /> : null}
     </PanelFrame>
   )

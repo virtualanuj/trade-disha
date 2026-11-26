@@ -156,7 +156,7 @@ UTC epoch milliseconds.
 ### 3.2 Tunable parameters (`ParameterSet`)
 
 A single pydantic model with validation (weights sum to 1, thresholds in range, fast EMA <
-slow EMA, …). Names below are the model's paths (`weights.trend`, `bullion.lots`, …), grouped
+slow EMA, …). Names below are the model's paths (`weights.trend`, `bullion.gold_lots`, …), grouped
 by section. Each field carries a one-line description, which the editor shows as help text.
 
 | Group | Parameter | Default |
@@ -199,7 +199,9 @@ by section. Each field carries a one-line description, which the editor shows as
 | Bullion | `signal_ttl_seconds`, `eval_offset_seconds` | 300, 20 |
 | Bullion | `first_signal_time`, `last_signal_time`, `square_off_time` | 09:15, 22:45, 23:00 |
 | Bullion | `target_pct`, `stop_pct` | 0.40, 0.20 (% of the future's price) |
-| Bullion | `lots`, `cost_fixed_per_lot`, `cost_pct_of_value` | 1, ₹60, 0.012 % |
+| Bullion | `gold_contract`, `silver_contract` | `GOLD`, `SILVER` (what a signal trade opens: the full future or its mini, `GOLDM` / `SILVERM`) |
+| Bullion | `gold_lots`, `goldm_lots`, `silver_lots`, `silverm_lots` | 1 each (default lots per contract; a hand ticket can change them) |
+| Bullion | `cost_fixed_per_lot`, `cost_pct_of_value` | ₹60, 0.012 % |
 | Bullion | `gold_margin_pct`, `silver_margin_pct` | 10, 12 (% of value a future blocks in the paper bank, §10.5) |
 | Bullion | `macro_weight` | 0.10 (other markets' share: the dollar, USD/INR and the other metal) |
 | Bullion | `oi_weight`, `flow_weight` | 0.15, 0.15 (trend has what OI, flow and macro leave) |
@@ -409,6 +411,14 @@ or the `ticks` table, and there is no real-order path for it.
   contract, minis and petals included. The **near** contract is the nearest expiry strictly
   after today, so it rolls on expiry day, when the expiring one is in its delivery period.
   The **next** contract is the one after it. All four are subscribed.
+- **Minis.** Each metal also carries its mini, GOLDM (100 g, ₹10 a point) and SILVERM
+  (5 kg, ₹5 a point), matched the same way (`bullion.py:MINIS`), as a contract of its own
+  (`BullionContract.mini`): near and next month, the start quote, the one-year range and the
+  day's range, so its snapshot has every figure the metal's has (`MetalSnapshot.mini`). It
+  is the same quote in smaller lots and only a trading choice (§9a, §10.1): subscribed and
+  recorded in `bullion_ticks`, but never in the metal's candles, order book, bias or
+  signals. A mini that is not in the file is logged and its metal trades the full contract
+  only.
 - **Live, from the feed** (`full` mode), for the near contract:
   - last price and previous close (`cp`)
   - the day's open, high and low, from the `1d` row of `marketOHLC`; if that row is absent,
@@ -1001,6 +1011,16 @@ the next evaluation; the other carries on in shadow, so the comparison never sto
 GOLD and SILVER MCX near-month futures, run by `engine/bullion_desk.py:BullionDesk`
 (bias -> signals -> paper trades) on the MCX clock and bullion liveness (§6.6).
 
+- **The contract traded.** A signal is always the full future's: its evidence, entry and
+  levels read GOLD or SILVER. Its paper trade opens `bullion.gold_contract` /
+  `silver_contract`, the full future or its mini (`BullionSignalEngine.trade_contract`),
+  with that contract's default lots (`bullion.<contract>_lots`), at that contract's price;
+  the live levels are taken at that fill (§9.3) and slippage is the fill against the
+  signal's entry. A configured mini that is not loaded refuses the trade (409). The trade
+  stays the metal's (`index` GOLD or SILVER): its margin %, its journal row, its US-release
+  pause. An active bullion signal carries `trade` (contract, symbol, lots, quantity) so
+  the card can say what it opens.
+
 - **Evidence.** There is no option chain for bullion. The bias has four groups, all read
   from the near future up to the minute being worked out (`indicators/futures.py`,
   except trend):
@@ -1074,7 +1094,8 @@ POST /paper-trades {signal_id}
     `bullion.event_block_trades` is on (§9a), its feed live (else 409 with reason)
   → open at current LTP of signal.instrument_key (not signal.entry_price)
   → slippage = fill − signal.entry_price
-  → quantity = lot_size × lots (bullion: point value × bullion.lots)
+  → quantity = lot_size × lots (bullion: the traded contract's point value × its
+    default lots, `bullion.<contract>_lots`; a metal's signal may trade its mini, §9a)
   → the paper bank blocks the trade's money, or refuses (409) if it cannot (§10.5)
   → status OPEN; target/stop = the signal's live levels at the fill price (§9.3), so the
     trade gets what the card's Live row showed; signal_entry keeps the fired entry
@@ -1090,11 +1111,14 @@ sold. It is stored like any other trade, with `signal_id = 'manual'`
 (`engine/paper.py:MANUAL_SIGNAL_ID`; a signal id is twelve hex digits, so none can clash).
 
 ```
-GET /paper-trades/ticket?index=&direction=&strike=      (strike for an option only)
+GET /paper-trades/ticket?index=&direction=&strike=&contract=&lots=
+  (strike for an option only; contract GOLDM or SILVERM for a metal's mini, the full
+  future by default; lots 1 to 100, the contract's default by default)
   → the contract, its price now, lots and quantity, cost, the money the bank would
     block and the money free, the signal rule's target and stop at that price, and
     `refusal`: why an open would be refused now, if it would be. Nothing is opened.
-POST /paper-trades/manual {index, direction, strike?, quoted?, target?, stop?}
+POST /paper-trades/manual {index, direction, strike?, quoted?, target?, stop?, contract?, lots?}
+  → lots outside 1 to 100 are refused (409); on the ticket they are its refusal
   → the same gates as a signal trade, plus the signal cut-off: no index trade at or
     after signal.last_signal_time (last_signal_time_expiry on expiry day), no bullion
     trade at or after bullion.last_signal_time (else 409 with reason)
@@ -1289,8 +1313,8 @@ only SQLite, and `GET /auth/login`; a test lists them.
 | GET | `/flow` | latest order-flow reading per index (§8.5) and whether it is live or shadow |
 | GET | `/signals/{id}` | one signal with breakdown and outcome |
 | POST | `/paper-trades` | body `{signal_id}` → trade |
-| GET | `/paper-trades/ticket?index=&direction=&strike=` | the ticket for a trade opened by hand (§10.1); a refusal is in its `refusal`; 404 for no such contract |
-| POST | `/paper-trades/manual` | body `{index, direction, strike?, quoted?, target?, stop?}` → trade opened by hand (§10.1) |
+| GET | `/paper-trades/ticket?index=&direction=&strike=&contract=&lots=` | the ticket for a trade opened by hand (§10.1); a refusal is in its `refusal`; 404 for no such contract |
+| POST | `/paper-trades/manual` | body `{index, direction, strike?, quoted?, target?, stop?, contract?, lots?}` → trade opened by hand (§10.1) |
 | PATCH | `/paper-trades/{id}/levels` | body `{target, stop}` → the open trade with its new levels (§10.1) |
 | POST | `/paper-trades/{id}/close` | manual close |
 | GET | `/paper-trades?index=&status=&from=&to=` | trades |
@@ -1480,23 +1504,31 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   and no order-flow line), Price chart, Open paper trades and Signals today show the metal
   (§9a). The option-chain column
   and its divider are not shown.
-- **BullionCards** (the BULLION tiles):
+- **BullionCards** (the BULLION tiles): the metal in focus only, as the MetalSwitch picks
+  for every panel: its card across the panel, its mini's and its ETF's cards side by side
+  under it, then the gold/silver ratio (still of both metals). Given no metal in focus (or
+  one it has no data for) it shows every metal side by side, each column stacked.
   - A card per metal, headed by the contract, expiry and lot:
     - LTP with unit, change and change % (always shown)
-    - a **Details** toggle, like the index tile's, closed by default; one choice for both
-      cards, remembered in `localStorage` (`tradedisha.bullionDetailsOpen`, apart from the
-      index's `tradedisha.detailsOpen`). Opened, it shows:
+    - a **Details** toggle, like the index tile's, closed by default. Each card opens and
+      closes on its own and is remembered on its own in `localStorage`
+      (`tradedisha.bullionDetailsOpen.<card>`: `.GOLD`, `.GOLDM`, `.GOLDBEES`, …), apart
+      from the index's `tradedisha.detailsOpen`. Opened, it shows:
     - Today: open, high, low with range bar, previous close, ATP
     - Liquidity: volume, OI, bid and ask with quantities, spread, buy/sell quantity and ratio
     - Contract, 1 year: high and low with distance and range bar, circuit limits
     - Next month: price, spread over near
     - Buy and Sell, opening the TradeTicket for that metal's future
+  - Under each metal, its mini's card (GOLDM, SILVERM): the same card as the metal's, with
+    the same Details (Today, Liquidity, Contract 1 year, Next month) on its own toggle,
+    and its own Buy and Sell, opening the TradeTicket for the mini. Above the ETF card.
+    Every card's heading also gives the rupees per point a lot.
   - Under each metal, a card for its NSE ETF (GOLDBEES, SILVERBEES), headed by the symbol
     and "NSE ETF":
     - LTP in ₹ per unit, change and change %; while NSE is not trading, a muted note
       ("NSE closed", "NSE holiday", "NSE pre-open") from the health's `market_status`,
       since MCX trades on and the price is not stale
-    - the same Details toggle as the metal cards (one choice opens every card). Opened:
+    - a Details toggle of its own, like the metal cards'. Opened:
       Today (open, high, low with range bar, previous close, ATP), Liquidity (volume, bid
       and ask with quantities, spread) and 52 weeks (high and low with distance and range
       bar)
@@ -1610,10 +1642,11 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   open-trades block when there are open trades on that index or metal (each with
   direction, entry, live P&L and minutes open; closing is done from the OpenTrades panel), Paper
   trade button (disabled with reason when market closed, feed not live, or signal not
-  active), link to full breakdown. With no active signal it says so, with the reason the
+  active), beside it for a bullion signal what the click opens ("trades GOLDM ×3", from
+  `trade`), link to full breakdown. With no active signal it says so, with the reason the
   last minute did not fire.
 - **OpenTrades** (the "Open paper trades" panel): one row per open paper trade on the
-  selected index: option and quantity, entry, current price, target, stop, live net P&L,
+  selected index: option and quantity (a mini named, "GOLDM FUT long"), entry, current price, target, stop, live net P&L,
   time open, a "bias reversed" flag, a "manual" badge on a trade opened by hand, a Levels
   button and a Close button (both disabled while the feed is not live). Levels opens the
   **LevelsEditor** under the row: target and stop boxes filled with the trade's, Save
@@ -1643,7 +1676,10 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   or a bullion card's Buy / Sell. It loads `GET /paper-trades/ticket` and shows the
   contract and expiry, the price now (the socket's, once it has one), quantity, cost, the
   money the bank would hold and the money free, and Target and Stop boxes filled with the
-  signal rule's levels. Left as they are, the levels are worked out again at the fill;
+  signal rule's levels. A future's ticket also has a **Lots** box filled with the
+  contract's default (`bullion.<contract>_lots`); a whole number from 1 to 100 asks the
+  server again, so quantity, cost and money held follow, and Open sends it; anything else
+  is refused without asking. The heading names a mini (GOLDM). Left as they are, the levels are worked out again at the fill;
   typed ones are kept (the note under the boxes says which). A refusal is shown and Open
   is disabled. Open waits for the server (`POST /paper-trades/manual`), puts the trade in
   the store and closes; a refusal is shown under the boxes. Escape, Cancel or the
@@ -1743,7 +1779,7 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   try/catch fallback to defaults: theme (existing), `layout` (`{chainWidth, chartHeight}`),
   `panels` (which panels are minimised; an older `chainOpen` key is read once to carry
   the choice over), `panelOrder` (the order of the main column's units),
-  `detailsOpen`, `bullionDetailsOpen`, `sectorsOpen`, `bullionChart` (the metal picked),
+  `detailsOpen`, `bullionDetailsOpen.<card>` (one per bullion card), `sectorsOpen`, `bullionChart` (the metal picked),
   `newsHidden` and `newsSeen`. All keys are prefixed `tradedisha.`.
 - REST via plain `fetch` (`api/client.ts`) for history, the journal and mutations
   (`POST /paper-trades`).

@@ -171,6 +171,8 @@ class ManualOpenRequest(BaseModel):
     quoted: float | None = Field(None, gt=0)  # the price the ticket showed
     target: float | None = None
     stop: float | None = None
+    contract: str | None = None  # a metal's mini, GOLDM or SILVERM (E28); None: the full one
+    lots: int | None = None  # None: the contract's default; else 1 to 100
 
 
 class LevelsRequest(BaseModel):
@@ -257,10 +259,21 @@ async def open_trade(body: OpenRequest, state: State) -> PaperTradeOut:
 
 @router.get("/paper-trades/ticket", response_model=TicketOut)
 async def ticket(
-    state: State, index: str, direction: ManualDirection, strike: float | None = None
+    state: State,
+    index: str,
+    direction: ManualDirection,
+    strike: float | None = None,
+    contract: str | None = None,
+    lots: int | None = None,
 ) -> TicketOut:
     try:
-        quote = _manager(state, index.upper()).quote_manual(index.upper(), direction, strike)
+        quote = _manager(state, index.upper()).quote_manual(
+            index.upper(),
+            direction,
+            strike,
+            contract=contract.upper() if contract else None,
+            lots=lots,
+        )
     except PaperError as exc:
         raise _fail(exc) from exc
     return TicketOut(**asdict(quote))
@@ -277,6 +290,8 @@ async def open_manual(body: ManualOpenRequest, state: State) -> PaperTradeOut:
             quoted=body.quoted,
             target=body.target,
             stop=body.stop,
+            contract=body.contract.upper() if body.contract else None,
+            lots=body.lots,
         )
     except PaperError as exc:
         raise _fail(exc) from exc

@@ -498,7 +498,24 @@ class Bullion(BaseModel):
         le=10,
         description="Stop, as % of the future's price against the signal.",
     )
-    lots: int = Field(1, ge=1, le=100, description="Lots per bullion paper trade.")
+    gold_contract: Literal["GOLD", "GOLDM"] = Field(
+        "GOLD",
+        description=(
+            "The future a GOLD signal's paper trade opens: GOLD (1 kg, ₹100 a point) or "
+            "GOLDM (100 g, ₹10 a point). The signal itself always reads GOLD."
+        ),
+    )
+    silver_contract: Literal["SILVER", "SILVERM"] = Field(
+        "SILVER",
+        description=(
+            "The future a SILVER signal's paper trade opens: SILVER (30 kg, ₹30 a point) "
+            "or SILVERM (5 kg, ₹5 a point). The signal itself always reads SILVER."
+        ),
+    )
+    gold_lots: int = Field(1, ge=1, le=100, description="Default lots of a GOLD paper trade.")
+    goldm_lots: int = Field(1, ge=1, le=100, description="Default lots of a GOLDM paper trade.")
+    silver_lots: int = Field(1, ge=1, le=100, description="Default lots of a SILVER paper trade.")
+    silverm_lots: int = Field(1, ge=1, le=100, description="Default lots of a SILVERM paper trade.")
     event_pause_before_minutes: int = Field(
         15,
         ge=0,
@@ -647,6 +664,31 @@ class Bullion(BaseModel):
 
     def margin_pct(self, metal: str) -> float:
         return self.gold_margin_pct if metal == "GOLD" else self.silver_margin_pct
+
+    def contract_for(self, metal: str) -> str:
+        """The contract a metal's signal trade opens: the full future or its mini."""
+        return self.gold_contract if metal == "GOLD" else self.silver_contract
+
+    def lots_for(self, contract: str) -> int:
+        """Default lots for a contract (GOLD, GOLDM, SILVER, SILVERM)."""
+        return {
+            "GOLD": self.gold_lots,
+            "GOLDM": self.goldm_lots,
+            "SILVER": self.silver_lots,
+            "SILVERM": self.silverm_lots,
+        }.get(contract, 1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_lots(cls, data: object) -> object:
+        """A version saved before E28 has one `lots` for every bullion trade: it becomes
+        each contract's default, so that version still loads."""
+        if isinstance(data, dict) and "lots" in data:
+            data = dict(data)
+            lots = data.pop("lots")
+            for name in ("gold_lots", "goldm_lots", "silver_lots", "silverm_lots"):
+                data.setdefault(name, lots)
+        return data
 
     @field_validator("first_signal_time", "last_signal_time", "square_off_time", mode="before")
     @classmethod

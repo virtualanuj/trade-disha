@@ -29,6 +29,10 @@ from tradedisha.market.candles import MINUTE_MS, Candle, CandleBuilder
 log = logging.getLogger(__name__)
 
 METALS: tuple[str, ...] = ("GOLD", "SILVER")
+# Each metal's mini (E28): the same quote in smaller lots, a trading choice only. The bias,
+# candles and signals always read the full contract.
+MINIS: dict[str, str] = {"GOLD": "GOLDM", "SILVER": "SILVERM"}
+CONTRACTS: tuple[str, ...] = (*METALS, *MINIS.values())  # what the MCX file is read for
 GOLD_PER_KG = 100  # GOLD is quoted per 10 g, SILVER per kg
 CANDLE_HISTORY = 900  # minutes: MCX runs 09:00 to 23:30
 
@@ -43,6 +47,9 @@ class BullionContract:
     quote: FullQuote | None = None  # near contract, at start
     range_high: float | None = None  # the contract's high over the last year, to yesterday
     range_low: float | None = None
+    # The metal's mini (GOLDM, SILVERM), a contract of its own with the same details; a
+    # trading choice only, never the metal's candles or bias (E28).
+    mini: BullionContract | None = None
 
 
 @dataclass(frozen=True)
@@ -80,6 +87,8 @@ class MetalSnapshot:
     calendar_spread: float | None  # next minus near
     calendar_spread_pct: float | None
     updated_ts: int | None
+    point_value: int = 0  # rupees per point per lot (the file's qty multiplier)
+    mini: MetalSnapshot | None = None  # the metal's mini, with the same figures (E28)
 
 
 @dataclass(frozen=True)
@@ -182,6 +191,7 @@ def metal_snapshot(
         calendar_spread=diff(next_ltp, ltp),
         calendar_spread_pct=pct(next_ltp, ltp),
         updated_ts=near.ts if near else None,
+        point_value=round(c.near.qty_multiplier),
     )
 
 
@@ -212,20 +222,38 @@ class BullionTracker:
         self._metal_of_near = {c.near.instrument_key: m for m, c in contracts.items()}
         keys = set(self._metal_of_near)
         keys.update(c.next.instrument_key for c in contracts.values() if c.next)
+        # a mini's near key -> the mini's name: its day range only, never candles (E28)
+        self._mini_of_near = {
+            c.mini.near.instrument_key: c.mini.metal for c in contracts.values() if c.mini
+        }
+        keys.update(self._mini_of_near)
+        keys.update(
+            c.mini.next.instrument_key for c in contracts.values() if c.mini and c.mini.next
+        )
         self.keys: frozenset[str] = frozenset(keys)
         # Liveness, judged by FeedSession against MCX hours; display only.
         self.last_tick_ts: int | None = None
         self.gap_since: int | None = None  # start of an MCX outage in progress
         self.was_live = False
-        for m, c in contracts.items():
-            q = c.quote
-            if q is not None:
-                self._day[m] = (q.day_open or 0.0, q.day_high or 0.0, q.day_low or 0.0)
+        for c in contracts.values():
+            for each in (c, c.mini):
+                q = each.quote if each else None
+                if each is not None and q is not None:
+                    self._day[each.metal] = (q.day_open or 0.0, q.day_high or 0.0, q.day_low or 0.0)
         if on_candle is not None:
             self.candles.on_close(lambda cd: on_candle(self._metal_of_near[cd.key], cd))
 
     def near_key(self, metal: str) -> str:
         return self.contracts[metal].near.instrument_key
+
+    def instrument(self, metal: str, contract: str) -> Instrument | None:
+        """A metal's tradable future by contract name: the full one or its mini."""
+        c = self.contracts.get(metal)
+        if c is None:
+            return None
+        if contract == metal:
+            return c.near
+        return c.mini.near if c.mini is not None and contract == c.mini.metal else None
 
     def metal_of(self, key: str) -> str | None:
         """The metal whose near contract this is; None for a next-month or other key."""
@@ -242,6 +270,10 @@ class BullionTracker:
         if self.last_tick_ts is None or t.ts > self.last_tick_ts:
             self.last_tick_ts = t.ts
         self._latest[t.key] = merge_tick(self._latest.get(t.key), t)
+        mini = self._mini_of_near.get(t.key)
+        if mini is not None:  # a mini: its day range, not the metal's candles or bias
+            self._day[mini] = widen_day(self._day.get(mini, (0.0, 0.0, 0.0)), t)
+            return
         metal = self._metal_of_near.get(t.key)
         if metal is None:
             return  # a next-month contract: price only
@@ -271,12 +303,18 @@ class BullionTracker:
         c = self.contracts.get(metal)
         return self.candles.closed(c.near.instrument_key) if c else []
 
+    def _contract_snapshot(self, c: BullionContract) -> MetalSnapshot:
+        nxt = self._latest.get(c.next.instrument_key) if c.next else None
+        day = self._day.get(c.metal, (0.0, 0.0, 0.0))
+        return metal_snapshot(c, self._latest.get(c.near.instrument_key), nxt, day)
+
     def snapshot(self) -> BullionSnapshot:
         metals = []
-        for m, c in self.contracts.items():
-            nxt = self._latest.get(c.next.instrument_key) if c.next else None
-            day = self._day.get(m, (0.0, 0.0, 0.0))
-            metals.append(metal_snapshot(c, self._latest.get(c.near.instrument_key), nxt, day))
+        for c in self.contracts.values():
+            snap = self._contract_snapshot(c)
+            if c.mini is not None:
+                snap = replace(snap, mini=self._contract_snapshot(c.mini))
+            metals.append(snap)
         by = {s.metal: s.ltp for s in metals}
         return BullionSnapshot(metals, gold_silver_ratio(by.get("GOLD"), by.get("SILVER")))
 
@@ -289,7 +327,7 @@ async def load_contracts(
 ) -> dict[str, BullionContract]:
     """Metal -> near and next futures. Never raises: the NSE feed must start without it."""
     try:
-        master = await load_mcx_master(data_dir, today, METALS, transport=transport)
+        master = await load_mcx_master(data_dir, today, CONTRACTS, transport=transport)
     except Exception as exc:
         log.warning("MCX instrument file unavailable, no bullion: %s", type(exc).__name__)
         return {}
@@ -297,43 +335,57 @@ async def load_contracts(
 
 
 def contracts_from(master: list[Instrument], today: date) -> dict[str, BullionContract]:
-    """Metal -> its near and next futures in an MCX instrument list."""
+    """Metal -> its near and next futures, and its mini's near month, in an MCX list."""
     out: dict[str, BullionContract] = {}
     for metal in METALS:
         months = resolve_commodity_months(master, metal, today)
         if months is None:
             log.warning("no MCX %s future after %s", metal, today)
-        else:
-            out[metal] = BullionContract(metal, months[0], months[1])
+            continue
+        mini_months = resolve_commodity_months(master, MINIS[metal], today)
+        if mini_months is None:
+            log.warning(
+                "no MCX %s future after %s: %s trades the full contract only",
+                MINIS[metal],
+                today,
+                metal,
+            )
+        mini = BullionContract(MINIS[metal], *mini_months) if mini_months else None
+        out[metal] = BullionContract(metal, months[0], months[1], mini=mini)
     return out
 
 
 async def enrich(
     client: httpx.AsyncClient, token: str, contracts: dict[str, BullionContract], today: date
 ) -> dict[str, BullionContract]:
-    """Add the start-of-day quote and the contract's one-year range; each fails soft."""
+    """Add the start-of-day quote and the one-year range, to each metal and its mini; each
+    fails soft."""
+    every = [c for m in contracts.values() for c in (m, m.mini) if c is not None]
     try:
-        quotes = await fetch_quotes(
-            client, token, [c.near.instrument_key for c in contracts.values()]
-        )
+        quotes = await fetch_quotes(client, token, [c.near.instrument_key for c in every])
     except Exception as exc:
         log.warning("bullion quote failed: %s", type(exc).__name__)
         quotes = {}
-    out: dict[str, BullionContract] = {}
-    for m, c in contracts.items():
+
+    async def one(c: BullionContract) -> BullionContract:
         rng: tuple[float, float] | None = None
         try:
             rng = await fetch_52w_range(
                 client, token, c.near.instrument_key, today, traded_only=True
             )
         except Exception as exc:
-            log.warning("bullion range failed for %s: %s", m, type(exc).__name__)
-        out[m] = replace(
+            log.warning("bullion range failed for %s: %s", c.metal, type(exc).__name__)
+        return replace(
             c,
             quote=quotes.get(c.near.instrument_key),
             range_high=rng[0] if rng else None,
             range_low=rng[1] if rng else None,
         )
+
+    out: dict[str, BullionContract] = {}
+    for m, c in contracts.items():
+        mini = await one(c.mini) if c.mini is not None else None
+        out[m] = replace(await one(c), mini=mini)
     return out
 
 

@@ -124,24 +124,31 @@ class BullionSignalEngine:
         return rescale_levels(s, price, None)
 
     def manual_contract(
-        self, index: str, direction: Direction, strike: float | None
+        self, index: str, direction: Direction, strike: float | None, contract: str | None = None
     ) -> ManualContract | None:
-        """A metal's near-month future to paper-trade by hand; None if there is none.
-        `strike` plays no part."""
-        contract = self._tracker.contracts.get(index)
-        if contract is None or direction not in FUTURE_DIRECTIONS:
+        """A metal's near-month future to paper-trade by hand: the full one, or with
+        `contract` its mini (E28); None if there is no such contract. `strike` plays no
+        part."""
+        inst = self._tracker.instrument(index, contract or index)
+        if inst is None or direction not in FUTURE_DIRECTIONS:
             return None
-        near = contract.near
         return ManualContract(
             index=index,
             direction=direction,
-            instrument_key=near.instrument_key,
-            trading_symbol=near.trading_symbol,
+            instrument_key=inst.instrument_key,
+            trading_symbol=inst.trading_symbol,
             strike=0.0,
-            expiry=near.expiry.isoformat() if near.expiry else "",
-            lot_size=round(near.qty_multiplier),
+            expiry=inst.expiry.isoformat() if inst.expiry else "",
+            lot_size=round(inst.qty_multiplier),
             is_expiry_day=False,
+            product=inst.name,
         )
+
+    def trade_contract(self, s: Signal) -> ManualContract | None:
+        """What a metal's signal trade opens: the full future or its mini, as configured
+        (`bullion.gold_contract`, `silver_contract`); None if that one is not loaded."""
+        product = self._params().bullion.contract_for(s.index)
+        return self.manual_contract(s.index, s.direction, None, product)
 
     def default_levels(self, c: ManualContract, price: float) -> tuple[float, float]:
         """The signal rule's target and stop for `c` entered at `price`."""

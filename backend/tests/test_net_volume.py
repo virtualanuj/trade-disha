@@ -94,12 +94,23 @@ def test_index_candles_carry_the_futures_net_volume(client: TestClient) -> None:
 def test_the_futures_candle_frame_carries_net_volume(client: TestClient) -> None:
     td: AppState = client.app.state.td  # type: ignore[attr-defined]
     fut = td.session.resolved["NIFTY"].future.instrument_key
-    t0 = (epoch_ms_now() // M + 700) * M
+    # Two minutes ahead: past the synthetic feed's own ticks for this key (late, so ignored)
+    # yet close enough that the gap filled before it is a candle or two. Far ahead within
+    # the same IST day (gaps are filled within a day) the fill sent hundreds of candle
+    # frames at once and the hub dropped the test's socket as a slow client (seen before
+    # 12:20 IST with 700 minutes).
+    t0 = (epoch_ms_now() // M + 2) * M
+
+    def feed() -> None:
+        # one call, after a tick of ours that sets the volume baseline (see the test above)
+        td.session.candles.apply(Tick(key=fut, ts=t0 - 1, ltp=100.0, volume=1_000))
+        for t in _trades(fut, t0):
+            td.session.candles.apply(t)
+
     assert client.portal is not None
     with client.websocket_connect("/ws") as ws:
         ws.receive_text()  # hello
-        for t in _trades(fut, t0):
-            client.portal.call(td.session.candles.apply, t)
+        client.portal.call(feed)
         for _ in range(500):
             frame = json.loads(ws.receive_text())
             p = frame["payload"]

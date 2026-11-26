@@ -64,6 +64,16 @@ class LiveLevelsOut(BaseModel):
     stop: float
 
 
+class TradeOut(BaseModel):
+    """What a bullion signal's paper trade would open now (E28): the full future or its
+    mini, with that contract's default lots."""
+
+    contract: str  # GOLD, GOLDM, SILVER, SILVERM
+    trading_symbol: str
+    lots: int
+    qty: int
+
+
 class SignalOut(BaseModel):
     id: str
     index: str
@@ -96,6 +106,7 @@ class SignalOut(BaseModel):
     config_version: int | None
     outcome: OutcomeOut | None
     live: LiveLevelsOut | None = None  # while active; a paper trade takes these at its fill
+    trade: TradeOut | None = None  # an active bullion signal's contract and lots
 
 
 class FlowOut(BaseModel):
@@ -151,6 +162,22 @@ def signal_out(state: AppState, s: Signal) -> SignalOut:
         breakdown=json.loads(s.breakdown_json),
         outcome=outcome_out(s, o) if o is not None else None,
         live=live_out(state, s),
+        trade=trade_out(state, s),
+    )
+
+
+def trade_out(state: AppState, s: Signal) -> TradeOut | None:
+    """An active bullion signal's trade as configured; None for an index, an ended signal,
+    or a configured mini that is not loaded."""
+    desk = state.session.bullion_desk
+    if not s.is_active or s.index not in METALS or desk is None:
+        return None
+    c = desk.signals.trade_contract(s)
+    if c is None:
+        return None
+    lots = state.params.params.bullion.lots_for(c.product)
+    return TradeOut(
+        contract=c.product, trading_symbol=c.trading_symbol, lots=lots, qty=c.lot_size * lots
     )
 
 

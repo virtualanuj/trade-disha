@@ -744,6 +744,7 @@ Builder's calls:
   in a setting (`bullion_etfs`), not a config parameter: they change the subscription,
   which is made at start.
 - Each ETF's card sits under its metal's card and opens with the same Details toggle.
+  *(Superseded by item 31: each card opens on its own.)*
 - They are NSE instruments: NSE hours, counted as NSE ticks and recorded in `ticks` like
   the sector indices, so a replay of a later day shows them. While NSE is not trading the
   card keeps the last price with a muted "NSE closed" (or holiday, pre-open) note, since MCX
@@ -801,6 +802,91 @@ Builder's calls:
   ends with a line on what the click does.
 - The Latency card refreshes every 2 s while open, like the overlay; the Data card fetches
   once as it opens.
+
+### 28. GOLDM and SILVERM, and lots per contract
+
+Asked for (2026-11-27): enable GOLD, GOLDM, SILVER and SILVERM for bullion, and make the
+default trading size configurable for each commodity.
+
+Status: built in Milestone E24. Design in [spec.md](spec.md) §6.6 ("Minis"), §9a ("The
+contract traded"), §10.1 and §13.2 (BullionCards, TradeTicket, SignalCard); planned in
+[plan.md](plan.md) Milestone E24.
+
+Decided with the owner on 2026-11-27:
+- The minis are a trading choice per metal, not instruments of their own: the bias and
+  signals stay on GOLD and SILVER; Config picks what each metal's signal trade opens
+  (GOLD or GOLDM, SILVER or SILVERM), with default lots for each of the four contracts.
+- Each mini has a card under its metal with Buy and Sell for a trade by hand.
+- The ticket has a Lots box filled with the contract's default, which can be changed for
+  that trade; one-click signal trades always use the default.
+
+Builder's calls:
+- `bullion.lots` becomes `gold_lots`, `goldm_lots`, `silver_lots` and `silverm_lots`; a
+  version saved before has its `lots` read as all four, so it still loads.
+- A mini trade is its metal's: GOLD's margin %, GOLD's journal row, the US-release pause.
+  Its levels are worked out at the mini's fill; slippage is the mini's fill against the
+  signal's GOLD entry.
+- A configured mini that is not loaded refuses the signal trade with the reason, rather
+  than trading the full contract (ten times the size).
+- The signal card says what its trade opens ("trades GOLDM ×3"); trades name a mini
+  ("GOLDM FUT long").
+- Index option tickets have no Lots box (the request was for commodities); the API takes
+  `lots` for any trade.
+- The minis are not on the rates strip.
+
+### 29. The BULLION tiles follow the metal switch
+
+Asked for (2026-11-27): on BULLION, GOLD shows only the gold cards and SILVER only the
+silver ones.
+
+Status: built as a follow-up in Milestone E24. Design in [spec.md](spec.md) §13.2
+(BullionCards).
+
+Decided with the owner on 2026-11-27:
+- The GOLD / SILVER switch, which already picks the metal for every other panel, also
+  picks the cards: GOLD shows GOLD, GOLDM and GOLDBEES; SILVER shows SILVER, SILVERM and
+  SILVERBEES.
+
+Builder's calls:
+- The metal's card runs across the panel, with the mini's and the ETF's cards side by side
+  under it (each stacks on a narrow window).
+- The gold/silver ratio stays under the cards, since it needs both metals.
+- The panel's minimised summary still lists both metals' prices and the ratio.
+
+### 30. Details on the GOLDM and SILVERM cards
+
+Asked for (2026-11-27): GOLDM and SILVERM get details like GOLD and SILVER.
+
+Status: built as a follow-up in Milestone E24. Design in [spec.md](spec.md) §6.6
+("Minis") and §13.2 (BullionCards).
+
+Decided with the owner on 2026-11-27:
+- The mini cards get the same Details as the metal cards: the day's range, ATP,
+  liquidity (volume, OI, bid and ask, spread, buy and sell quantity), the contract's year
+  and circuit limits, and the next month with the calendar spread.
+
+Builder's calls:
+- Each mini is loaded as a contract of its own, with its next month, start quote and
+  one-year range (two more requests at start), so its card is the metal's card.
+- One Details toggle still opens every card. *(Superseded by item 31.)*
+- Every card's heading gives the rupees per point a lot (the mini card had it; the metal
+  cards now do too).
+
+### 31. Details open only the card clicked
+
+Asked for (2026-11-27): Details should open and close only the card clicked, not all of
+them on the page.
+
+Status: built as a follow-up in Milestone E24. Design in [spec.md](spec.md) §13.2
+(BullionCards).
+
+Decided with the owner on 2026-11-27:
+- Each bullion card's Details (GOLD, GOLDM, GOLDBEES, SILVER, SILVERM, SILVERBEES) opens
+  and closes on its own.
+
+Builder's calls:
+- Each card's choice is remembered on its own (`tradedisha.bullionDetailsOpen.<card>`), so
+  a reload keeps it; every card starts closed, and the old shared key is no longer read.
 
 ## Deferred
 

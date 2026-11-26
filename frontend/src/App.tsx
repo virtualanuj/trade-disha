@@ -258,7 +258,7 @@ export default function App() {
   /** the left column's units; drawn in the order the trader has put them in */
   const units: Record<UnitId, ReactNode> = {
     tiles: onBullion ? (
-      <BullionTilesPanel frame={frame('tiles')} />
+      <BullionTilesPanel frame={frame('tiles')} metal={metal} />
     ) : (
       <IndexTilesPanel frame={frame('tiles')} index={selected} />
     ),

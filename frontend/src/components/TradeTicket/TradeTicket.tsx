@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { fetchTicket, openManualTrade } from '../../api/client'
 import type { PaperTradeOut, TicketOut, TicketTarget } from '../../api/types'
-import { directionLabel, instrumentLabel, isLong } from '../../lib/direction'
+import { directionLabel, instrumentLabel, isFuture, isLong } from '../../lib/direction'
 import { fmtDate, fmtPrice, fmtRupees } from '../../lib/format'
-import { parseLevel } from '../../lib/ticket'
+import { parseLevel, parseLots } from '../../lib/ticket'
 import { LevelInput } from '../LevelsEditor/LevelsEditor'
 
 interface Props {
@@ -38,12 +38,22 @@ export function TradeTicket({
   const [loaded, setLoaded] = useState<Loaded>({ kind: 'loading' })
   const [targetText, setTargetText] = useState<string | null>(null)
   const [stopText, setStopText] = useState<string | null>(null)
+  /** lots typed on a future's ticket (E28); null: the contract's default */
+  const [lotsText, setLotsText] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const typedLots = lotsText === null ? undefined : parseLots(lotsText)
+  /** what is asked of the server: the target, with the lots once a valid number is typed */
+  const asked = useMemo(
+    () => (typeof typedLots === 'number' ? { ...target, lots: typedLots } : target),
+    [target, typedLots],
+  )
+
   useEffect(() => {
+    if (typedLots === null) return // not a number yet: keep the last ticket
     const ctl = new AbortController()
-    load(target, ctl.signal).then(
+    load(asked, ctl.signal).then(
       (ticket) => {
         if (!ctl.signal.aborted) setLoaded({ kind: 'ok', ticket })
       },
@@ -55,7 +65,7 @@ export function TradeTicket({
     return () => {
       ctl.abort()
     }
-  }, [load, target])
+  }, [load, asked, typedLots])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -71,6 +81,9 @@ export function TradeTicket({
   const price = ltp ?? ticket?.ltp ?? null
   const short = directionLabel(target.direction) === 'SELL'
   const label = instrumentLabel({ direction: target.direction, strike: target.strike ?? 0 })
+  /** a metal's mini names itself (GOLDM); otherwise the index or metal */
+  const name = target.contract ?? target.index
+  const future = isFuture(target.direction)
 
   const submit = () => {
     if (!ticket) return
@@ -83,9 +96,13 @@ export function TradeTicket({
       setError('enter a number, or leave the box as it was')
       return
     }
+    if (typedLots === null) {
+      setError('lots must be a whole number from 1 to 100')
+      return
+    }
     setBusy(true)
     setError(null)
-    open(target, { quoted: price, target: typedTarget, stop: typedStop })
+    open(asked, { quoted: price, target: typedTarget, stop: typedStop })
       .then((trade) => {
         onOpened(trade)
         onClose()
@@ -108,7 +125,7 @@ export function TradeTicket({
       />
       <div
         role="dialog"
-        aria-label={`Paper trade ${target.index} ${label}`}
+        aria-label={`Paper trade ${name} ${label}`}
         className="fixed left-1/2 top-24 z-40 w-[min(380px,calc(100vw-2rem))] -translate-x-1/2 rounded border border-border bg-bg-elev p-4 text-xs shadow-xl"
         data-testid="trade-ticket"
       >
@@ -117,7 +134,7 @@ export function TradeTicket({
             <span className={isLong(target.direction) ? 'text-bull' : 'text-bear'}>
               {directionLabel(target.direction)}
             </span>{' '}
-            {target.index} {label}
+            {name} {label}
           </h2>
           <span className="text-fg-muted">opened by hand</span>
         </div>
@@ -163,6 +180,27 @@ export function TradeTicket({
                 </>
               ) : null}
             </dl>
+            {future ? (
+              <label className="flex items-center gap-1" title="Lots for this trade, 1 to 100">
+                <span className="text-fg-muted">Lots</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  step="1"
+                  min="1"
+                  max="100"
+                  aria-label="Lots"
+                  value={lotsText ?? String(ticket.lots)}
+                  onChange={(e) => {
+                    setLotsText(e.target.value)
+                  }}
+                  className="w-16 rounded border border-border bg-bg px-1 py-0.5 text-right font-mono text-fg"
+                />
+                <span className="text-fg-muted">
+                  {lotsText === null ? 'default for the contract' : ''}
+                </span>
+              </label>
+            ) : null}
             <div className="flex flex-wrap gap-3">
               <LevelInput
                 label="Target"

@@ -1157,6 +1157,68 @@ overlay opens and hovering shows no card.
 **Status (2026-11-26):** built, with unit tests; `make check` green. Accepted by the owner
 without an end-to-end check in the running app.
 
+## Milestone E24 — GOLDM and SILVERM, and lots per contract
+
+**Goal:** each metal can trade its mini; default lots per contract, changeable on the
+ticket (enhancement 28).
+
+- `parameters/model.py` (`Bullion`): `gold_contract`, `silver_contract` (choices),
+  `gold_lots`, `goldm_lots`, `silver_lots`, `silverm_lots` instead of `lots`;
+  `contract_for`, `lots_for`; a before-validator reads a stored `lots` as all four.
+  `config/params.toml` seeds them.
+- `market/bullion.py`: `MINIS`, `CONTRACTS` (what the MCX file is read for, live and in
+  replay); `BullionContract.mini` / `mini_quote`; the tracker subscribes the mini and
+  `instrument(metal, contract)`; `MiniSnapshot` on `MetalSnapshot.mini`; the start quote
+  covers the minis.
+- Engines: `ManualContract.product`; `manual_contract(..., contract)`; `trade_contract(s)`
+  (the index engine: the signal's option; the bullion engine: the configured contract).
+  `engine/paper.py`: a signal trade opens `trade_contract`; `PaperRules.lots(p, contract)`;
+  `quote_manual` / `open_manual` take `contract` and `lots` (1 to 100).
+- API: ticket `contract`, `lots`; manual body `contract`, `lots`; `BullionMiniOut`;
+  `SignalOut.trade`.
+- Frontend: `BullionMiniOut`, `SignalTradeOut`, `TicketTarget.contract` / `lots`;
+  `MiniCard` and shared `TradeButtons` in `BullionView`; the ticket's Lots box
+  (`lib/ticket.ts:parseLots`) and the mini's live price in `BullionTilesPanel`; "trades
+  GOLDM ×3" on the SignalCard; `instrumentLabel` names a mini.
+- Tests: `tests/test_bullion_contracts_params.py` (defaults, choices per metal, bounds, a
+  stored `lots`, the editor); `tests/market/test_bullion.py` (each metal's mini, none in
+  the file, the mini tracked and shown, its start quote); `tests/test_bullion_minis.py`
+  (a signal opening the mini with its lots and exits on the mini's ticks, default lots
+  for the full contracts, a mini not loaded, hand trades with default and typed lots,
+  bad lots, another metal's contract, the API end to end). Vitest for the mini card, the
+  ticket's lots, the signal card's line and the label.
+
+- Follow-up (enhancement 29): the BULLION tiles show only the metal in focus.
+  `BullionCards` takes `metal` (passed by `BullionTilesPanel` from `App`'s MetalSwitch
+  choice): that metal's card across the panel, its mini and ETF beside each other under
+  it; every metal when none is given. Vitest: gold only, silver only, no focus.
+
+- Follow-up (enhancement 30): the mini cards get the metal cards' Details. A mini is a
+  `BullionContract` of its own (`mini: BullionContract`, near and next, quote, year range;
+  `enrich` covers it), its day range is tracked apart from the metal's candles and book,
+  and `MetalSnapshot.mini` is a `MetalSnapshot` (`MiniSnapshot` removed), with
+  `point_value` on every snapshot. The frontend renders the mini with `MetalCard`
+  (`metal` = the metal it trades as). Tests: the mini's figures, next month and start
+  quote, `enrich` for the mini, and its Details.
+
+- Follow-up (enhancement 31): each bullion card's Details opens on its own.
+  `BullionView.tsx:useDetails(card)` keeps one remembered choice per card
+  (`tradedisha.bullionDetailsOpen.<card>`) in `MetalCard` and `EtfCard`, in place of the
+  one choice `BullionCards` passed to every card. Vitest: one card opens, the others stay
+  closed, closing one leaves another open, each remembered.
+- Test fix found on the way: `test_net_volume.py::test_the_futures_candle_frame_carries_net_volume`
+  failed when run before about 12:20 IST. Its ticks were 700 minutes ahead within the same
+  day, so the gap fill sent hundreds of candle frames at once and the hub dropped the
+  socket as a slow client. They are now two minutes ahead and fed in one call.
+
+**Demo:** in Config, Bullion, set `gold_contract` GOLDM and `goldm_lots` 3. On BULLION, the
+GOLDM card shows under GOLD; a GOLD signal's card reads "trades GOLDM ×3" and its Paper
+trade opens GOLDM ×3. Sell on the SILVERM card, type 2 lots: the ticket's quantity and
+money follow; open it.
+
+**Status (2026-11-27):** built, with unit tests; `make check` green. Accepted by the owner
+without an end-to-end check in the running app.
+
 ## Frontend review fixes (26/11/2026, not a milestone)
 
 **Goal:** the owner asked for a review of the frontend and its five most important

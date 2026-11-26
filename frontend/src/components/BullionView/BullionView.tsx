@@ -22,7 +22,7 @@ const NSE_NOTE: Record<MarketStatus, string> = {
   closed: 'NSE closed',
   holiday: 'NSE holiday',
 }
-/** one remembered choice for both metal cards, apart from the index details' */
+/** each card's Details open or closed, remembered apart (E31): `<key>.GOLD`, `<key>.GOLDBEES` */
 const DETAILS_KEY = 'tradedisha.bullionDetailsOpen'
 const asOpen = (v: unknown): boolean => v === true
 
@@ -58,27 +58,29 @@ export function MetalSwitch({
 }
 
 /**
- * The BULLION tab's tiles: a card per metal, its NSE ETF under it (E25), and the
- * gold/silver ratio (spec §6.6, §13.2). With `onTrade` (stable), each metal's card has Buy
- * and Sell for a paper trade by hand (E23); the ETFs are display only.
+ * The BULLION tab's tiles: a card per metal, its mini (E28) and NSE ETF (E25) under it,
+ * and the gold/silver ratio (spec §6.6, §13.2). With `metal`, only that metal's cards
+ * (E29), as the MetalSwitch picks for every panel. With `onTrade` (stable), the metal's and
+ * the mini's cards have Buy and Sell for a paper trade by hand (E23); the ETFs are display
+ * only.
  */
 export function BullionCards({
   bullion,
+  metal,
   nseStatus = null,
   onTrade,
 }: {
   bullion: BullionOut | null
+  /** the metal in focus; left out, every metal side by side */
+  metal?: string
   /** the NSE session, for the ETFs' hours */
   nseStatus?: MarketStatus | null
   onTrade?: (t: TicketTarget) => void
 }) {
-  const metals = bullion?.metals ?? EMPTY
+  const all = bullion?.metals ?? EMPTY
+  const focused = metal === undefined ? undefined : all.find((m) => m.metal === metal)
+  const metals = focused ? [focused] : all
   const etfs = bullion?.etfs ?? EMPTY
-  // one choice for both cards, like the index details: opening one opens both
-  const [open, setOpen] = usePref(DETAILS_KEY, asOpen)
-  const toggle = useCallback(() => {
-    setOpen(!open)
-  }, [open, setOpen])
   if (metals.length === 0) {
     return (
       <p className="text-xs text-fg-muted">
@@ -92,18 +94,24 @@ export function BullionCards({
         {metals.map((m) => {
           const etf = etfs.find((e) => e.metal === m.metal)
           return (
-            <div key={m.metal} className="flex flex-col gap-3">
-              <Box>
-                <MetalCard m={m} open={open} onToggle={toggle} onTrade={onTrade} />
-              </Box>
+            <div
+              key={m.metal}
+              // one metal: its card across the panel, the mini and the ETF side by side
+              className={focused ? 'contents' : 'flex flex-col gap-3'}
+            >
+              <div className={focused ? 'lg:col-span-2' : 'contents'}>
+                <Box>
+                  <MetalCard m={m} onTrade={onTrade} />
+                </Box>
+              </div>
+              {m.mini ? (
+                <Box>
+                  <MetalCard m={m.mini} metal={m.metal} onTrade={onTrade} />
+                </Box>
+              ) : null}
               {etf ? (
                 <Box>
-                  <EtfCard
-                    e={etf}
-                    note={nseStatus ? NSE_NOTE[nseStatus] : ''}
-                    open={open}
-                    onToggle={toggle}
-                  />
+                  <EtfCard e={etf} note={nseStatus ? NSE_NOTE[nseStatus] : ''} />
                 </Box>
               ) : null}
             </div>
@@ -146,62 +154,93 @@ function awayPct(price: number | null, ref: number | null): string {
   return `${fmtSigned(((ref - price) / price) * 100, 1)}%`
 }
 
+/**
+ * A metal's future, or its mini (E28) given `metal`: the same card and Details either way.
+ * The mini trades as its metal (`index`) with itself as the contract.
+ */
 const MetalCard = memo(function MetalCard({
   m,
-  open,
-  onToggle,
+  metal = m.metal,
   onTrade,
 }: {
   m: BullionMetalOut
-  open: boolean
-  onToggle: () => void
+  /** the metal a mini belongs to; the card's own metal otherwise */
+  metal?: string
   onTrade: ((t: TicketTarget) => void) | undefined
 }) {
+  const [open, onToggle] = useDetails(m.metal)
   const yearPos = rangePos(m.ltp, m.range_high, m.range_low)
+  const mini = metal !== m.metal
   return (
-    <div className="flex flex-col gap-3" data-testid={`bullion-${m.metal}`}>
+    <div
+      className="flex flex-col gap-3"
+      data-testid={mini ? `mini-${m.metal}` : `bullion-${m.metal}`}
+    >
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-base font-semibold">{m.metal}</span>
         <span className="truncate text-xs text-fg-muted">
           {m.trading_symbol} · exp {fmtDate(m.expiry)} · lot {m.lot_size}
+          {m.point_value ? ` · ₹${String(m.point_value)} / point` : ''}
         </span>
       </div>
       <div className="flex items-end gap-4">
-        <Price label={`LTP ${UNIT[m.metal] ?? '₹'}`} value={m.ltp} ts={m.updated_ts} />
+        <Price label={`LTP ${UNIT[metal] ?? '₹'}`} value={m.ltp} ts={m.updated_ts} />
         <span className={`pb-5 font-mono text-sm ${pnlColour(m.change)}`}>
           {m.change == null ? '—' : fmtSigned(m.change, 2)}
           {m.change_pct == null ? '' : ` (${fmtSigned(m.change_pct, 2)}%)`}
         </span>
-        {onTrade ? (
-          <span className="ml-auto flex gap-1 pb-5 text-xs" role="group" aria-label="Paper trade">
-            <button
-              type="button"
-              className="rounded border border-bull/60 px-2 py-0.5 font-medium text-bull hover:bg-bull/10"
-              title={`Paper trade: buy the ${m.metal} future`}
-              onClick={() => {
-                onTrade({ index: m.metal, direction: 'BUY_FUT', strike: null })
-              }}
-            >
-              Buy
-            </button>
-            <button
-              type="button"
-              className="rounded border border-bear/60 px-2 py-0.5 font-medium text-bear hover:bg-bear/10"
-              title={`Paper trade: sell the ${m.metal} future`}
-              onClick={() => {
-                onTrade({ index: m.metal, direction: 'SELL_FUT', strike: null })
-              }}
-            >
-              Sell
-            </button>
-          </span>
-        ) : null}
+        {onTrade ? <TradeButtons metal={metal} contract={m.metal} onTrade={onTrade} /> : null}
       </div>
       <DetailsToggle open={open} onToggle={onToggle} />
       {open ? <MetalDetails m={m} yearPos={yearPos} /> : null}
     </div>
   )
 })
+
+/** Buy and Sell for a paper trade by hand in one contract: the full future or the mini. */
+function TradeButtons({
+  metal,
+  contract,
+  onTrade,
+}: {
+  metal: string
+  contract: string
+  onTrade: (t: TicketTarget) => void
+}) {
+  return (
+    <span className="ml-auto flex gap-1 pb-5 text-xs" role="group" aria-label="Paper trade">
+      <button
+        type="button"
+        className="rounded border border-bull/60 px-2 py-0.5 font-medium text-bull hover:bg-bull/10"
+        title={`Paper trade: buy the ${contract} future`}
+        onClick={() => {
+          onTrade({ index: metal, direction: 'BUY_FUT', strike: null, contract })
+        }}
+      >
+        Buy
+      </button>
+      <button
+        type="button"
+        className="rounded border border-bear/60 px-2 py-0.5 font-medium text-bear hover:bg-bear/10"
+        title={`Paper trade: sell the ${contract} future`}
+        onClick={() => {
+          onTrade({ index: metal, direction: 'SELL_FUT', strike: null, contract })
+        }}
+      >
+        Sell
+      </button>
+    </span>
+  )
+}
+
+/** One card's Details, open or closed: only the card clicked changes (E31). */
+function useDetails(card: string): [boolean, () => void] {
+  const [open, setOpen] = usePref(`${DETAILS_KEY}.${card}`, asOpen)
+  const toggle = useCallback(() => {
+    setOpen(!open)
+  }, [open, setOpen])
+  return [open, toggle]
+}
 
 function DetailsToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   return (
@@ -223,15 +262,12 @@ function DetailsToggle({ open, onToggle }: { open: boolean; onToggle: () => void
 const EtfCard = memo(function EtfCard({
   e,
   note,
-  open,
-  onToggle,
 }: {
   e: BullionEtfOut
   /** why it is not ticking: NSE closed, a holiday, pre-open; empty while NSE trades */
   note: string
-  open: boolean
-  onToggle: () => void
 }) {
+  const [open, onToggle] = useDetails(e.symbol)
   return (
     <div className="flex flex-col gap-3" data-testid={`etf-${e.symbol}`}>
       <div className="flex items-baseline justify-between gap-2">

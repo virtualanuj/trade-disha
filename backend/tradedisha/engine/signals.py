@@ -122,6 +122,7 @@ class ManualContract:
     expiry: str
     lot_size: int
     is_expiry_day: bool
+    product: str = ""  # what it is a contract of: the index, or GOLD / GOLDM / SILVER / SILVERM
 
 
 @dataclass(frozen=True)
@@ -404,9 +405,11 @@ class SignalEngine:
     # -- paper trades opened by hand (E23) --------------------------------------
 
     def manual_contract(
-        self, index: str, direction: Direction, strike: float | None
+        self, index: str, direction: Direction, strike: float | None, contract: str | None = None
     ) -> ManualContract | None:
-        """An option in the chain window to paper-trade by hand; None if there is none."""
+        """An option in the chain window to paper-trade by hand; None if there is none.
+        `contract` is for a metal's mini and plays no part here."""
+        del contract
         r = self._resolved.get(index)
         chain = self._chains.get(index)
         if r is None or chain is None or strike is None or direction not in OPTION_DIRECTIONS:
@@ -424,6 +427,21 @@ class SignalEngine:
             expiry=r.options_expiry.isoformat(),
             lot_size=r.lot_size,
             is_expiry_day=r.is_expiry_day,
+            product=index,
+        )
+
+    def trade_contract(self, s: Signal) -> ManualContract | None:
+        """What a signal's paper trade opens: the signal's own option."""
+        return ManualContract(
+            index=s.index,
+            direction=s.direction,
+            instrument_key=s.instrument_key,
+            trading_symbol=s.trading_symbol,
+            strike=s.strike,
+            expiry=s.expiry,
+            lot_size=s.lot_size,
+            is_expiry_day=False,
+            product=s.index,
         )
 
     def default_levels(self, c: ManualContract, price: float) -> tuple[float, float]:

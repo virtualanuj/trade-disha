@@ -121,6 +121,7 @@ const signal: SignalOut = {
     final: true,
   },
   live: null,
+  trade: null,
 }
 
 const detailOf = (t: PaperTradeOut): PaperTradeDetailOut => ({ trade: t, signal, levels: [] })

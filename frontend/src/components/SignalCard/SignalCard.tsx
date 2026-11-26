@@ -157,6 +157,15 @@ export function SignalCard({ signal, gate, now, openTrades = [], blocked, onPape
         >
           {busy ? 'Opening…' : 'Paper trade'}
         </button>
+        {signal.trade ? (
+          <span
+            className="font-mono text-fg-muted"
+            data-testid="signal-trade"
+            title={`${signal.trade.trading_symbol}: the contract and lots set in Config, Bullion`}
+          >
+            trades {signal.trade.contract} ×{signal.trade.lots}
+          </span>
+        ) : null}
         {blocked ? <span className="text-fg-muted">{blocked}</span> : null}
         {error !== undefined ? (
           <span className="text-bear" role="alert">

@@ -382,6 +382,7 @@ class SignalHarness:
         now: int,
         holidays: frozenset[date] = frozenset(),
         events: tuple[UsEvent, ...] = (),
+        tracker: BullionTracker | None = None,
     ) -> None:
         self.now = now
         self.live = True
@@ -395,7 +396,7 @@ class SignalHarness:
             holidays=holidays,
             source=lambda: ms_to_ist(self.now),
         )
-        self.tracker = _tracker()
+        self.tracker = tracker or _tracker()
         self.fired: list[Signal] = []
         self.engine = BullionSignalEngine(
             tracker=self.tracker,
@@ -629,8 +630,15 @@ def test_an_evaluation_in_the_window_also_ends_a_waiting_signal(tmp_path: Path) 
 
 
 class PaperHarness(SignalHarness):
-    def __init__(self, tmp_path: Path, *, now: int, events: tuple[UsEvent, ...] = ()) -> None:
-        super().__init__(tmp_path, now=now, events=events)
+    def __init__(
+        self,
+        tmp_path: Path,
+        *,
+        now: int,
+        events: tuple[UsEvent, ...] = (),
+        tracker: BullionTracker | None = None,
+    ) -> None:
+        super().__init__(tmp_path, now=now, events=events, tracker=tracker)
         self.trades: list[PaperTrade] = []
         self.prices: dict[str, Price] = {}
         self.paper = self._manager()

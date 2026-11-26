@@ -1034,7 +1034,13 @@ a second), so it is not traded into the release.
   US-release pause ("paused around US data: CPI 19:00"). Open trades are never touched by
   the pause: target, stop and square-off carry on. The trade fills at the future's price at your click, with the live
   target and stop at that price.
-- **Quantity** = point value × lots (`bullion.lots`, default 1).
+- **Contract.** The signal reads the full future, but its trade opens the contract set
+  for the metal: `bullion.gold_contract` (GOLD or GOLDM, ₹10 a point) and
+  `silver_contract` (SILVER or SILVERM, ₹5 a point). The levels are taken at that
+  contract's fill. A trade by hand can be in either, from its card.
+- **Quantity** = the traded contract's point value × its lots (`bullion.gold_lots`,
+  `goldm_lots`, `silver_lots`, `silverm_lots`, default 1 each; a hand ticket can change
+  them).
 - **P&L** = side × (exit − entry) × quantity, where side is +1 for a long and −1 for a
   short.
 - **Exits**: target, stop (mirrored for a short: its target is below the entry), the
@@ -1065,7 +1071,8 @@ All in the `bullion` section of the Config drawer's Parameters tab:
 | `bullion.first_signal_time` / `last_signal_time` | 09:15 / 22:45 | signal hours |
 | `bullion.square_off_time` | 23:00 | open bullion paper trades close |
 | `bullion.target_pct` / `stop_pct` | 0.40 / 0.20 | % of the future's price |
-| `bullion.lots` | 1 | lots per paper trade |
+| `bullion.gold_contract` / `silver_contract` | GOLD / SILVER | what a signal trade opens: the full future or its mini (GOLDM / SILVERM) |
+| `bullion.gold_lots` / `goldm_lots` / `silver_lots` / `silverm_lots` | 1 each | default lots per contract |
 | `bullion.event_pause_before_minutes` / `event_pause_after_minutes` | 15 / 15 | the pause around each US data release in `config/us-events.txt`; both 0 = no pause |
 | `bullion.event_end_waiting` | `off` | `on` ends a signal still waiting when a pause starts |
 | `bullion.event_block_trades` | `off` | `on` refuses opening a bullion paper trade during a pause |

@@ -15,8 +15,8 @@ milestone, is in [docs/plan.md](docs/plan.md).
 
 - **Market data:** the live Upstox feed (daily login, Logout at any time), with synthetic
   and replay feeds for testing. Index spot and futures, the option chain around ATM, India
-  VIX and the sector indices; SENSEX; MCX GOLD and SILVER near-month futures, with the
-  GOLDBEES and SILVERBEES ETFs under them; the currency futures
+  VIX and the sector indices; SENSEX; MCX GOLD and SILVER near-month futures, with
+  their minis (GOLDM, SILVERM) and the GOLDBEES and SILVERBEES ETFs under them; the currency futures
   and crude behind the macro evidence; GIFT Nifty for the opening gap; headlines for the
   heaviest index stocks. Ticks are recorded (bullion apart from the NSE day) and can be
   replayed; starting after the open backfills the day. NSE and MCX keep their own hours
@@ -32,8 +32,9 @@ milestone, is in [docs/plan.md](docs/plan.md).
   what its option did next; an order-flow trigger runs in shadow beside the minute-close
   rule. Bullion signals pause around hand-listed US data releases.
 - **Paper trading:** one click to open from a signal, or by hand with no signal: any
-  option from the chain or a metal's future, bought or sold, from a ticket with the
-  signal rule's target and stop (or your own). Funded by a paper bank (an option blocks its
+  option from the chain or a metal's future or its mini, bought or sold, from a ticket with
+  the signal rule's target and stop (or your own) and, for a future, its lots. Each metal's
+  signal trades the full future or its mini, with default lots per contract, set in Config. Funded by a paper bank (an option blocks its
   premium, a future its margin, plus cost; ₹25 lakh to start, set in Config). Trades
   close at target, stop, the square-off or by hand, and the target and stop of an open
   trade can be changed; P&L is net of costs. Trades opened by hand are kept out of the

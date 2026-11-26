@@ -2,6 +2,7 @@
 
 import gzip
 import json
+from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -22,8 +23,10 @@ from tradedisha.indicators.series import vwap_series
 from tradedisha.instruments.resolve import resolve_commodity_months
 from tradedisha.instruments.upstox_master import mcx_master_path, parse_commodities
 from tradedisha.market.bullion import (
+    CONTRACTS,
     BullionContract,
     BullionTracker,
+    contracts_from,
     enrich,
     gold_silver_ratio,
     load_contracts,
@@ -67,6 +70,7 @@ def _records() -> list[dict[str, Any]]:
         _fut("GOLD", "GOLD", date(2027, 2, 5), 559933),
         _fut("GOLD", "GOLD", date(2027, 4, 5), 569424),
         _fut("GOLDM", "GOLD", date(2026, 12, 4), 575011),  # a mini: same `name`, not wanted
+        _fut("GOLDM", "GOLD", date(2027, 1, 5), 575012),
         _fut("GOLDPETAL", "GOLD", date(2026, 11, 30), 574841),
         _fut("SILVER", "SILVER", date(2026, 12, 4), 495214),
         _fut("SILVER", "SILVER", date(2027, 3, 5), 564619),
@@ -536,3 +540,115 @@ def test_tracker_keeps_the_last_reading_of_each_minute_for_the_bias() -> None:
     ]
     assert [b.minute_ts for b in t.minute_book("GOLD", t0)] == [t0]
     assert t.minute_book("SILVER", t0 + MINUTE_MS) == []
+
+
+# -- the minis (E28) ----------------------------------------------------------------------
+
+
+def _with_minis() -> dict[str, BullionContract]:
+    master = parse_commodities(_records(), CONTRACTS)
+    return contracts_from(master, TODAY)
+
+
+def test_each_metal_carries_its_mini_as_a_contract_of_its_own() -> None:
+    c = _with_minis()
+    assert CONTRACTS == ("GOLD", "SILVER", "GOLDM", "SILVERM")
+    gold_mini, silver_mini = c["GOLD"].mini, c["SILVER"].mini
+    assert gold_mini is not None
+    assert silver_mini is not None
+    assert (gold_mini.metal, gold_mini.near.instrument_key) == ("GOLDM", "MCX_FO|575011")
+    assert gold_mini.next is not None
+    assert gold_mini.next.instrument_key == "MCX_FO|575012"
+    assert (silver_mini.metal, silver_mini.near.instrument_key) == ("SILVERM", "MCX_FO|483080")
+    assert silver_mini.next is None
+    # the full contracts are unchanged
+    assert c["GOLD"].near.instrument_key == "MCX_FO|495213"
+
+
+def test_a_metal_without_a_mini_still_loads() -> None:
+    master = parse_commodities(_records(), ["GOLD", "SILVER"])
+    c = contracts_from(master, TODAY)
+    assert c["GOLD"].mini is None
+    assert c["GOLD"].near.instrument_key == "MCX_FO|495213"
+
+
+def test_the_mini_has_the_metals_figures_and_never_its_candles() -> None:
+    t = BullionTracker(_with_minis())
+    assert {"MCX_FO|575011", "MCX_FO|575012", "MCX_FO|483080"} <= t.keys
+    t.on_tick(
+        _st(
+            "MCX_FO|575011",
+            5,
+            134_950.0,
+            close_prev=136_700.0,
+            bid=134_940.0,
+            ask=134_960.0,
+            volume=40,
+            oi=900,
+            tbq=60,
+            tsq=30,
+            atp=135_000.0,
+        )
+    )
+    t.on_tick(_st("MCX_FO|575011", 6, 134_900.0))  # widens the day
+    t.on_tick(_st("MCX_FO|575012", 6, 135_400.0))  # the mini's next month
+    gold = t.snapshot().metals[0]
+    assert gold.mini is not None
+    m = gold.mini
+    assert (m.metal, m.trading_symbol, m.expiry, m.point_value) == (
+        "GOLDM",
+        "GOLDM FUT 04 DEC 26",
+        date(2026, 12, 4),
+        1,  # the fixture's multiplier
+    )
+    assert (m.ltp, m.change, m.spread, m.updated_ts) == (134_900.0, -1800.0, 20.0, 6)
+    assert (m.day_open, m.day_high, m.day_low) == (134_950.0, 134_950.0, 134_900.0)
+    assert (m.volume, m.oi, m.buy_sell_ratio, m.atp) == (40, 900, 2.0, 135_000.0)
+    assert (m.next_symbol, m.next_ltp, m.calendar_spread) == (
+        "GOLDM FUT 05 JAN 27",
+        135_400.0,
+        500.0,
+    )
+    assert m.mini is None
+    assert gold.ltp is None  # a mini tick is not the full contract's price
+    assert (gold.day_high, t.closed_candles("GOLD"), t.minute_book("GOLD", 10**15)) == (
+        None,
+        [],
+        [],
+    )
+    assert t.instrument("GOLD", "GOLDM") == _with_minis()["GOLD"].mini.near  # type: ignore[union-attr]
+    assert t.instrument("GOLD", "GOLD") == _with_minis()["GOLD"].near
+    assert t.instrument("GOLD", "SILVERM") is None
+
+
+def test_the_mini_before_any_tick_uses_its_start_quote() -> None:
+    c = _with_minis()
+    mini = c["GOLD"].mini
+    assert mini is not None
+    c = {**c, "GOLD": replace(c["GOLD"], mini=replace(mini, quote=parse_full_quote(REAL_QUOTE)))}
+    m = BullionTracker(c).snapshot().metals[0].mini
+    assert m is not None
+    assert (m.ltp, m.prev_close, m.change) == (134914.0, 136705.0, -1791.0)
+    assert (m.day_high, m.upper_circuit) == (136055.0, 140806.0)
+
+
+async def test_enrich_gives_the_mini_its_quote_and_year_range() -> None:
+    def handle(req: httpx.Request) -> httpx.Response:
+        if "market-quote" in req.url.path:
+            rows = {
+                k: {**REAL_QUOTE, "instrument_token": k}
+                for k in req.url.params["instrument_key"].split(",")
+            }
+            return httpx.Response(200, json={"data": rows})
+        return httpx.Response(
+            200,
+            json={"data": {"candles": [["2026-11-13T00:00:00+05:30", 1, 140000, 90000, 1, 5, 0]]}},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        got = await enrich(client, "tok", _with_minis(), TODAY)
+    mini = got["GOLD"].mini
+    assert mini is not None
+    assert mini.quote is not None
+    assert (mini.range_high, mini.range_low) == (140000.0, 90000.0)
+    assert got["GOLD"].quote is not None

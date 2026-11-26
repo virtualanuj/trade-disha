@@ -147,3 +147,76 @@ describe('TradeTicket', () => {
     )
   })
 })
+
+describe('TradeTicket lots for a future (E28)', () => {
+  const mini: TicketTarget = {
+    index: 'GOLD',
+    direction: 'BUY_FUT',
+    strike: null,
+    contract: 'GOLDM',
+  }
+  const futureTicket: TicketOut = {
+    ...ticket,
+    index: 'GOLD',
+    direction: 'BUY_FUT',
+    trading_symbol: 'GOLDM FUT 04 DEC 26',
+    expiry: '2026-12-04',
+    strike: 0,
+    lots: 3,
+    qty: 30,
+  }
+
+  async function showFuture() {
+    const load = vi.fn((t: TicketTarget) =>
+      Promise.resolve({ ...futureTicket, lots: t.lots ?? 3, qty: (t.lots ?? 3) * 10 }),
+    )
+    const open = vi.fn().mockResolvedValue({ ...trade, manual: true })
+    render(
+      <TradeTicket
+        target={mini}
+        ltp={135_000}
+        onClose={vi.fn()}
+        onOpened={vi.fn()}
+        load={load}
+        open={open}
+      />,
+    )
+    await screen.findByText('GOLDM FUT 04 DEC 26 · exp 04/12/2026')
+    return { load, open }
+  }
+
+  it('names the mini and starts from the contract default lots', async () => {
+    const { load } = await showFuture()
+    expect(screen.getByRole('dialog', { name: 'Paper trade GOLDM FUT long' })).toBeInTheDocument()
+    expect(box('Lots')).toHaveValue(3)
+    expect(screen.getByText('3 lots · 30')).toBeInTheDocument()
+    expect(load).toHaveBeenCalledWith(mini, expect.any(AbortSignal))
+  })
+
+  it('asks the server again for typed lots and opens with them', async () => {
+    const { load, open } = await showFuture()
+    fireEvent.change(box('Lots'), { target: { value: '5' } })
+    expect(await screen.findByText('5 lots · 50')).toBeInTheDocument()
+    expect(load).toHaveBeenLastCalledWith({ ...mini, lots: 5 }, expect.any(AbortSignal))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Open paper trade' }))
+      await Promise.resolve()
+    })
+    expect(open).toHaveBeenCalledWith({ ...mini, lots: 5 }, expect.anything())
+  })
+
+  it('will not open with lots that are not a whole number from 1 to 100', async () => {
+    const { load, open } = await showFuture()
+    const calls = load.mock.calls.length
+    fireEvent.change(box('Lots'), { target: { value: '0' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Open paper trade' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('lots must be a whole number from 1 to 100')
+    expect(open).not.toHaveBeenCalled()
+    expect(load.mock.calls.length).toBe(calls) // not asked again for a bad number
+  })
+
+  it('has no lots box for an option', async () => {
+    await show()
+    expect(screen.queryByRole('spinbutton', { name: 'Lots' })).not.toBeInTheDocument()
+  })
+})

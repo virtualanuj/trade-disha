@@ -66,8 +66,9 @@ class SignalSource(Protocol):
     def mark_traded(self, signal_id: str, now_ms: int) -> Signal | None: ...
     def levels_at(self, s: Signal, price: float) -> tuple[float, float]: ...
     def manual_contract(
-        self, index: str, direction: Direction, strike: float | None
+        self, index: str, direction: Direction, strike: float | None, contract: str | None = None
     ) -> ManualContract | None: ...
+    def trade_contract(self, s: Signal) -> ManualContract | None: ...
     def default_levels(self, c: ManualContract, price: float) -> tuple[float, float]: ...
 
 
@@ -77,7 +78,7 @@ class PaperRules:
 
     owns: Callable[[str], bool]  # which `index` values this manager trades
     square_off: Callable[[ParameterSet], time]
-    lots: Callable[[ParameterSet], int]
+    lots: Callable[[ParameterSet, ManualContract], int]  # the default for a contract
     # round-trip cost for the whole trade, fixed at entry: (params, entry price, qty, lots)
     cost: Callable[[ParameterSet, float, int, int], float]
     # money the paper bank blocks while the trade is open: (params, index, entry, qty, cost)
@@ -94,7 +95,7 @@ def index_rules() -> PaperRules:
     return PaperRules(
         owns=lambda index: index not in METALS,
         square_off=lambda p: p.paper.square_off_time,
-        lots=lambda p: p.paper.lots,
+        lots=lambda p, _c: p.paper.lots,
         cost=lambda p, _entry, _qty, lots: p.paper.cost_per_trade * lots,
         block=lambda _p, _index, entry, qty, cost: entry * qty + cost,  # the premium paid
         last_entry=lambda p, expiry_day: (
@@ -117,7 +118,7 @@ def bullion_rules(
     return PaperRules(
         owns=lambda index: index in METALS,
         square_off=lambda p: p.bullion.square_off_time,
-        lots=lambda p: p.bullion.lots,
+        lots=lambda p, c: p.bullion.lots_for(c.product or c.index),
         cost=cost,
         block=lambda p, metal, entry, qty, cost: (
             p.bullion.margin_pct(metal) / 100 * entry * qty + cost
@@ -125,6 +126,14 @@ def bullion_rules(
         entry_block=entry_block,
         last_entry=lambda p, _expiry_day: p.bullion.last_signal_time,
     )
+
+
+MAX_LOTS = 100
+
+
+def _lots_refusal(lots: int | None) -> str | None:
+    """Lots typed on a ticket must be 1 to 100; None takes the contract's default."""
+    return None if lots is None or 1 <= lots <= MAX_LOTS else f"lots must be 1 to {MAX_LOTS}"
 
 
 class PaperError(Exception):
@@ -374,12 +383,15 @@ class PaperTradeManager:
         refusal = self._entry_gate(now, p, cutoff=None)
         if refusal:
             raise PaperError(refusal)
-        price = self._price(signal.instrument_key)
+        c = self._signals.trade_contract(signal)  # a metal's may be its mini (E28)
+        if c is None:
+            raise PaperError("the contract this signal trades is not loaded")
+        price = self._price(c.instrument_key)
         if price is None:
             raise PaperError("no price for this instrument yet")
 
-        lots = self.rules.lots(p)
-        qty = signal.lot_size * lots
+        lots = self.rules.lots(p, c)
+        qty = c.lot_size * lots
         # The live levels at the fill: what the signal panel showed when the trader clicked.
         target, stop = self._signals.levels_at(signal, price.ltp)
         cost = round(self.rules.cost(p, price.ltp, qty, lots), 2)
@@ -390,11 +402,11 @@ class PaperTradeManager:
             id=uuid.uuid4().hex[:12],
             signal_id=signal.id,
             index=signal.index,
-            instrument_key=signal.instrument_key,
-            trading_symbol=signal.trading_symbol,
+            instrument_key=c.instrument_key,
+            trading_symbol=c.trading_symbol,
             direction=signal.direction,
-            strike=signal.strike,
-            expiry=signal.expiry,
+            strike=c.strike,
+            expiry=c.expiry,
             lots=lots,
             qty=qty,
             signal_entry=signal.entry_price,
@@ -411,12 +423,22 @@ class PaperTradeManager:
         self._opened(trade)
         return trade
 
-    def quote_manual(self, index: str, direction: Direction, strike: float | None) -> ManualQuote:
+    def quote_manual(
+        self,
+        index: str,
+        direction: Direction,
+        strike: float | None,
+        *,
+        contract: str | None = None,
+        lots: int | None = None,
+    ) -> ManualQuote:
         """The ticket for a trade opened by hand: the contract, its price, the signal
-        rule's target and stop there, the money it would take, and any refusal."""
-        c = self._contract(index, direction, strike)
+        rule's target and stop there, the money it would take, and any refusal. `contract`
+        picks a metal's mini; `lots` overrides the contract's default (E28)."""
+        c = self._contract(index, direction, strike, contract)
         p = self._params()
-        lots = self.rules.lots(p)
+        bad_lots = _lots_refusal(lots)
+        lots = self.rules.lots(p, c) if lots is None or bad_lots else lots
         qty = c.lot_size * lots
         available = self.bank.summary().available if self.bank else None
         head = ManualQuote(
@@ -430,7 +452,7 @@ class PaperTradeManager:
             qty=qty,
             available=available,
         )
-        refusal = self._entry_gate(self._clock.now_ms(), p, cutoff=self._cutoff(c, p))
+        refusal = bad_lots or self._entry_gate(self._clock.now_ms(), p, cutoff=self._cutoff(c, p))
         price = self._price(c.instrument_key)
         if price is None:
             return replace(head, refusal=refusal or "no price for this instrument yet")
@@ -463,15 +485,21 @@ class PaperTradeManager:
         quoted: float | None = None,
         target: float | None = None,
         stop: float | None = None,
+        contract: str | None = None,
+        lots: int | None = None,
     ) -> PaperTrade:
         """Open a trade by hand, with no signal, at the current price (E23).
 
         A level left out is the signal rule's at the fill; a typed one is kept, rounded to
         the nearest rupee like every level (E24). Both must stand at the fill
         (`check_levels`). `quoted` is the price the ticket
-        showed: the trade records how far the fill was from it.
+        showed: the trade records how far the fill was from it. `contract` picks a metal's
+        mini and `lots` overrides the contract's default lots (E28).
         """
-        c = self._contract(index, direction, strike)
+        c = self._contract(index, direction, strike, contract)
+        bad_lots = _lots_refusal(lots)
+        if bad_lots:
+            raise PaperError(bad_lots)
         now = self._clock.now_ms()
         p = self._params()
         refusal = self._entry_gate(now, p, cutoff=self._cutoff(c, p))
@@ -490,7 +518,7 @@ class PaperTradeManager:
         bad = check_levels(c.direction, fill, target, stop)
         if bad:
             raise PaperError(bad)
-        lots = self.rules.lots(p)
+        lots = self.rules.lots(p, c) if lots is None else lots
         qty = c.lot_size * lots
         cost = round(self.rules.cost(p, fill, qty, lots), 2)
         blocked = round(self.rules.block(p, c.index, fill, qty, cost), 2)
@@ -636,8 +664,10 @@ class PaperTradeManager:
     def _cutoff(self, c: ManualContract, p: ParameterSet) -> time | None:
         return self.rules.last_entry(p, c.is_expiry_day) if self.rules.last_entry else None
 
-    def _contract(self, index: str, direction: Direction, strike: float | None) -> ManualContract:
-        c = self._signals.manual_contract(index, direction, strike)
+    def _contract(
+        self, index: str, direction: Direction, strike: float | None, contract: str | None
+    ) -> ManualContract:
+        c = self._signals.manual_contract(index, direction, strike, contract)
         if c is None or not self.rules.owns(c.index):
             raise PaperError("no such contract to trade here", not_found=True)
         return c

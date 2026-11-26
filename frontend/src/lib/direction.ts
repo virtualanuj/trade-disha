@@ -16,8 +16,20 @@ export function directionLabel(d: SignalDirection): 'BUY' | 'SELL' {
   return d === 'SELL_FUT' ? 'SELL' : 'BUY'
 }
 
-/** "25300 CE", "25300 PE", "FUT long" or "FUT short". */
-export function instrumentLabel(x: { direction: SignalDirection; strike: number }): string {
-  if (isFuture(x.direction)) return `FUT ${x.direction === 'BUY_FUT' ? 'long' : 'short'}`
+/**
+ * "25300 CE", "25300 PE", "FUT long" or "FUT short"; a metal's mini names itself,
+ * "GOLDM FUT long" (E28), when its symbol is not its metal's.
+ */
+export function instrumentLabel(x: {
+  direction: SignalDirection
+  strike: number
+  index?: string
+  trading_symbol?: string
+}): string {
+  if (isFuture(x.direction)) {
+    const side = `FUT ${x.direction === 'BUY_FUT' ? 'long' : 'short'}`
+    const contract = x.trading_symbol?.split(' ')[0]
+    return contract && x.index && contract !== x.index ? `${contract} ${side}` : side
+  }
   return `${String(x.strike)} ${x.direction === 'BUY_CE' ? 'CE' : 'PE'}`
 }

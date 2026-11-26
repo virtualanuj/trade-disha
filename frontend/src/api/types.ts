@@ -412,6 +412,8 @@ export interface SignalOut {
   outcome: OutcomeOut | null
   /** while active: the entry, target and stop at the current price; a paper trade takes these */
   live: LiveLevelsOut | null
+  /** an active bullion signal: the contract and lots its trade opens (E28) */
+  trade: SignalTradeOut | null
 }
 
 export type OutcomeResult = 'open' | 'target' | 'stop' | 'neither'
@@ -591,10 +593,22 @@ export interface TicketOut {
 }
 
 /** Which contract a ticket is for: an index option (with strike) or a metal's future. */
+/** What a bullion signal's paper trade opens now: the full future or its mini (E28). */
+export interface SignalTradeOut {
+  contract: string
+  trading_symbol: string
+  lots: number
+  qty: number
+}
+
 export interface TicketTarget {
   index: string
   direction: SignalDirection
   strike: number | null
+  /** a metal's contract to trade: its mini (GOLDM, SILVERM) or the full one (E28) */
+  contract?: string
+  /** lots typed on the ticket; left out, the contract's default (E28) */
+  lots?: number
 }
 
 /** every second while signals wait: their live levels */
@@ -732,6 +746,10 @@ export interface BullionMetalOut {
   calendar_spread: number | null
   calendar_spread_pct: number | null
   updated_ts: number | null
+  /** rupees per point per lot */
+  point_value: number
+  /** the metal's mini (GOLDM, SILVERM) with the same figures (E28); null when not loaded */
+  mini: BullionMetalOut | null
 }
 
 /** GOLDBEES / SILVERBEES: an NSE ETF shown under its metal (E25). Display only. */

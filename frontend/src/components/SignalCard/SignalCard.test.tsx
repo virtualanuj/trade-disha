@@ -51,6 +51,7 @@ const signal: SignalOut = {
   config_version: null,
   outcome: null,
   live: null,
+  trade: null,
 }
 
 describe('SignalCard', () => {
@@ -100,6 +101,21 @@ describe('SignalCard', () => {
     expect(card).toHaveTextContent('SELL SILVER FUT')
     expect(card).toHaveTextContent('₹30 per point per lot')
     expect(screen.getByText('SELL SILVER FUT')).toHaveClass('text-bear')
+    expect(screen.queryByTestId('signal-trade')).not.toBeInTheDocument()
+  })
+
+  it('says which contract and how many lots a bullion signal trades (E28)', () => {
+    const gold: SignalOut = {
+      ...signal,
+      index: 'GOLD',
+      direction: 'BUY_FUT',
+      strike: 0,
+      trading_symbol: 'GOLD FUT 04 DEC 26',
+      lot_size: 100,
+      trade: { contract: 'GOLDM', trading_symbol: 'GOLDM FUT 04 DEC 26', lots: 3, qty: 30 },
+    }
+    render(<SignalCard signal={gold} gate={undefined} now={gold.ts_fired} />)
+    expect(screen.getByTestId('signal-trade')).toHaveTextContent('trades GOLDM ×3')
   })
 
   it('says when bullion signals are switched off', () => {

@@ -112,6 +112,7 @@ describe('OpenTradesPeek (E27)', () => {
       ...trade,
       id: 't2',
       index: 'GOLD',
+      trading_symbol: 'GOLD FUT 04 DEC 26',
       direction: 'SELL_FUT',
       qty: 1,
       entry_price: 134_914,

@@ -37,6 +37,7 @@ function signal(id: string, outcome: Partial<OutcomeOut> | null, index = 'NIFTY'
     flow_score: null,
     config_version: null,
     live: null,
+    trade: null,
     outcome:
       outcome === null
         ? null

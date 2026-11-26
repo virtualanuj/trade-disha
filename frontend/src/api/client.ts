@@ -154,6 +154,8 @@ export function closePaperTrade(tradeId: string): Promise<PaperTradeOut> {
 function ticketQuery(t: TicketTarget): string {
   const q = new URLSearchParams({ index: t.index, direction: t.direction })
   if (t.strike !== null) q.set('strike', String(t.strike))
+  if (t.contract) q.set('contract', t.contract)
+  if (t.lots !== undefined) q.set('lots', String(t.lots))
   return q.toString()
 }
 
@@ -185,6 +187,8 @@ export function openManualTrade(
     quoted: levels.quoted,
     target: levels.target,
     stop: levels.stop,
+    contract: t.contract ?? null,
+    lots: t.lots ?? null,
   })
 }
 

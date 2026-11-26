@@ -57,6 +57,7 @@ const signal: SignalOut = {
   config_version: null,
   outcome: null,
   live: null,
+  trade: null,
 }
 
 async function openRow(t: PaperTradeOut, now: number) {
