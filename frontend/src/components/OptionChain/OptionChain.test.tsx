@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 
 import type { ChainOut, LegOut } from '../../api/types'
 import { oiHeat } from '../../lib/chain'
@@ -56,5 +56,23 @@ describe('OptionChain', () => {
     expect(oiHeat(100, 100)).toBe(1)
     expect(oiHeat(10, 100)).toBeGreaterThan(0.4)
     expect(oiHeat(-500, 100)).toBe(1)
+  })
+})
+
+describe('OptionChain paper trades by hand', () => {
+  it('opens a ticket from any call or put price', () => {
+    const onTrade = vi.fn()
+    render(<OptionChain chain={chain} onTrade={onTrade} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Paper trade 24950 CE' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Paper trade 25050 PE' }))
+    expect(onTrade.mock.calls).toEqual([
+      [24950, 'ce'],
+      [25050, 'pe'],
+    ])
+  })
+
+  it('has no trade buttons without a handler', () => {
+    render(<OptionChain chain={chain} />)
+    expect(screen.queryByRole('button', { name: /Paper trade/ })).not.toBeInTheDocument()
   })
 })

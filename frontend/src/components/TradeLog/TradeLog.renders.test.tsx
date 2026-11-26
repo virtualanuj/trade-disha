@@ -61,7 +61,9 @@ const signal: SignalOut = {
 
 async function openRow(t: PaperTradeOut, now: number) {
   const load = vi.fn(() => Promise.resolve([t]))
-  const loadDetail = vi.fn(() => Promise.resolve<PaperTradeDetailOut>({ trade: t, signal }))
+  const loadDetail = vi.fn(() =>
+    Promise.resolve<PaperTradeDetailOut>({ trade: t, signal, levels: [] }),
+  )
   const page = (at: number) => (
     <TradeLog markets={['NIFTY']} revision={0} now={at} load={load} loadDetail={loadDetail} />
   )

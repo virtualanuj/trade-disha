@@ -19,7 +19,22 @@ function heatStyle(leg: LegOut, maxAbs: number): React.CSSProperties {
   return { background: `color-mix(in srgb, ${colour} ${String(Math.round(h * 28))}%, transparent)` }
 }
 
-function Leg({ leg, side, maxAbs }: { leg: LegOut; side: 'ce' | 'pe'; maxAbs: number }) {
+/** opens the ticket for a trade by hand on one leg (E23) */
+type OnTrade = (strike: number, side: 'ce' | 'pe') => void
+
+function Leg({
+  leg,
+  side,
+  strike,
+  maxAbs,
+  onTrade,
+}: {
+  leg: LegOut
+  side: 'ce' | 'pe'
+  strike: number
+  maxAbs: number
+  onTrade: OnTrade | undefined
+}) {
   const title = BUILDUP_LABEL[leg.buildup]
   const chgCls =
     leg.chg_pct == null ? '' : leg.chg_pct > 0 ? 'text-bull' : leg.chg_pct < 0 ? 'text-bear' : ''
@@ -34,7 +49,25 @@ function Leg({ leg, side, maxAbs }: { leg: LegOut; side: 'ce' | 'pe'; maxAbs: nu
     </td>
   )
   const ivCell = <td className="px-1 text-right text-fg-muted">{leg.iv?.toFixed(1) ?? '—'}</td>
-  const ltpCell = <td className="px-1 text-right">{fmtPrice(leg.ltp)}</td>
+  const ltpCell = (
+    <td className="px-1 text-right">
+      {onTrade ? (
+        <button
+          type="button"
+          className="w-full rounded px-0.5 text-right hover:bg-accent/20 hover:text-accent focus-visible:bg-accent/20"
+          title={`Paper trade ${String(strike)} ${side.toUpperCase()}`}
+          aria-label={`Paper trade ${String(strike)} ${side.toUpperCase()}`}
+          onClick={() => {
+            onTrade(strike, side)
+          }}
+        >
+          {fmtPrice(leg.ltp)}
+        </button>
+      ) : (
+        fmtPrice(leg.ltp)
+      )}
+    </td>
+  )
   const chgCell = <td className={`px-1 text-right ${chgCls}`}>{fmtSigned(leg.chg_pct)}</td>
   return side === 'ce' ? (
     <>
@@ -59,10 +92,12 @@ const Row = memo(function Row({
   row,
   atm,
   maxAbs,
+  onTrade,
 }: {
   row: ChainRowOut
   atm: number
   maxAbs: number
+  onTrade: OnTrade | undefined
 }) {
   const isAtm = row.strike === atm
   return (
@@ -70,14 +105,24 @@ const Row = memo(function Row({
       className={`h-7 border-b border-border/60 font-mono ${isAtm ? 'bg-accent/15 font-semibold' : 'odd:bg-bg-row/40'}`}
       data-testid={isAtm ? 'atm-row' : undefined}
     >
-      <Leg leg={row.ce} side="ce" maxAbs={maxAbs} />
+      <Leg leg={row.ce} side="ce" strike={row.strike} maxAbs={maxAbs} onTrade={onTrade} />
       <td className="px-2 text-center font-sans font-semibold">{row.strike}</td>
-      <Leg leg={row.pe} side="pe" maxAbs={maxAbs} />
+      <Leg leg={row.pe} side="pe" strike={row.strike} maxAbs={maxAbs} onTrade={onTrade} />
     </tr>
   )
 })
 
-export function OptionChain({ chain }: { chain: ChainOut | undefined }) {
+/**
+ * The option chain. With `onTrade`, each LTP is a button that opens a paper-trade ticket
+ * for that strike and side (E23); it must be stable, so the memoised rows do not redraw.
+ */
+export function OptionChain({
+  chain,
+  onTrade,
+}: {
+  chain: ChainOut | undefined
+  onTrade?: OnTrade
+}) {
   if (!chain) {
     return <p className="text-fg-muted">Waiting for option chain…</p>
   }
@@ -127,7 +172,13 @@ export function OptionChain({ chain }: { chain: ChainOut | undefined }) {
           </thead>
           <tbody>
             {chain.rows.map((r) => (
-              <Row key={r.strike} row={r} atm={chain.atm} maxAbs={chain.max_abs_oi_chg} />
+              <Row
+                key={r.strike}
+                row={r}
+                atm={chain.atm}
+                maxAbs={chain.max_abs_oi_chg}
+                onTrade={onTrade}
+              />
             ))}
           </tbody>
         </table>

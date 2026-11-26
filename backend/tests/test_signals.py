@@ -9,7 +9,7 @@ import pytest
 from tradedisha.clock import IST, MarketClock, ist_to_ms
 from tradedisha.engine.aggregator import Bias, Label
 from tradedisha.engine.bias_engine import BiasComputed, OverlayPoint
-from tradedisha.engine.signals import Signal, SignalEngine
+from tradedisha.engine.signals import Signal, SignalEngine, round_rupee
 from tradedisha.feed.provider import Tick
 from tradedisha.indicators.greeks import bs_delta
 from tradedisha.instruments.resolve import resolve_index
@@ -103,7 +103,7 @@ def test_fires_buy_ce_with_pct_target_and_stop() -> None:
     assert s.direction == "BUY_CE"
     assert s.strike == 25_000
     assert s.trading_symbol.endswith("25000CE")
-    assert (s.entry_price, s.target_price, s.stop_price) == (150.0, 195.0, 127.5)
+    assert (s.entry_price, s.target_price, s.stop_price) == (150.0, 195.0, 128.0)  # whole ₹
     assert s.target_basis == "pct"
     assert s.expires_at == s.ts_fired + 300_000
     assert h.engine.store.get(s.id) is not None
@@ -174,8 +174,8 @@ def test_expiry_day_uses_points_via_delta_and_13_00_cutoff() -> None:
     assert (s.target_points, s.stop_points) == (40, 20)
     assert s.delta_used is not None
     assert 0.3 < s.delta_used < 0.7  # ATM call
-    assert s.target_price == pytest.approx(150 + s.delta_used * 40, abs=0.011)
-    assert s.stop_price == pytest.approx(150 - s.delta_used * 20, abs=0.011)
+    assert s.target_price == round_rupee(150 + s.delta_used * 40)
+    assert s.stop_price == round_rupee(150 - s.delta_used * 20)
     h.engine.mark_traded(s.id, s.ts_fired + 1000)
     h.minute(13, 1, 0.9, day=EXPIRY)
     assert h.reason() == "outside_hours"
@@ -301,7 +301,7 @@ def test_trigger_waits_for_order_flow_then_fires_at_the_ask() -> None:
     assert s.ts_fired == at(TODAY, 10, 0) + 15_000
     assert s.minute_ts == at(TODAY, 10, 0) - M  # the minute whose bias set it up
     assert (s.entry_price, s.entry_ask) == (150.1, 150.1)
-    assert s.target_price == round(150.1 * 1.30, 2)
+    assert s.target_price == round_rupee(150.1 * 1.30)
     assert (s.entry_mode, s.shadow, s.flow_score) == ("trigger", False, 0.31)
     assert s.bias == 0.40
     assert h.engine.gates["NIFTY"].fired is True

@@ -119,7 +119,7 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Entry mode** | `signal.entry_mode`: the live rule that fires index signals. `minute_close` (default) fires at a minute close when the bias passes the entry threshold; `trigger` waits for a setup, then for order flow to confirm it. The other rule runs in shadow. |
 | **Entry threshold** | The absolute bias value at which a signal fires. Default 0.50 for the indices, 0.60 for bullion (`bullion.entry_threshold`). |
 | **Evidence / breakdown** | The structured list of every indicator's score, weight, contribution, raw values, and one-line note that accompanies each bias and signal. The explainability payload. |
-| **Fired / live levels** | A signal's entry, target and stop as it fired (stored, never changed) and the same rule applied to the price now (shown while it waits). A paper trade takes the live levels at its fill. |
+| **Fired / live levels** | A signal's entry, target and stop as it fired (stored, never changed) and the same rule applied to the price now (shown while it waits). A paper trade takes the live levels at its fill. Targets and stops are always whole rupees (spec §9.3). |
 | **Futures OI build-up (`futures_oi`)** | A bullion OI factor: the future's price change against its OI change over `oi_window_minutes`. Build-up counts fully in the price's direction, covering and unwinding by `oi_unwind_factor`. |
 | **Gate / no-fire reason** | Why no signal fired at an evaluation, kept per index and metal and shown under the signal card: `below_threshold`, `active_exists`, `rearm`, `outside_hours`, `feed_down`, `no_price`, `disabled` (bullion signals off), `event_pause` (bullion, a US data release near), and for the trigger rule `no_setup`, `flow_not_confirmed`, `spread_wide` (`engine/signals.py:NoFireReason`). |
 | **GIFT Nifty gap** | The `gift_nifty` factor (NIFTY only): GIFT Nifty's overnight move, voted at the open with (`follow`) or against (`fade`) the gap and fading to nothing over the first 30 minutes. Part of the macro group. |
@@ -174,7 +174,9 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Net P&L** | Gross P&L minus cost per trade. The figure hit rate and summaries are based on. |
 | **Open trade** | A paper trade not yet closed. Tracked tick by tick for target/stop. |
 | **Paper bank** | The fake bank account that funds paper trades, one for every market. Balance = opening balance + net of every closed trade it funded; available = balance − blocked. A trade opens only if available covers its block. The opening balance (`bank.opening_balance`, default ₹25 lakh) is the cash put in: raising it is a deposit of the difference, lowering it a withdrawal, each a row in `bank_ledger`. Nothing is deleted. |
-| **Paper trade** | A simulated trade opened by the trader clicking "Paper trade" on an active signal. Never placed with the broker. |
+| **Paper trade** | A simulated trade opened by the trader: by clicking "Paper trade" on an active signal, or by hand from the option chain or a bullion card (see **Opened by hand**). Never placed with the broker. |
+| **Opened by hand (manual trade)** | A paper trade with no signal behind it: any option in the chain window, or a metal's future bought or sold, from the TradeTicket. Its `signal_id` is `manual`. Same gates as a signal trade plus the signal cut-off; target and stop are the signal rule's at the fill unless typed. Counted in the Journal's own "Opened by hand" card, never in the signal stats. |
+| **Levels edited** | The target and stop of an open paper trade changed by the trader after it opened. Checked against the current price; every set of levels is kept in `paper_trade_levels`. |
 | **Quantity** | Lot size × lots (default 1 lot). For bullion, the point value × lots (GOLD 100, SILVER 30 per lot). |
 | **Slippage** | Entry fill minus the signal's entry price: how far the price moved between the signal firing and the click. Recorded per trade. |
 | **Square-off time** | When open paper trades are force-closed. Default 15:15 IST for index options, 23:00 (on the MCX clock) for bullion. |
@@ -299,7 +301,8 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | `signals` | one signal (index or bullion) with its evidence, final status and the config version it fired under |
 | `signal_outcomes` | what one index signal's option did next: result, best/worst price, spot moves |
 | `config_versions` | one saved set of tunable parameters, numbered and tagged |
-| `paper_trades` | one paper trade from open to close, including exit fill quality, the money it blocked and whether the paper bank funded it |
+| `paper_trades` | one paper trade from open to close, including exit fill quality, the money it blocked, whether the paper bank funded it and whether its levels were changed. A trade opened by hand has `signal_id = 'manual'`, and its `signal_entry` is the price the ticket showed |
+| `paper_trade_levels` | one set of target and stop a paper trade has had: the ones it opened with (`entry`), then each change (`edit`), with the time and the price then |
 | `bank_ledger` | one paper bank cash move: the opening deposit, a deposit or a withdrawal |
 | `app_state` | one key/value of application state; unused (migration 014 removed its old `factors_off` row; the schema version itself is SQLite's `PRAGMA user_version`) |
 | `bullion_ticks` | one bullion (MCX) tick: the `ticks` columns plus the feed's day open, high and low |

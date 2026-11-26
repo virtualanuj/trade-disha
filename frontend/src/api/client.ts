@@ -10,6 +10,8 @@ import type {
   ParametersOut,
   ParamValues,
   PruneOut,
+  TicketOut,
+  TicketTarget,
   UsageOut,
 } from './types'
 
@@ -116,9 +118,9 @@ export function revertConfigVersion(version: number, tag?: string): Promise<Para
 /** The server refused; `message` is its reason, fit to show the trader. */
 export class Refused extends Error {}
 
-async function postJson<T>(path: string, body?: unknown): Promise<T> {
+async function postJson<T>(path: string, body?: unknown, method = 'POST'): Promise<T> {
   const res = await fetch(path, {
-    method: 'POST',
+    method,
     ...(body === undefined
       ? {}
       : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
@@ -147,6 +149,56 @@ export function openPaperTrade(signalId: string): Promise<PaperTradeOut> {
 
 export function closePaperTrade(tradeId: string): Promise<PaperTradeOut> {
   return postJson<PaperTradeOut>(`/api/paper-trades/${encodeURIComponent(tradeId)}/close`)
+}
+
+function ticketQuery(t: TicketTarget): string {
+  const q = new URLSearchParams({ index: t.index, direction: t.direction })
+  if (t.strike !== null) q.set('strike', String(t.strike))
+  return q.toString()
+}
+
+/** The ticket for a trade opened by hand (E23); a refusal comes back in `refusal`. */
+export async function fetchTicket(t: TicketTarget, signal?: AbortSignal): Promise<TicketOut> {
+  const res = await fetch(`/api/paper-trades/ticket?${ticketQuery(t)}`, signal ? { signal } : {})
+  if (!res.ok) {
+    let reason = `request failed (${String(res.status)})`
+    try {
+      const data = (await res.json()) as { detail?: unknown }
+      if (typeof data.detail === 'string') reason = data.detail
+    } catch {
+      // keep the generic reason
+    }
+    throw new Refused(reason)
+  }
+  return (await res.json()) as TicketOut
+}
+
+/** Open a trade by hand. A level left out is the signal rule's at the fill. */
+export function openManualTrade(
+  t: TicketTarget,
+  levels: { quoted: number | null; target: number | null; stop: number | null },
+): Promise<PaperTradeOut> {
+  return postJson<PaperTradeOut>('/api/paper-trades/manual', {
+    index: t.index,
+    direction: t.direction,
+    strike: t.strike,
+    quoted: levels.quoted,
+    target: levels.target,
+    stop: levels.stop,
+  })
+}
+
+/** Change an open trade's target and stop (E23). */
+export function setTradeLevels(
+  tradeId: string,
+  target: number,
+  stop: number,
+): Promise<PaperTradeOut> {
+  return postJson<PaperTradeOut>(
+    `/api/paper-trades/${encodeURIComponent(tradeId)}/levels`,
+    { target, stop },
+    'PATCH',
+  )
 }
 
 export interface JournalQuery {

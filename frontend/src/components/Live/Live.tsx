@@ -1,7 +1,7 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import type { ComponentProps } from 'react'
 
-import type { NewsOut, SignalOut } from '../../api/types'
+import type { NewsOut, PaperTradeOut, SignalOut, TicketTarget } from '../../api/types'
 import { isLong } from '../../lib/direction'
 import { factorSwitches } from '../../lib/factors'
 import { newestBullionTs, newestIndexTickTs, openTradeCount } from '../../lib/marketViews'
@@ -16,6 +16,7 @@ import {
   tradesSummary,
 } from '../../lib/panelSummary'
 import { useMarketNow } from '../../lib/marketClock'
+import { chainTicket } from '../../lib/ticket'
 import { useNow } from '../../lib/useNow'
 import { useMarketStore } from '../../state/store'
 import { Bank } from '../Bank/Bank'
@@ -32,6 +33,7 @@ import { SignalCard } from '../SignalCard/SignalCard'
 import { SignalHistory } from '../SignalHistory/SignalHistory'
 import { TopBar } from '../TopBar/TopBar'
 import { TradeLog } from '../TradeLog/TradeLog'
+import { TradeTicket } from '../TradeTicket/TradeTicket'
 
 /*
  * The page's live pieces, each reading the store itself.
@@ -77,11 +79,30 @@ export function IndexTilesPanel({ frame, index }: { frame: FrameProps; index: st
   )
 }
 
+/** The ticket for a trade opened by hand (E23), and the trade it opens put in the store. */
+function useTicket() {
+  const [ticket, setTicket] = useState<TicketTarget | null>(null)
+  const applyTrades = useMarketStore((s) => s.applyTrades)
+  const close = useCallback(() => {
+    setTicket(null)
+  }, [])
+  const opened = useCallback(
+    (t: PaperTradeOut) => {
+      applyTrades([t])
+    },
+    [applyTrades],
+  )
+  return { ticket, setTicket, close, opened }
+}
+
 export function BullionTilesPanel({ frame }: { frame: FrameProps }) {
   const bullion = useMarketStore((s) => s.bullion)
+  const { ticket, setTicket, close, opened } = useTicket()
+  const ltp = ticket ? (bullion?.metals.find((m) => m.metal === ticket.index)?.ltp ?? null) : null
   return (
     <PanelFrame {...frame} title="Bullion" summary={bullionSummary(bullion)}>
-      <BullionCards bullion={bullion} />
+      <BullionCards bullion={bullion} onTrade={setTicket} />
+      {ticket ? <TradeTicket target={ticket} ltp={ltp} onClose={close} onOpened={opened} /> : null}
     </PanelFrame>
   )
 }
@@ -199,9 +220,19 @@ export function HistoryPanel({ frame, focus }: { frame: FrameProps; focus: strin
 
 export function ChainPanel({ frame, index }: { frame: FrameProps; index: string }) {
   const chain = useMarketStore((s) => s.chains[index])
+  const { ticket, setTicket, close, opened } = useTicket()
+  const onTrade = useCallback(
+    (strike: number, side: 'ce' | 'pe') => {
+      setTicket(chainTicket(index, strike, side))
+    },
+    [index, setTicket],
+  )
+  const row = ticket ? chain?.rows.find((r) => r.strike === ticket.strike) : undefined
+  const ltp = row ? (ticket?.direction === 'BUY_CE' ? row.ce.ltp : row.pe.ltp) : null
   return (
     <PanelFrame {...frame} title="Option chain" summary={chainSummary(chain)} fill>
-      <OptionChain chain={chain} />
+      <OptionChain chain={chain} onTrade={onTrade} />
+      {ticket ? <TradeTicket target={ticket} ltp={ltp} onClose={close} onOpened={opened} /> : null}
     </PanelFrame>
   )
 }

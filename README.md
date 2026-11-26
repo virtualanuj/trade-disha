@@ -26,13 +26,17 @@ milestone, is in [docs/plan.md](docs/plan.md).
   open-interest build-up, order flow, and the dollar, USD/INR and the other metal. Every
   vote is visible, and any factor can be switched off for one index or metal.
 - **Signals:** an index signal says which ATM call or put to buy, a bullion signal whether
-  to buy or sell the future, with entry, target and stop (index points via delta on
-  expiry day) shown as fired and live while it waits. Every index signal is scored by
+  to buy or sell the future, with entry, target and stop (whole rupees; index points via
+  delta on expiry day) shown as fired and live while it waits. Every index signal is scored by
   what its option did next; an order-flow trigger runs in shadow beside the minute-close
   rule. Bullion signals pause around hand-listed US data releases.
-- **Paper trading:** one click to open, funded by a paper bank (an option blocks its
+- **Paper trading:** one click to open from a signal, or by hand with no signal: any
+  option from the chain or a metal's future, bought or sold, from a ticket with the
+  signal rule's target and stop (or your own). Funded by a paper bank (an option blocks its
   premium, a future its margin, plus cost; ₹25 lakh to start, set in Config). Trades
-  close at target, stop, the square-off or by hand; P&L is net of costs. The Journal shows
+  close at target, stop, the square-off or by hand, and the target and stop of an open
+  trade can be changed; P&L is net of costs. Trades opened by hand are kept out of the
+  signal stats. The Journal shows
   the bank, its ledger and the results; the Trades page lists open trades live and closed
   ones by day, each opening to its fills, signal, outcome and evidence.
 - **Screen:** NIFTY, BANK NIFTY and BULLION tabs; panels that resize, minimise and
@@ -120,7 +124,8 @@ hour. For the indices that is 09:15 to `signal.last_signal_time` (15:00), with p
 trades squared off at `paper.square_off_time` (15:15). For bullion it is
 `bullion.first_signal_time` to `last_signal_time` (09:15–22:45) while MCX is open, squared
 off at `bullion.square_off_time` (23:00). With hours enforced, a trade opens only while its
-market is live and before its square-off. Set `TRADEDISHA_ENFORCE_SIGNAL_HOURS` to override
+market is live and before its square-off; one opened by hand, also before the signal
+cut-off. Set `TRADEDISHA_ENFORCE_SIGNAL_HOURS` to override
 either way.
 
 ### Tuning the signal

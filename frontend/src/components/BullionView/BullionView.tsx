@@ -1,7 +1,7 @@
 import { memo, useCallback } from 'react'
 import type { ReactNode } from 'react'
 
-import type { BullionMetalOut, BullionOut } from '../../api/types'
+import type { BullionMetalOut, BullionOut, TicketTarget } from '../../api/types'
 import { fmtCount, fmtDate, fmtOi, fmtPrice, fmtSigned, pnlColour } from '../../lib/format'
 import { usePref } from '../../lib/usePref'
 import { Fact, Group, Price, RangeBar } from '../Facts/Facts'
@@ -44,8 +44,17 @@ export function MetalSwitch({
   )
 }
 
-/** The BULLION tab's tiles: a card per metal and the gold/silver ratio (spec §6.6, §13.2). */
-export function BullionCards({ bullion }: { bullion: BullionOut | null }) {
+/**
+ * The BULLION tab's tiles: a card per metal and the gold/silver ratio (spec §6.6, §13.2).
+ * With `onTrade` (stable), each card has Buy and Sell for a paper trade by hand (E23).
+ */
+export function BullionCards({
+  bullion,
+  onTrade,
+}: {
+  bullion: BullionOut | null
+  onTrade?: (t: TicketTarget) => void
+}) {
   const metals = bullion?.metals ?? EMPTY
   // one choice for both cards, like the index details: opening one opens both
   const [open, setOpen] = usePref(DETAILS_KEY, asOpen)
@@ -64,7 +73,7 @@ export function BullionCards({ bullion }: { bullion: BullionOut | null }) {
       <div className="grid gap-3 lg:grid-cols-2">
         {metals.map((m) => (
           <Box key={m.metal}>
-            <MetalCard m={m} open={open} onToggle={toggle} />
+            <MetalCard m={m} open={open} onToggle={toggle} onTrade={onTrade} />
           </Box>
         ))}
       </div>
@@ -101,10 +110,12 @@ const MetalCard = memo(function MetalCard({
   m,
   open,
   onToggle,
+  onTrade,
 }: {
   m: BullionMetalOut
   open: boolean
   onToggle: () => void
+  onTrade: ((t: TicketTarget) => void) | undefined
 }) {
   const yearPos =
     m.ltp != null && m.range_high != null && m.range_low != null && m.range_high > m.range_low
@@ -124,6 +135,30 @@ const MetalCard = memo(function MetalCard({
           {m.change == null ? '—' : fmtSigned(m.change, 2)}
           {m.change_pct == null ? '' : ` (${fmtSigned(m.change_pct, 2)}%)`}
         </span>
+        {onTrade ? (
+          <span className="ml-auto flex gap-1 pb-5 text-xs" role="group" aria-label="Paper trade">
+            <button
+              type="button"
+              className="rounded border border-bull/60 px-2 py-0.5 font-medium text-bull hover:bg-bull/10"
+              title={`Paper trade: buy the ${m.metal} future`}
+              onClick={() => {
+                onTrade({ index: m.metal, direction: 'BUY_FUT', strike: null })
+              }}
+            >
+              Buy
+            </button>
+            <button
+              type="button"
+              className="rounded border border-bear/60 px-2 py-0.5 font-medium text-bear hover:bg-bear/10"
+              title={`Paper trade: sell the ${m.metal} future`}
+              onClick={() => {
+                onTrade({ index: m.metal, direction: 'SELL_FUT', strike: null })
+              }}
+            >
+              Sell
+            </button>
+          </span>
+        ) : null}
       </div>
       <button
         type="button"

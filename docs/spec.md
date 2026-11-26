@@ -96,7 +96,7 @@ TradeDisha/
 │                                # OptionChain, Journal, ConfigControl, DataPanel,
 │                                # StatusBanner, PanelFrame, SidePanel, RightColumn,
 │                                # Headlines, Divider, DebugOverlay, FactorSwitch, FlowLine,
-│                                # ConfigVersionChip, Facts, …
+│                                # ConfigVersionChip, Facts, TradeTicket, LevelsEditor, …
 ├── config/
 │   ├── params.toml              # starting parameters for a new database
 │   ├── nse-holidays.txt         # NSE trading holidays
@@ -234,7 +234,8 @@ or deleted, and the highest one is in force.
 
 **Application.** The Signal Engine and Paper Trade Manager read the active set at the
 start of each minute-close evaluation, so a save takes effect at the next minute, never
-mid-computation. Open paper trades keep the target/stop they were opened with.
+mid-computation. Open paper trades keep the target/stop they were opened with until the
+trader changes them (§10.1).
 The chain-window parameters (`strike_window`, `recenter_strikes`) are not read: the chain
 takes its window from process settings (open item, §17). `news.poll_seconds` applies as soon as it is saved: the poller re-reads it
 and the next fetch falls due that long after the last one (at once, if that is past); a
@@ -878,10 +879,18 @@ stop} (§9.3).
   `target = entry + |delta| × target_points`, `stop = entry − |delta| × stop_points`,
   floored at `0.05`. `delta` from feed or computed (§7.3). Both the point and premium
   values are stored and shown.
+- **Whole rupees.** Every target and stop, index or bullion, is rounded to the nearest
+  rupee, half a rupee up (`signals.py:round_levels`): as fired, live, at a paper trade's
+  fill, on the ticket, and when the trader types or changes them. A level the rounding puts
+  on or past the entry moves out to the next whole rupee beyond it, so no trade opens on its
+  own target or stop; an option's stop never goes below `0.05`. A typed level is only
+  rounded, never moved: one that lands on or past the price is refused (§10.1).
 - **Live levels.** The fired levels are stored and never change. While a
   signal is active, `SignalEngine.live()` / `BullionSignalEngine.live()` apply the same rule
   to the price now (`signals.py:rescale_levels`): a percentage signal keeps its target/entry
-  and stop/entry ratios (so a config change after it fired does not move it); an
+  and stop/entry ratios (so a config change after it fired does not move it; the ratios are
+  of the rounded fired levels, so they can differ from the percentages by up to half a
+  rupee over the entry); an
   expiry-day signal re-applies its index points through the option's **current** delta
   (from the feed, else Black-Scholes). `SignalOut.live` = {ltp, target, stop}, `None` once
   the signal has ended; a `signal_live` frame carries every active signal once a second. The
@@ -1052,6 +1061,42 @@ No cap on concurrent open paper trades per index or direction *(my call, follows
 "always allow")*. The paper bank (§10.5) is the only limit: a trade it cannot fund is
 refused with a 409, and the signal stays active.
 
+**Opened by hand.** The trader can also open a paper trade with no signal behind it: any
+option in the chain window (the chain's expiry), or a metal's near-month future, bought or
+sold. It is stored like any other trade, with `signal_id = 'manual'`
+(`engine/paper.py:MANUAL_SIGNAL_ID`; a signal id is twelve hex digits, so none can clash).
+
+```
+GET /paper-trades/ticket?index=&direction=&strike=      (strike for an option only)
+  → the contract, its price now, lots and quantity, cost, the money the bank would
+    block and the money free, the signal rule's target and stop at that price, and
+    `refusal`: why an open would be refused now, if it would be. Nothing is opened.
+POST /paper-trades/manual {index, direction, strike?, quoted?, target?, stop?}
+  → the same gates as a signal trade, plus the signal cut-off: no index trade at or
+    after signal.last_signal_time (last_signal_time_expiry on expiry day), no bullion
+    trade at or after bullion.last_signal_time (else 409 with reason)
+  → open at the current LTP of the contract
+  → a level left out is the signal rule's at the fill (§9.3: a percentage of the fill,
+    or on expiry day the index points through the option's delta; a future's
+    percentage either side); a typed level is kept, rounded to the nearest rupee (§9.3)
+  → both must stand at the fill: stop < fill < target, mirrored for a short (else 409,
+    nothing opened)
+  → signal_entry = `quoted`, the price the ticket showed (the fill if none), so
+    slippage = fill − quoted
+  → the paper bank blocks the money as for a signal trade; no signal is marked traded
+```
+
+The level rule lives in one place for signals and these trades
+(`SignalEngine.levels_for`, `bullion_signals.future_levels`), so the two cannot drift.
+
+**Changing the levels.** `PATCH /paper-trades/{id}/levels {target, stop}` changes the
+target and stop of any open trade, from a signal or by hand. They are checked against the
+current price the same way (so a live feed is needed), the trade is marked
+`levels_edited`, and the next tick is checked against them. They are rounded to the
+nearest rupee first (§9.3). Every set of levels a trade has
+had is a row in `paper_trade_levels`: the ones it opened with (`entry`), then each change
+(`edit`), with the time and the price then.
+
 On every tick for an open trade's instrument (for a short future, `SELL_FUT`, the
 comparisons are mirrored: the target is below the entry):
 - `ltp ≥ target` → close `TARGET`
@@ -1091,7 +1136,9 @@ sends an open or a close to the manager that owns the signal or trade.
 
 ### 10.3 Journal stats
 Overall (index options only), per index, and, when there are bullion trades, a `bullion`
-total and per metal: trades, hits, hit rate, average win (net), average loss (net),
+total and per metal; these count only trades taken from signals, so they measure the
+signals. Last, when there are any, `manual`: every trade opened by hand, index and bullion
+together. For each: trades, hits, hit rate, average win (net), average loss (net),
 net total, gross total, average duration, breakdown by exit reason, count of non-`live`
 fills. Computed on request from `paper_trades`; small enough not to cache.
 
@@ -1218,10 +1265,13 @@ only SQLite, and `GET /auth/login`; a test lists them.
 | GET | `/flow` | latest order-flow reading per index (§8.5) and whether it is live or shadow |
 | GET | `/signals/{id}` | one signal with breakdown and outcome |
 | POST | `/paper-trades` | body `{signal_id}` → trade |
+| GET | `/paper-trades/ticket?index=&direction=&strike=` | the ticket for a trade opened by hand (§10.1); a refusal is in its `refusal`; 404 for no such contract |
+| POST | `/paper-trades/manual` | body `{index, direction, strike?, quoted?, target?, stop?}` → trade opened by hand (§10.1) |
+| PATCH | `/paper-trades/{id}/levels` | body `{target, stop}` → the open trade with its new levels (§10.1) |
 | POST | `/paper-trades/{id}/close` | manual close |
 | GET | `/paper-trades?index=&status=&from=&to=` | trades |
-| GET | `/paper-trades/{id}` | one trade (live P&L while open) and the signal it was taken on, with breakdown and outcome |
-| GET | `/journal/stats?from=&to=&index=` | summary stats: overall (index options), per index, `bullion` and per metal |
+| GET | `/paper-trades/{id}` | one trade (live P&L while open), the signal it was taken on with breakdown and outcome (none when opened by hand), and every set of levels it has had |
+| GET | `/journal/stats?from=&to=&index=` | summary stats: overall (index options), per index, `bullion` and per metal, from signal trades; `manual` for trades opened by hand |
 | GET | `/bullion` | the GOLD / SILVER snapshot (§6.6) |
 | GET | `/bullion/{metal}/candles` | today's bullion candles with VWAP |
 | GET | `/parameters` | the config in force: version, tag, created_ts and the `ParameterSet` |
@@ -1238,8 +1288,9 @@ only SQLite, and `GET /auth/login`; a test lists them.
 
 Errors: FastAPI's JSON `{"detail": "…"}`. 404 for an unknown signal or trade; 409 when a
 paper trade is requested for a signal that is no longer active or is shadow, outside its
-market's hours or after its square-off, or while its feed is not live; the `detail` says
-which.
+market's hours or after its square-off, or while its feed is not live; for a trade opened
+by hand also after the signal cut-off or with levels the price has passed; for a change of
+levels on a closed trade or levels the price has passed; the `detail` says which.
 
 ### 12.2 WebSocket (`/ws`)
 
@@ -1389,6 +1440,7 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
     - Liquidity: volume, OI, bid and ask with quantities, spread, buy/sell quantity and ratio
     - Contract, 1 year: high and low with distance and range bar, circuit limits
     - Next month: price, spread over near
+    - Buy and Sell, opening the TradeTicket for that metal's future
   - The gold/silver ratio.
   - `Price`, `Group`, `Fact` and `RangeBar` are shared with IndexTiles (`components/Facts`).
 - **IndexTiles**: spot and futures for the selected index; under them the **Sectors**
@@ -1502,8 +1554,11 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   last minute did not fire.
 - **OpenTrades** (the "Open paper trades" panel): one row per open paper trade on the
   selected index: option and quantity, entry, current price, target, stop, live net P&L,
-  time open, a "bias reversed" flag, and a Close button (disabled while the feed is not
-  live). Always on the page; with none open it reads "No open paper trades." It sits
+  time open, a "bias reversed" flag, a "manual" badge on a trade opened by hand, a Levels
+  button and a Close button (both disabled while the feed is not live). Levels opens the
+  **LevelsEditor** under the row: target and stop boxes filled with the trade's, Save
+  (`PATCH /paper-trades/{id}/levels`, waits for the server, shows its refusal) and Cancel.
+  Levels changed since the trade opened carry a `*`. Always on the page; with none open it reads "No open paper trades." It sits
   second last in the main column, directly above Signals today *(owner's decisions)*. Its border takes the accent colour while a trade is open.
 - **SignalHistory** (the "Signals today" panel): today's signals on the selected index:
   time fired, option, entry, target, stop, bias strength, status with the time it changed,
@@ -1522,10 +1577,21 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
 - **OptionChain**: a plain table of the window's rows (21 at most, so not virtualised;
   each row memoised by strike), ATM centred and highlighted, OI build-up heat
   shading (log scale of ΔOI), build-up class badge on hover, header with expiry, PCR,
-  max pain, last update time.
+  max pain, last update time. Each call and put LTP is a button ("Paper trade 25000 CE")
+  that opens the **TradeTicket** for that option.
+- **TradeTicket**: a dialog for a paper trade opened by hand (§10.1), from the option chain
+  or a bullion card's Buy / Sell. It loads `GET /paper-trades/ticket` and shows the
+  contract and expiry, the price now (the socket's, once it has one), quantity, cost, the
+  money the bank would hold and the money free, and Target and Stop boxes filled with the
+  signal rule's levels. Left as they are, the levels are worked out again at the fill;
+  typed ones are kept (the note under the boxes says which). A refusal is shown and Open
+  is disabled. Open waits for the server (`POST /paper-trades/manual`), puts the trade in
+  the store and closes; a refusal is shown under the boxes. Escape, Cancel or the
+  backdrop close it.
 - **Journal page**: the paper bank and its ledger (§10.5), and summary cards (hit rate,
   net P&L, avg win/loss, exits by reason, exits not on a live price) overall, per index
-  and for bullion, filtered by index and date range. It lists no trades: each trade is on
+  and for bullion, and "Opened by hand" for trades with no signal, filtered by index and
+  date range. It lists no trades: each trade is on
   the Trades page, which it links to.
 - **Trades page** (`#trades`): paper trades, index options and bullion, filtered by
   market and dates on the server. Open trades come first under "Open now" with their
@@ -1534,14 +1600,18 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   (`POST /paper-trades/{id}/close`, as on the dashboard), disabled while its own market has
   no live price: the index feed for NIFTY and BANK NIFTY, MCX for GOLD and SILVER. Closed trades follow by IST entry day (count, won/lost by net, net);
   the exit-reason and fill-quality filters narrow them on the page and hide the open
-  ones; non-`live` fills badged. A trade's row
+  ones; non-`live` fills badged, trades opened by hand badged "manual". An open row has
+  Levels beside Close, opening the LevelsEditor as on the dashboard. A trade's row
   opens its detail from `GET /paper-trades/{id}`: signal price, fill and slippage; target
   and stop; risk : reward from the fill; exit with reason and fill quality; gross, cost,
   net and the result in R (net over the money from fill to stop); the money held in the
   bank; the signal (time, call, bias and strength, entry rule, order flow, spread, expiry,
   config version chip); what its instrument did after (§9.5 outcome); and the evidence
   table rebuilt from the signal's stored breakdown. An open trade's detail shows the price
-  now, net and R so far instead of the exit.
+  now, net and R so far instead of the exit. A trade opened by hand reads "Opened by hand:
+  no signal is behind this trade" in place of the signal, outcome and evidence, and
+  "Ticket → fill" for its slippage. A trade whose levels were changed lists each set of
+  levels, when and at what price.
 - **Data panel** (drawer from the TopBar): DB size, tick days held, oldest/newest tick
   date; a date picker for "delete ticks up to and including"; a preview line ("N days,
   M rows, ~X MB") fetched from `/data/usage`; a confirm step that requires typing the date;

@@ -44,13 +44,13 @@ def _bias(minute_ts: int, value: float) -> BiasComputed:
 
 
 class Harness:
-    def __init__(self, *, enforce_hours: bool = True) -> None:
+    def __init__(self, *, enforce_hours: bool = True, day: date = TODAY) -> None:
         master = build_synthetic_master(TODAY)
-        self.r = resolve_index(master, "NIFTY", TODAY, 25_000.0, strike_window=3)
+        self.r = resolve_index(master, "NIFTY", day, 25_000.0, strike_window=3)
         self.chain = ChainState.from_resolved(self.r)
         self.params = ParameterSet()
         self.feed_live = True
-        self.now = at(10, 0)
+        self.now = at(10, 0, day=day)
         self.prices: dict[str, Price] = {}
         self.conn = connect(":memory:")
         self.enforce_hours = enforce_hours
@@ -110,7 +110,8 @@ class Harness:
     def open(self, fill: float = 101.0) -> PaperTrade:
         """Signal at 100 (target 130, stop 85), trader clicks when the price is `fill`.
 
-        The trade's target and stop are the signal's +30 % / -15 % from the fill (§10.1).
+        The trade's target and stop are the signal's +30 % / -15 % from the fill (§10.1),
+        in whole rupees: 131 / 86 at the default 101.
         """
         signal = self.fire()
         self.tick(signal.instrument_key, fill)
@@ -128,8 +129,9 @@ def test_opens_at_the_current_price_and_records_slippage() -> None:
     assert trade.entry_price == 101.5
     assert trade.signal_entry == 100.0
     assert trade.slippage == 1.5
-    # the signal's +30 % / -15 % from the fill, not the 130 / 85 it fired with
-    assert (trade.target_price, trade.stop_price) == (131.95, 86.28)
+    # the signal's +30 % / -15 % from the fill (131.95, 86.28), not the 130 / 85 it fired
+    # with, in whole rupees (E24)
+    assert (trade.target_price, trade.stop_price) == (132.0, 86.0)
     assert trade.lots == 1
     assert trade.qty == h.r.lot_size
     assert trade.cost == 60.0
@@ -204,9 +206,9 @@ def test_refuses_outside_market_hours_and_after_square_off() -> None:
 
 def test_target_exit_fills_at_the_triggering_tick_net_of_cost() -> None:
     h = Harness()
-    trade = h.open(fill=101.0)  # target 131.30
+    trade = h.open(fill=101.0)  # target 131.30, so 131
     h.tick(h.ce, 120.0, at(10, 1))
-    h.tick(h.ce, 131.0, at(10, 1, 30))  # the signal's target, not the trade's
+    h.tick(h.ce, 130.0, at(10, 1, 30))  # the signal's target, not the trade's
     assert trade.id in h.paper.open_trades
 
     h.tick(h.ce, 131.5, at(10, 2))

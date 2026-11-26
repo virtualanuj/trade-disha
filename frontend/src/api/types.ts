@@ -486,6 +486,7 @@ export interface BankOut {
 
 export interface PaperTradeOut {
   id: string
+  /** "manual" for a trade opened by hand; read `manual`, not this */
   signal_id: string
   index: string
   instrument_key: string
@@ -495,10 +496,11 @@ export interface PaperTradeOut {
   expiry: string
   lots: number
   qty: number
+  /** the signal's entry price; opened by hand, the price the ticket showed */
   signal_entry: number
   entry_price: number
   entry_ts: number
-  /** fill minus the signal's entry price */
+  /** fill minus `signal_entry` */
   slippage: number
   target_price: number
   stop_price: number
@@ -517,6 +519,10 @@ export interface PaperTradeOut {
   blocked: number
   /** funded by the paper bank; false for trades from before it */
   banked: boolean
+  /** target or stop changed after it opened (E23) */
+  levels_edited: boolean
+  /** opened by hand, with no signal (E23) */
+  manual: boolean
   /** live view while open */
   ltp: number | null
   ltp_ts: number | null
@@ -524,11 +530,54 @@ export interface PaperTradeOut {
   live_net: number | null
 }
 
+/** One set of levels a trade has had: at entry, then after each edit (E23). */
+export interface LevelChangeOut {
+  ts: number
+  target: number
+  stop: number
+  /** the price when they were set */
+  ltp: number
+  source: 'entry' | 'edit'
+}
+
 /** One trade and the signal it was taken from (`GET /api/paper-trades/{id}`, E19). */
 export interface PaperTradeDetailOut {
   trade: PaperTradeOut
-  /** null only if the signal row is missing */
+  /** null when opened by hand, or if the signal row is missing */
   signal: SignalOut | null
+  /** oldest first; empty for trades from before E23 */
+  levels: LevelChangeOut[]
+}
+
+/** What a trade opened by hand would be now (`GET /api/paper-trades/ticket`, E23). */
+export interface TicketOut {
+  index: string
+  direction: SignalDirection
+  instrument_key: string
+  trading_symbol: string
+  strike: number
+  expiry: string
+  lots: number
+  qty: number
+  ltp: number | null
+  ltp_ts: number | null
+  /** the signal rule's target and stop at the current price */
+  target: number | null
+  stop: number | null
+  cost: number | null
+  /** what the paper bank would hold */
+  blocked: number | null
+  /** free money in the paper bank */
+  available: number | null
+  /** why an open would be refused now */
+  refusal: string | null
+}
+
+/** Which contract a ticket is for: an index option (with strike) or a metal's future. */
+export interface TicketTarget {
+  index: string
+  direction: SignalDirection
+  strike: number | null
 }
 
 /** every second while signals wait: their live levels */
@@ -543,7 +592,7 @@ export interface PaperTradeFrame extends FrameBase {
 }
 
 export interface JournalStatsOut {
-  /** "overall" or an index name */
+  /** "overall", an index, "bullion", a metal, or "manual" (opened by hand) */
   scope: string
   trades: number
   hits: number

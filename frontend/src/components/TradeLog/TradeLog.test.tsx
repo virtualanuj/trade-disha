@@ -123,7 +123,7 @@ const signal: SignalOut = {
   live: null,
 }
 
-const detailOf = (t: PaperTradeOut): PaperTradeDetailOut => ({ trade: t, signal })
+const detailOf = (t: PaperTradeOut): PaperTradeDetailOut => ({ trade: t, signal, levels: [] })
 
 /** still open: entered two hours after `win`, 111 now, +₹590 net so far */
 const opened: PaperTradeOut = { ...trade, id: 'o1', entry_ts: win.entry_ts + 2 * 3_600_000 }
@@ -420,7 +420,7 @@ describe('TradeLog', () => {
 
   it('still shows the trade when its signal is missing', async () => {
     const load = vi.fn(() => Promise.resolve([win]))
-    const loadDetail = vi.fn(() => Promise.resolve({ trade: win, signal: null }))
+    const loadDetail = vi.fn(() => Promise.resolve({ trade: win, signal: null, levels: [] }))
     render(
       <TradeLog markets={['NIFTY']} now={NOW} revision={0} load={load} loadDetail={loadDetail} />,
     )
@@ -447,5 +447,60 @@ describe('TradeLog', () => {
     await waitFor(() => {
       expect(load).toHaveBeenCalledTimes(2)
     })
+  })
+})
+
+describe('TradeLog trades opened by hand and changed levels', () => {
+  const manual: PaperTradeOut = { ...win, id: 'm1', manual: true, signal_id: 'manual' }
+
+  it('says a trade opened by hand has no signal, and lists its levels', async () => {
+    const load = vi.fn(() => Promise.resolve([manual]))
+    const loadDetail = vi.fn(() =>
+      Promise.resolve<PaperTradeDetailOut>({
+        trade: manual,
+        signal: null,
+        levels: [
+          { ts: manual.entry_ts, target: 130, stop: 85, ltp: 101, source: 'entry' },
+          { ts: manual.entry_ts + 60_000, target: 140, stop: 95, ltp: 110, source: 'edit' },
+        ],
+      }),
+    )
+    render(
+      <TradeLog markets={['NIFTY']} now={NOW} revision={0} load={load} loadDetail={loadDetail} />,
+    )
+    const row = await screen.findByTestId('trade-m1')
+    expect(row).toHaveTextContent('manual')
+    await act(async () => {
+      fireEvent.click(toggle('m1'))
+      await Promise.resolve()
+    })
+    const detail = await screen.findByTestId('trade-detail-m1')
+    expect(detail).toHaveTextContent('Opened by hand: no signal is behind this trade.')
+    expect(within(detail).getByTestId('fact-fill')).toHaveTextContent('Ticket → fill')
+    const history = within(detail).getByTestId('level-history')
+    expect(history).toHaveTextContent('at entry')
+    expect(history).toHaveTextContent('changed')
+    expect(history).toHaveTextContent('140.00')
+  })
+
+  it('changes an open trade levels from its row', async () => {
+    const open: PaperTradeOut = { ...trade, id: 'o1' }
+    const saveLevels = vi.fn().mockResolvedValue(open)
+    render(
+      <TradeLog
+        markets={['NIFTY']}
+        now={NOW}
+        revision={0}
+        load={vi.fn(() => Promise.resolve([open]))}
+        saveLevels={saveLevels}
+      />,
+    )
+    await screen.findByTestId('trade-o1')
+    fireEvent.click(screen.getByRole('button', { name: 'Levels' }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      await Promise.resolve()
+    })
+    expect(saveLevels).toHaveBeenCalledWith('o1', 130, 85)
   })
 })

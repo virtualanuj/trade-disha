@@ -4,6 +4,12 @@ A trade opens at the price prevailing when the trader clicks (not the signal's e
 price) and closes at target, stop, the square-off time, or by hand. Nothing here places a
 real order, and nothing here opens a trade on its own.
 
+The trader can also open a trade by hand, with no signal (E23): any option in the chain
+window, or a metal's near-month future either way. Its `signal_id` is `MANUAL_SIGNAL_ID`.
+It takes the signal rule's target and stop at the fill, or levels the trader typed, and is
+held to the same gates plus the signal cut-off. The target and stop of any open trade can
+be changed; every set of levels a trade has had is kept in `paper_trade_levels`.
+
 Index options are always bought. A bullion future (spec §9a) is bought or sold, so P&L and
 the target/stop checks take the trade's side. Each manager runs one market's rules (its
 clock, square-off, lots, cost) and owns only that market's trades, so the index manager and
@@ -16,13 +22,19 @@ import logging
 import sqlite3
 import uuid
 from collections.abc import Callable, Iterable
-from dataclasses import asdict, dataclass, fields, replace
+from dataclasses import asdict, astuple, dataclass, fields, replace
 from datetime import datetime, time
 from typing import TYPE_CHECKING, Literal, Protocol
 
 from tradedisha.clock import IST, MarketClock, ist_to_ms, ms_to_ist
 from tradedisha.engine.bias_engine import BiasComputed
-from tradedisha.engine.signals import Direction, Signal, SignalStore
+from tradedisha.engine.signals import (
+    Direction,
+    ManualContract,
+    Signal,
+    SignalStore,
+    round_rupee,
+)
 from tradedisha.feed.bus import StampedTick
 from tradedisha.parameters.model import ParameterSet
 
@@ -36,7 +48,13 @@ ExitReason = Literal["TARGET", "STOP", "SQUARE_OFF", "MANUAL"]
 FillQuality = Literal["live", "after_gap", "stale"]
 Warning = Literal["bias_reversed"]
 
+LevelSource = Literal["entry", "edit"]
+
 METALS: frozenset[str] = frozenset({"GOLD", "SILVER"})  # bullion trades, by `index`
+
+# The `signal_id` of every trade opened by hand. Signal ids are twelve hex digits, so no
+# signal can ever have this one.
+MANUAL_SIGNAL_ID = "manual"
 
 
 class SignalSource(Protocol):
@@ -47,6 +65,10 @@ class SignalSource(Protocol):
 
     def mark_traded(self, signal_id: str, now_ms: int) -> Signal | None: ...
     def levels_at(self, s: Signal, price: float) -> tuple[float, float]: ...
+    def manual_contract(
+        self, index: str, direction: Direction, strike: float | None
+    ) -> ManualContract | None: ...
+    def default_levels(self, c: ManualContract, price: float) -> tuple[float, float]: ...
 
 
 @dataclass(frozen=True)
@@ -62,6 +84,9 @@ class PaperRules:
     block: Callable[[ParameterSet, str, float, int, float], float]
     # why no trade may be opened now, if anything: (now, params) -> reason (E18)
     entry_block: Callable[[int, ParameterSet], str | None] | None = None
+    # the last time a trade may be opened by hand: (params, is expiry day) -> the signal
+    # cut-off (E23). Signal trades are not held to it.
+    last_entry: Callable[[ParameterSet, bool], time] | None = None
 
 
 def index_rules() -> PaperRules:
@@ -72,6 +97,9 @@ def index_rules() -> PaperRules:
         lots=lambda p: p.paper.lots,
         cost=lambda p, _entry, _qty, lots: p.paper.cost_per_trade * lots,
         block=lambda _p, _index, entry, qty, cost: entry * qty + cost,  # the premium paid
+        last_entry=lambda p, expiry_day: (
+            p.signal.last_signal_time_expiry if expiry_day else p.signal.last_signal_time
+        ),
     )
 
 
@@ -95,6 +123,7 @@ def bullion_rules(
             p.bullion.margin_pct(metal) / 100 * entry * qty + cost
         ),
         entry_block=entry_block,
+        last_entry=lambda p, _expiry_day: p.bullion.last_signal_time,
     )
 
 
@@ -119,10 +148,10 @@ class PaperTrade:
     expiry: str
     lots: int
     qty: int
-    signal_entry: float
+    signal_entry: float  # the signal's entry price; by hand, the price the ticket showed
     entry_price: float
     entry_ts: int
-    slippage: float  # fill minus the signal's entry price
+    slippage: float  # fill minus `signal_entry`
     target_price: float
     stop_price: float
     cost: float  # round-trip cost for the whole trade, fixed at entry
@@ -137,10 +166,16 @@ class PaperTrade:
     warning: Warning | None = None
     blocked: float = 0.0  # held in the paper bank while open (E17)
     banked: bool = False  # funded by the paper bank, so its P&L settles there
+    levels_edited: bool = False  # target or stop changed after it opened (E23)
 
     @property
     def is_open(self) -> bool:
         return self.status == "open"
+
+    @property
+    def is_manual(self) -> bool:
+        """Opened by hand, with no signal (E23)."""
+        return self.signal_id == MANUAL_SIGNAL_ID
 
     @property
     def side(self) -> int:
@@ -161,6 +196,34 @@ class PaperTrade:
 
 _COLS = [f.name for f in fields(PaperTrade)]
 _DB_COLS = ["idx" if c == "index" else c for c in _COLS]
+
+
+@dataclass(frozen=True)
+class LevelChange:
+    """One set of levels a trade has had: at entry, then after each edit."""
+
+    trade_id: str
+    ts: int
+    target: float
+    stop: float
+    ltp: float  # the price when they were set
+    source: LevelSource
+
+
+def check_levels(direction: Direction, price: float, target: float, stop: float) -> str | None:
+    """Why `target` and `stop` cannot stand at `price`, if they cannot: the target must be
+    on the trade's side of the price and the stop on the other (mirrored for a short)."""
+    if target <= 0 or stop <= 0:
+        return "target and stop must be above zero"
+    short = direction == "SELL_FUT"
+    side = -1 if short else 1
+    if side * (target - price) <= 0:
+        where = "below" if short else "above"
+        return f"the target {target:g} must be {where} the price {price:g}"
+    if side * (price - stop) <= 0:
+        where = "above" if short else "below"
+        return f"the stop {stop:g} must be {where} the price {price:g}"
+    return None
 
 
 class PaperTradeStore:
@@ -206,10 +269,28 @@ class PaperTradeStore:
         sql += " ORDER BY entry_ts DESC"
         return [self._row(r) for r in self._conn.execute(sql, args)]
 
+    def add_levels(self, change: LevelChange) -> None:
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO paper_trade_levels (trade_id, ts, target, stop, ltp, source)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                astuple(change),
+            )
+
+    def levels(self, trade_id: str) -> list[LevelChange]:
+        """Every set of levels the trade has had, oldest first."""
+        rows = self._conn.execute(
+            "SELECT trade_id, ts, target, stop, ltp, source FROM paper_trade_levels"
+            " WHERE trade_id = ? ORDER BY id",
+            (trade_id,),
+        )
+        return [LevelChange(*r) for r in rows]
+
     @staticmethod
     def _row(r: sqlite3.Row) -> PaperTrade:
         row = {c: r[d] for c, d in zip(_COLS, _DB_COLS, strict=True)}
         row["banked"] = bool(row["banked"])
+        row["levels_edited"] = bool(row["levels_edited"])
         return PaperTrade(**row)
 
 
@@ -217,6 +298,30 @@ class PaperTradeStore:
 class Price:
     ltp: float
     ts: int
+
+
+@dataclass(frozen=True)
+class ManualQuote:
+    """What the ticket shows before a trade is opened by hand. Nothing is opened. The
+    price-dependent fields are None until the instrument has a price, and `refusal` says
+    why the trade would be refused now, if it would be."""
+
+    index: str
+    direction: Direction
+    instrument_key: str
+    trading_symbol: str
+    strike: float
+    expiry: str
+    lots: int
+    qty: int
+    available: float | None  # free money in the paper bank
+    ltp: float | None = None
+    ltp_ts: int | None = None
+    target: float | None = None
+    stop: float | None = None
+    cost: float | None = None
+    blocked: float | None = None
+    refusal: str | None = None
 
 
 class PaperTradeManager:
@@ -254,6 +359,8 @@ class PaperTradeManager:
 
     def open(self, signal_id: str) -> PaperTrade:
         """Open a trade from an active signal at the current price."""
+        if signal_id == MANUAL_SIGNAL_ID:
+            raise PaperError("not a signal: use the manual ticket to open a trade by hand")
         now = self._clock.now_ms()
         signal = next((s for s in self._signals.active.values() if s.id == signal_id), None)
         if signal is None:
@@ -264,16 +371,9 @@ class PaperTradeManager:
                 raise PaperError("this is a shadow signal, recorded for comparison only")
             raise PaperError(f"signal is no longer active ({known.status})")
         p = self._params()
-        if self._enforce_hours:
-            if self._clock.status() != "live":
-                raise PaperError("market is not open")
-            if ms_to_ist(now).time() >= self.rules.square_off(p):
-                raise PaperError("past the square-off time")
-        blocked_by = self.rules.entry_block(now, p) if self.rules.entry_block else None
-        if blocked_by:
-            raise PaperError(blocked_by)
-        if not self._feed_live():
-            raise PaperError("feed is not live, so there is no price to trade at")
+        refusal = self._entry_gate(now, p, cutoff=None)
+        if refusal:
+            raise PaperError(refusal)
         price = self._price(signal.instrument_key)
         if price is None:
             raise PaperError("no price for this instrument yet")
@@ -308,10 +408,144 @@ class PaperTradeManager:
             banked=self.bank is not None,
         )
         self._signals.mark_traded(signal.id, now)
-        self.open_trades[trade.id] = trade
-        self._save(trade)
-        log.info("paper trade %s opened %s @ %.2f", trade.id, trade.trading_symbol, price.ltp)
+        self._opened(trade)
         return trade
+
+    def quote_manual(self, index: str, direction: Direction, strike: float | None) -> ManualQuote:
+        """The ticket for a trade opened by hand: the contract, its price, the signal
+        rule's target and stop there, the money it would take, and any refusal."""
+        c = self._contract(index, direction, strike)
+        p = self._params()
+        lots = self.rules.lots(p)
+        qty = c.lot_size * lots
+        available = self.bank.summary().available if self.bank else None
+        head = ManualQuote(
+            index=c.index,
+            direction=c.direction,
+            instrument_key=c.instrument_key,
+            trading_symbol=c.trading_symbol,
+            strike=c.strike,
+            expiry=c.expiry,
+            lots=lots,
+            qty=qty,
+            available=available,
+        )
+        refusal = self._entry_gate(self._clock.now_ms(), p, cutoff=self._cutoff(c, p))
+        price = self._price(c.instrument_key)
+        if price is None:
+            return replace(head, refusal=refusal or "no price for this instrument yet")
+        target, stop = self._signals.default_levels(c, price.ltp)
+        cost = round(self.rules.cost(p, price.ltp, qty, lots), 2)
+        blocked = round(self.rules.block(p, c.index, price.ltp, qty, cost), 2)
+        refusal = refusal or check_levels(c.direction, price.ltp, target, stop)
+        if refusal is None and self.bank:
+            try:
+                self.bank.reserve(blocked)  # only checks: nothing is held until the open
+            except PaperError as exc:
+                refusal = exc.reason
+        return replace(
+            head,
+            ltp=price.ltp,
+            ltp_ts=price.ts,
+            target=target,
+            stop=stop,
+            cost=cost,
+            blocked=blocked,
+            refusal=refusal,
+        )
+
+    def open_manual(
+        self,
+        index: str,
+        direction: Direction,
+        strike: float | None,
+        *,
+        quoted: float | None = None,
+        target: float | None = None,
+        stop: float | None = None,
+    ) -> PaperTrade:
+        """Open a trade by hand, with no signal, at the current price (E23).
+
+        A level left out is the signal rule's at the fill; a typed one is kept, rounded to
+        the nearest rupee like every level (E24). Both must stand at the fill
+        (`check_levels`). `quoted` is the price the ticket
+        showed: the trade records how far the fill was from it.
+        """
+        c = self._contract(index, direction, strike)
+        now = self._clock.now_ms()
+        p = self._params()
+        refusal = self._entry_gate(now, p, cutoff=self._cutoff(c, p))
+        if refusal:
+            raise PaperError(refusal)
+        price = self._price(c.instrument_key)
+        if price is None:
+            raise PaperError("no price for this instrument yet")
+        fill = price.ltp
+        if target is None or stop is None:
+            default_target, default_stop = self._signals.default_levels(c, fill)
+            target = default_target if target is None else round_rupee(target)
+            stop = default_stop if stop is None else round_rupee(stop)
+        else:
+            target, stop = round_rupee(target), round_rupee(stop)
+        bad = check_levels(c.direction, fill, target, stop)
+        if bad:
+            raise PaperError(bad)
+        lots = self.rules.lots(p)
+        qty = c.lot_size * lots
+        cost = round(self.rules.cost(p, fill, qty, lots), 2)
+        blocked = round(self.rules.block(p, c.index, fill, qty, cost), 2)
+        if self.bank:
+            self.bank.reserve(blocked)
+        shown = fill if quoted is None else quoted
+        trade = PaperTrade(
+            id=uuid.uuid4().hex[:12],
+            signal_id=MANUAL_SIGNAL_ID,
+            index=c.index,
+            instrument_key=c.instrument_key,
+            trading_symbol=c.trading_symbol,
+            direction=c.direction,
+            strike=c.strike,
+            expiry=c.expiry,
+            lots=lots,
+            qty=qty,
+            signal_entry=shown,
+            entry_price=fill,
+            entry_ts=now,
+            slippage=round(fill - shown, 2),
+            target_price=target,
+            stop_price=stop,
+            cost=cost,
+            blocked=blocked if self.bank else 0.0,
+            banked=self.bank is not None,
+        )
+        self._opened(trade)
+        return trade
+
+    def set_levels(self, trade_id: str, *, target: float, stop: float) -> PaperTrade:
+        """Change an open trade's target and stop (E23), rounded to the nearest rupee (E24).
+        They must stand at the current price, so a live feed is needed. The next tick is
+        checked against them."""
+        trade = self.open_trades.get(trade_id)
+        if trade is None:
+            if self.store.get(trade_id) is None:
+                raise PaperError("unknown paper trade", not_found=True)
+            raise PaperError("paper trade is already closed")
+        if not self._feed_live():
+            raise PaperError("feed is not live, so there is no price to check the levels at")
+        price = self._price(trade.instrument_key)
+        if price is None:
+            raise PaperError("no price for this instrument yet")
+        target, stop = round_rupee(target), round_rupee(stop)
+        bad = check_levels(trade.direction, price.ltp, target, stop)
+        if bad:
+            raise PaperError(bad)
+        now = self._clock.now_ms()
+        edited = replace(trade, target_price=target, stop_price=stop, levels_edited=True)
+        self.open_trades[trade.id] = edited
+        self.store.add_levels(LevelChange(trade.id, now, target, stop, price.ltp, "edit"))
+        self._save(edited)
+        log.info("paper trade %s levels now target %.2f stop %.2f", trade.id, target, stop)
+        return edited
 
     def close_manual(self, trade_id: str) -> PaperTrade:
         trade = self.open_trades.get(trade_id)
@@ -381,6 +615,48 @@ class PaperTradeManager:
 
     # -- internals -------------------------------------------------------------
 
+    def _entry_gate(self, now: int, p: ParameterSet, *, cutoff: time | None) -> str | None:
+        """Why no trade may be opened now, if anything. `cutoff` is the signal cut-off a
+        trade opened by hand is held to."""
+        if self._enforce_hours:
+            if self._clock.status() != "live":
+                return "market is not open"
+            t = ms_to_ist(now).time()
+            if t >= self.rules.square_off(p):
+                return "past the square-off time"
+            if cutoff is not None and t >= cutoff:
+                return f"no new trades after {cutoff:%H:%M}"
+        blocked_by = self.rules.entry_block(now, p) if self.rules.entry_block else None
+        if blocked_by:
+            return blocked_by
+        if not self._feed_live():
+            return "feed is not live, so there is no price to trade at"
+        return None
+
+    def _cutoff(self, c: ManualContract, p: ParameterSet) -> time | None:
+        return self.rules.last_entry(p, c.is_expiry_day) if self.rules.last_entry else None
+
+    def _contract(self, index: str, direction: Direction, strike: float | None) -> ManualContract:
+        c = self._signals.manual_contract(index, direction, strike)
+        if c is None or not self.rules.owns(c.index):
+            raise PaperError("no such contract to trade here", not_found=True)
+        return c
+
+    def _opened(self, trade: PaperTrade) -> None:
+        self.open_trades[trade.id] = trade
+        t = trade
+        self.store.add_levels(
+            LevelChange(t.id, t.entry_ts, t.target_price, t.stop_price, t.entry_price, "entry")
+        )
+        self._save(trade)
+        log.info(
+            "paper trade %s opened%s %s @ %.2f",
+            trade.id,
+            " by hand" if trade.is_manual else "",
+            trade.trading_symbol,
+            trade.entry_price,
+        )
+
     def _restore(self) -> None:
         """Pick up trades left open by a restart. The app was away, so that is a gap."""
         today = self._clock.today()
@@ -443,7 +719,7 @@ class PaperTradeManager:
 
 @dataclass(frozen=True)
 class JournalStats:
-    scope: str  # "overall" (index options), an index, "bullion" or a metal
+    scope: str  # "overall" (index options), an index, "bullion", a metal, or "manual"
     trades: int
     hits: int
     hit_rate: float | None  # share of closed trades with net > 0
@@ -483,10 +759,14 @@ def _stats(scope: str, closed: list[PaperTrade]) -> JournalStats:
 
 def journal_stats(trades: Iterable[PaperTrade]) -> list[JournalStats]:
     """Overall (index options only) first, then one entry per index; then, when there are
-    bullion trades, a `bullion` total and one entry per metal. Only closed trades count."""
+    bullion trades, a `bullion` total and one entry per metal; last, when there are any,
+    `manual`: every trade opened by hand, kept out of the others so they measure the
+    signals alone (E23). Only closed trades count."""
     closed = [t for t in trades if not t.is_open]
-    options = [t for t in closed if t.index not in METALS]
-    bullion = [t for t in closed if t.index in METALS]
+    manual = [t for t in closed if t.is_manual]
+    signalled = [t for t in closed if not t.is_manual]
+    options = [t for t in signalled if t.index not in METALS]
+    bullion = [t for t in signalled if t.index in METALS]
     out = [_stats("overall", options)]
     for index in sorted({t.index for t in options}):
         out.append(_stats(index, [t for t in options if t.index == index]))
@@ -494,4 +774,6 @@ def journal_stats(trades: Iterable[PaperTrade]) -> list[JournalStats]:
         out.append(_stats("bullion", bullion))
         for metal in sorted({t.index for t in bullion}):
             out.append(_stats(metal, [t for t in bullion if t.index == metal]))
+    if manual:
+        out.append(_stats("manual", manual))
     return out

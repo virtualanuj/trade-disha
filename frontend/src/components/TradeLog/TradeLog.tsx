@@ -6,6 +6,7 @@ import type { JournalQuery } from '../../api/client'
 import type {
   ExitReason,
   FillQuality,
+  LevelChangeOut,
   OutcomeOut,
   PaperTradeDetailOut,
   PaperTradeOut,
@@ -27,6 +28,8 @@ import { useInFlight } from '../../lib/useInFlight'
 import { QUALITY_TEXT, REASON_TEXT } from '../../lib/tradeText'
 import { ConfigVersionChip } from '../ConfigVersionChip/ConfigVersionChip'
 import { EvidenceTable } from '../EvidenceTable/EvidenceTable'
+import { LevelsEditor } from '../LevelsEditor/LevelsEditor'
+import { ManualBadge } from '../OpenTrades/OpenTrades'
 
 /** trade, qty, in, out, entry, exit, reason, held, net, and the Close button */
 const COLUMNS = 10
@@ -66,6 +69,8 @@ interface Props {
   onClose?: (tradeId: string) => Promise<unknown>
   /** why a trade cannot be closed right now (its market has no live price), or null */
   closeBlock?: ((t: PaperTradeOut) => string | null) | undefined
+  /** changes an open trade's target and stop; rejects with the server's reason (E23) */
+  saveLevels?: (tradeId: string, target: number, stop: number) => Promise<unknown>
 }
 
 /**
@@ -82,6 +87,7 @@ export function TradeLog({
   loadDetail = fetchPaperTradeDetail,
   onClose = closePaperTrade,
   closeBlock,
+  saveLevels,
 }: Props) {
   const [market, setMarket] = useState('')
   const [from, setFrom] = useState('')
@@ -203,6 +209,7 @@ export function TradeLog({
         closing={closing.has(t.id)}
         closeBlock={t.status === 'open' ? (closeBlock?.(t) ?? null) : null}
         onClose={close}
+        saveLevels={saveLevels}
       />
     ))
 
@@ -410,6 +417,7 @@ const TradeRows = memo(function TradeRows({
   closing,
   closeBlock,
   onClose,
+  saveLevels,
 }: {
   t: PaperTradeOut
   now: number
@@ -420,12 +428,14 @@ const TradeRows = memo(function TradeRows({
   closing: boolean
   closeBlock: string | null
   onClose: (id: string) => void
+  saveLevels: ((tradeId: string, target: number, stop: number) => Promise<unknown>) | undefined
 }) {
   const live = t.status === 'open'
   const net = netOf(t)
   const badge =
     t.exit_fill_quality && t.exit_fill_quality !== 'live' ? QUALITY_TEXT[t.exit_fill_quality] : null
   const panelId = `trade-detail-${t.id}`
+  const [editing, setEditing] = useState(false)
   return (
     <>
       <tr className="h-7 border-t border-border/60" data-testid={`trade-${t.id}`}>
@@ -460,6 +470,7 @@ const TradeRows = memo(function TradeRows({
           ) : (
             ((t.exit_reason && REASON_TEXT[t.exit_reason]) ?? '—')
           )}
+          {t.manual ? <ManualBadge /> : null}
           {live && t.warning === 'bias_reversed' ? (
             <span
               className="ml-2 rounded bg-warn/20 px-1 text-warn"
@@ -482,7 +493,21 @@ const TradeRows = memo(function TradeRows({
         >
           {fmtMoney(net)}
         </td>
-        <td className="pl-3 text-right font-sans">
+        <td className="whitespace-nowrap pl-3 text-right font-sans">
+          {live ? (
+            <button
+              type="button"
+              className="mr-1 rounded border border-border px-2 py-0.5 text-fg-muted hover:text-fg disabled:opacity-50"
+              disabled={closeBlock !== null}
+              aria-expanded={editing}
+              title={closeBlock ?? 'Change the target and stop'}
+              onClick={() => {
+                setEditing(!editing)
+              }}
+            >
+              Levels
+            </button>
+          ) : null}
           {live ? (
             <button
               type="button"
@@ -498,6 +523,20 @@ const TradeRows = memo(function TradeRows({
           ) : null}
         </td>
       </tr>
+      {live && editing ? (
+        <tr>
+          <td colSpan={COLUMNS} className="font-sans">
+            <LevelsEditor
+              trade={t}
+              onDone={() => {
+                setEditing(false)
+                if (open) onRetry(t.id) // the detail's list of levels has grown
+              }}
+              {...(saveLevels ? { save: saveLevels } : {})}
+            />
+          </td>
+        </tr>
+      ) : null}
       {open ? (
         <tr>
           <td colSpan={COLUMNS} className="pb-3 font-sans whitespace-normal">
@@ -549,6 +588,7 @@ function DetailBody({
   }
   // the row's trade, not the fetched copy: it carries the live price while the trade is open
   const signal = detail.detail.signal
+  const levels = detail.detail.levels
   return (
     <div
       id={panelId}
@@ -562,16 +602,52 @@ function DetailBody({
             <SignalFacts s={signal} />
             <OutcomeFacts s={signal} />
           </>
+        ) : t.manual ? (
+          <p className="text-fg-muted md:col-span-2">
+            Opened by hand: no signal is behind this trade.
+          </p>
         ) : (
           <p className="text-fg-muted md:col-span-2">The signal for this trade was not found.</p>
         )}
       </div>
+      {levels.length > 1 ? <LevelHistory levels={levels} /> : null}
       {signal ? (
         <div>
           <Heading>Evidence when it fired</Heading>
           <EvidenceTable bias={biasFromSignal(signal)} />
         </div>
       ) : null}
+    </div>
+  )
+}
+
+/** Every set of levels the trade has had, when it has been changed (E23). */
+function LevelHistory({ levels }: { levels: LevelChangeOut[] }) {
+  return (
+    <div data-testid="level-history">
+      <Heading>Target and stop</Heading>
+      <table className="font-mono">
+        <thead className="font-sans text-fg-muted">
+          <tr>
+            <th className="pr-4 text-left font-normal">Set</th>
+            <th className="pr-4 text-left font-normal">At</th>
+            <th className="pr-4 text-right font-normal">Price then</th>
+            <th className="pr-4 text-right font-normal">Target</th>
+            <th className="text-right font-normal">Stop</th>
+          </tr>
+        </thead>
+        <tbody>
+          {levels.map((lv, i) => (
+            <tr key={`${String(lv.ts)}-${String(i)}`}>
+              <td className="pr-4 font-sans">{lv.source === 'entry' ? 'at entry' : 'changed'}</td>
+              <td className="pr-4">{fmtIstTime(lv.ts)}</td>
+              <td className="pr-4 text-right">{fmtPrice(lv.ltp)}</td>
+              <td className="pr-4 text-right text-bull">{fmtPrice(lv.target)}</td>
+              <td className="text-right text-bear">{fmtPrice(lv.stop)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
@@ -622,11 +698,19 @@ function TradeFacts({ t, now }: { t: PaperTradeOut; now: number }) {
       <Heading>Trade</Heading>
       <div className="mb-1 font-mono text-fg-muted">{t.trading_symbol}</div>
       <dl>
-        <Fact id="fill" label="Signal → fill" title="Fill minus signal price is the slippage">
+        <Fact
+          id="fill"
+          label={t.manual ? 'Ticket → fill' : 'Signal → fill'}
+          title={
+            t.manual
+              ? 'Fill minus the price the ticket showed is the slippage'
+              : 'Fill minus signal price is the slippage'
+          }
+        >
           {fmtPrice(t.signal_entry)} → {fmtPrice(t.entry_price)}
           <span className="ml-2 text-fg-muted">{fmtSigned(t.slippage, 2)}</span>
         </Fact>
-        <Fact id="levels" label="Target / stop">
+        <Fact id="levels" label={t.levels_edited ? 'Target / stop (changed)' : 'Target / stop'}>
           <span className="text-bull">{fmtPrice(t.target_price)}</span>
           {' / '}
           <span className="text-bear">{fmtPrice(t.stop_price)}</span>

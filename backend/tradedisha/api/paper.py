@@ -1,13 +1,16 @@
-"""Paper trades and the journal. The only mutations in the app besides config reload."""
+"""Paper trades and the journal. The only mutations in the app besides config reload.
+
+A trade is opened from an active signal, or by hand from a ticket (E23); the target and
+stop of any open trade can be changed."""
 
 from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from tradedisha.api.deps import State
 from tradedisha.api.signals import SignalOut, signal_out
@@ -15,6 +18,7 @@ from tradedisha.app_state import AppState
 from tradedisha.engine.paper import (
     METALS,
     JournalStats,
+    LevelChange,
     PaperError,
     PaperTrade,
     PaperTradeManager,
@@ -56,6 +60,8 @@ class PaperTradeOut(BaseModel):
     warning: str | None
     blocked: float  # held in the paper bank while open (E17)
     banked: bool
+    levels_edited: bool  # target or stop changed after it opened (E23)
+    manual: bool = False  # opened by hand, with no signal (E23)
     # live view of an open trade
     ltp: float | None = None
     ltp_ts: int | None = None
@@ -110,19 +116,70 @@ def bank_out(state: AppState) -> BankOut:
     return BankOut.model_validate(asdict(state.session.bank.summary()))
 
 
+class LevelChangeOut(BaseModel):
+    ts: int
+    target: float
+    stop: float
+    ltp: float  # the price when they were set
+    source: str  # entry, edit
+
+
 class PaperTradeDetailOut(BaseModel):
-    """One trade and the signal it was taken from, for the Trades page (E19)."""
+    """One trade, the signal it was taken from (none when opened by hand) and every set of
+    levels it has had, for the Trades page (E19, E23)."""
 
     trade: PaperTradeOut
     signal: SignalOut | None
+    levels: list[LevelChangeOut]
 
 
 class OpenRequest(BaseModel):
     signal_id: str
 
 
+ManualDirection = Literal["BUY_CE", "BUY_PE", "BUY_FUT", "SELL_FUT"]
+
+
+class TicketOut(BaseModel):
+    """What a trade opened by hand would be, now (E23). Nothing is opened."""
+
+    index: str
+    direction: str
+    instrument_key: str
+    trading_symbol: str
+    strike: float
+    expiry: str
+    lots: int
+    qty: int
+    ltp: float | None
+    ltp_ts: int | None
+    target: float | None  # the signal rule's, at the current price
+    stop: float | None
+    cost: float | None
+    blocked: float | None  # what the paper bank would hold
+    available: float | None  # free money in the paper bank
+    refusal: str | None  # why an open would be refused now
+
+
+class ManualOpenRequest(BaseModel):
+    """Open by hand: an index option (strike required) or a metal's future (no strike).
+    A level left out is the signal rule's at the fill."""
+
+    index: str
+    direction: ManualDirection
+    strike: float | None = None
+    quoted: float | None = Field(None, gt=0)  # the price the ticket showed
+    target: float | None = None
+    stop: float | None = None
+
+
+class LevelsRequest(BaseModel):
+    target: float
+    stop: float
+
+
 def trade_out(state: AppState, t: PaperTrade) -> PaperTradeOut:
-    out = PaperTradeOut(**asdict(t))
+    out = PaperTradeOut(**asdict(t), manual=t.is_manual)
     if t.is_open:
         prices = state.session.prices
         ltp = prices.ltp.get(t.instrument_key)
@@ -198,6 +255,46 @@ async def open_trade(body: OpenRequest, state: State) -> PaperTradeOut:
         raise _fail(exc) from exc
 
 
+@router.get("/paper-trades/ticket", response_model=TicketOut)
+async def ticket(
+    state: State, index: str, direction: ManualDirection, strike: float | None = None
+) -> TicketOut:
+    try:
+        quote = _manager(state, index.upper()).quote_manual(index.upper(), direction, strike)
+    except PaperError as exc:
+        raise _fail(exc) from exc
+    return TicketOut(**asdict(quote))
+
+
+@router.post("/paper-trades/manual", response_model=PaperTradeOut, status_code=201)
+async def open_manual(body: ManualOpenRequest, state: State) -> PaperTradeOut:
+    index = body.index.upper()
+    try:
+        trade = _manager(state, index).open_manual(
+            index,
+            body.direction,
+            body.strike,
+            quoted=body.quoted,
+            target=body.target,
+            stop=body.stop,
+        )
+    except PaperError as exc:
+        raise _fail(exc) from exc
+    return trade_out(state, trade)
+
+
+@router.patch("/paper-trades/{trade_id}/levels", response_model=PaperTradeOut)
+async def set_levels(trade_id: str, body: LevelsRequest, state: State) -> PaperTradeOut:
+    try:
+        known = PaperTradeStore(state.conn).get(trade_id)
+        if known is None:
+            raise PaperError("unknown paper trade", not_found=True)
+        mgr = _manager(state, known.index)
+        return trade_out(state, mgr.set_levels(trade_id, target=body.target, stop=body.stop))
+    except PaperError as exc:
+        raise _fail(exc) from exc
+
+
 @router.post("/paper-trades/{trade_id}/close", response_model=PaperTradeOut)
 async def close_trade(trade_id: str, state: State) -> PaperTradeOut:
     try:
@@ -225,14 +322,21 @@ async def get_trade(trade_id: str, state: State) -> PaperTradeDetailOut:
     live = next(
         (m.open_trades[trade_id] for m in _managers(state) if trade_id in m.open_trades), None
     )
-    t = live or PaperTradeStore(state.conn).get(trade_id)
+    store = PaperTradeStore(state.conn)
+    t = live or store.get(trade_id)
     if t is None:
         raise HTTPException(status_code=404, detail="unknown trade")
     # one signals table serves index and bullion, and is there before the feed starts
-    s = SignalStore(state.conn).get(t.signal_id)
+    s = None if t.is_manual else SignalStore(state.conn).get(t.signal_id)
     return PaperTradeDetailOut(
-        trade=trade_out(state, t), signal=signal_out(state, s) if s is not None else None
+        trade=trade_out(state, t),
+        signal=signal_out(state, s) if s is not None else None,
+        levels=[_level_out(c) for c in store.levels(t.id)],
     )
+
+
+def _level_out(c: LevelChange) -> LevelChangeOut:
+    return LevelChangeOut(ts=c.ts, target=c.target, stop=c.stop, ltp=c.ltp, source=c.source)
 
 
 @router.get("/bank", response_model=BankOut)

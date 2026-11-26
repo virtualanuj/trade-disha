@@ -18,6 +18,7 @@ be compared on the same days; its signals are stored and marked, never offered f
 from __future__ import annotations
 
 import logging
+import math
 import sqlite3
 import uuid
 from collections.abc import Callable
@@ -101,6 +102,28 @@ class Gate:
     reason: NoFireReason | None
 
 
+# (basis, target, stop, target points, stop points, delta used)
+Levels = tuple[Literal["pct", "points"], float, float, float | None, float | None, float | None]
+
+OPTION_DIRECTIONS: frozenset[str] = frozenset({"BUY_CE", "BUY_PE"})
+FUTURE_DIRECTIONS: frozenset[str] = frozenset({"BUY_FUT", "SELL_FUT"})
+
+
+@dataclass(frozen=True)
+class ManualContract:
+    """What a paper trade opened by hand is in: an option in the chain window, or a
+    metal's near-month future (strike 0, `lot_size` the rupees per point per lot)."""
+
+    index: str
+    direction: Direction
+    instrument_key: str
+    trading_symbol: str
+    strike: float
+    expiry: str
+    lot_size: int
+    is_expiry_day: bool
+
+
 @dataclass(frozen=True)
 class LiveLevels:
     """Where an active signal's entry, target and stop are now (spec §9.2)."""
@@ -108,6 +131,34 @@ class LiveLevels:
     ltp: float
     target: float
     stop: float
+
+
+STOP_FLOOR = 0.05  # an option's stop never goes below the smallest premium
+
+
+def round_rupee(value: float) -> float:
+    """The nearest whole rupee, half a rupee up (E24)."""
+    return float(math.floor(value + 0.5))
+
+
+def round_levels(
+    direction: Direction, entry: float, target: float, stop: float
+) -> tuple[float, float]:
+    """Target and stop in whole rupees (E24). A level the rounding puts on or past `entry`
+    moves out to the next whole rupee beyond it, so nothing opens on its own target or
+    stop; a long stop never goes below `STOP_FLOOR`. Mirrored for a short future."""
+    t, st = round_rupee(target), round_rupee(stop)
+    if direction == "SELL_FUT":
+        if t >= entry:
+            t = float(math.ceil(entry) - 1)
+        if st <= entry:
+            st = float(math.floor(entry) + 1)
+        return t, st
+    if t <= entry:
+        t = float(math.floor(entry) + 1)
+    if st >= entry:
+        st = float(math.ceil(entry) - 1)
+    return t, max(STOP_FLOOR, st)
 
 
 def rescale_levels(s: Signal, price: float, delta: float | None) -> tuple[float, float]:
@@ -126,7 +177,7 @@ def rescale_levels(s: Signal, price: float, delta: float | None) -> tuple[float,
         stop = price * s.stop_price / s.entry_price
     else:
         return s.target_price, s.stop_price
-    return round(target, 2), round(max(0.05, stop), 2)
+    return round_levels(s.direction, price, target, stop)
 
 
 _COLS = [f.name for f in fields(Signal)]
@@ -308,24 +359,79 @@ class SignalEngine:
 
     def _live_delta(self, s: Signal) -> float | None:
         """The option's delta now: from the feed, else Black-Scholes as when it fired."""
-        leg = self._leg(s)
-        if leg is None:
+        return self._delta(s.index, s.strike, s.direction, self._clock.now_ms())
+
+    def _delta(self, index: str, strike: float, direction: Direction, now: int) -> float | None:
+        """An option's delta: from the feed, else Black-Scholes at `now`."""
+        chain = self._chains.get(index)
+        row = chain.rows.get(strike) if chain else None
+        if chain is None or row is None:
             return None
+        leg = row.ce if direction == "BUY_CE" else row.pe
         if leg.delta is not None:
             return leg.delta
-        chain = self._chains[s.index]
-        r = self._resolved[s.index]
-        t_years = years_between_ms(
-            self._clock.now_ms(), expiry_close_ms(r.options_expiry.isoformat(), self._close)
-        )
+        r = self._resolved[index]
+        t_years = years_between_ms(now, expiry_close_ms(r.options_expiry.isoformat(), self._close))
         return bs_delta(
-            chain.spot or s.strike,
-            s.strike,
+            chain.spot or strike,
+            strike,
             t_years,
             leg.iv or 15.0,
             self._rate,
-            call=s.direction == "BUY_CE",
+            call=direction == "BUY_CE",
         )
+
+    def levels_for(
+        self,
+        index: str,
+        strike: float,
+        direction: Direction,
+        entry: float,
+        now: int,
+        p: ParameterSet,
+    ) -> Levels:
+        """Target and stop for an option bought at `entry`: a percentage of it, or on
+        expiry day the index's points through the option's delta. Signals and paper trades
+        opened by hand both use this rule."""
+        pts = p.signal.expiry_points.get(index) if self._resolved[index].is_expiry_day else None
+        if pts is None:
+            return self._pct(entry, p)
+        delta = self._delta(index, strike, direction, now)
+        d = abs(delta or 0.0)
+        target, stop = round_levels(direction, entry, entry + d * pts.target, entry - d * pts.stop)
+        return "points", target, stop, pts.target, pts.stop, delta
+
+    # -- paper trades opened by hand (E23) --------------------------------------
+
+    def manual_contract(
+        self, index: str, direction: Direction, strike: float | None
+    ) -> ManualContract | None:
+        """An option in the chain window to paper-trade by hand; None if there is none."""
+        r = self._resolved.get(index)
+        chain = self._chains.get(index)
+        if r is None or chain is None or strike is None or direction not in OPTION_DIRECTIONS:
+            return None
+        pair = next((pp for pp in r.strikes if pp.strike == strike), None)
+        if pair is None or strike not in chain.rows:
+            return None
+        inst = pair.ce if direction == "BUY_CE" else pair.pe
+        return ManualContract(
+            index=index,
+            direction=direction,
+            instrument_key=inst.instrument_key,
+            trading_symbol=inst.trading_symbol,
+            strike=strike,
+            expiry=r.options_expiry.isoformat(),
+            lot_size=r.lot_size,
+            is_expiry_day=r.is_expiry_day,
+        )
+
+    def default_levels(self, c: ManualContract, price: float) -> tuple[float, float]:
+        """The signal rule's target and stop for `c` bought at `price` now."""
+        _, target, stop, *_ = self.levels_for(
+            c.index, c.strike, c.direction, price, self._clock.now_ms(), self._params()
+        )
+        return target, stop
 
     def mark_traded(self, signal_id: str, now_ms: int) -> Signal | None:
         for index, s in list(self.active.items()):
@@ -420,34 +526,9 @@ class SignalEngine:
         inst = pair.ce if direction == "BUY_CE" else pair.pe
         entry = leg.ask if at_ask and leg.ask is not None else leg.ltp
 
-        basis: Literal["pct", "points"]
-        if r.is_expiry_day:
-            pts = p.signal.expiry_points.get(index)
-            if pts is None:
-                basis, target, stop, tp, sp, delta = self._pct(entry, p)
-            else:
-                delta = leg.delta
-                if delta is None:
-                    spot = chain.spot or row.strike
-                    t_years = years_between_ms(
-                        now, expiry_close_ms(r.options_expiry.isoformat(), self._close)
-                    )
-                    delta = bs_delta(
-                        spot,
-                        row.strike,
-                        t_years,
-                        leg.iv or 15.0,
-                        self._rate,
-                        call=direction == "BUY_CE",
-                    )
-                d = abs(delta)
-                basis = "points"
-                target = round(entry + d * pts.target, 2)
-                stop = round(max(0.05, entry - d * pts.stop), 2)
-                tp, sp = pts.target, pts.stop
-        else:
-            basis, target, stop, tp, sp, delta = self._pct(entry, p)
-
+        basis, target, stop, tp, sp, delta = self.levels_for(
+            index, row.strike, direction, entry, now, p
+        )
         s = Signal(
             id=uuid.uuid4().hex[:12],
             index=index,
@@ -496,11 +577,14 @@ class SignalEngine:
         return s
 
     @staticmethod
-    def _pct(
-        entry: float, p: ParameterSet
-    ) -> tuple[Literal["pct"], float, float, None, None, None]:
-        target = round(entry * (1 + p.signal.target_pct / 100), 2)
-        stop = round(max(0.05, entry * (1 + p.signal.stop_pct / 100)), 2)
+    def _pct(entry: float, p: ParameterSet) -> Levels:
+        # an option is always bought, so the long rounding applies to a call and a put
+        target, stop = round_levels(
+            "BUY_CE",
+            entry,
+            entry * (1 + p.signal.target_pct / 100),
+            entry * (1 + p.signal.stop_pct / 100),
+        )
         return "pct", target, stop, None, None, None
 
     def _expire_lapsed(self, now: int) -> None:

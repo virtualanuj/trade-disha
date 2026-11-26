@@ -11,6 +11,7 @@ import { REASON_TEXT } from '../../lib/tradeText'
 const SCOPE_LABEL: Partial<Record<string, string>> = {
   overall: 'Index options',
   bullion: 'Bullion',
+  manual: 'Opened by hand',
 }
 
 interface Props {

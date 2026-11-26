@@ -1017,6 +1017,61 @@ in the app.
 
 **Design:** spec §13.2 (Trades page), §12 (API).
 
+## Milestone E20 — Paper trades opened by hand
+
+**Goal:** open a paper trade with no signal (enhancement 23): any option in the chain
+window, or a metal's future either way, with the signal rule's target and stop or the
+trader's own; change the levels of any open trade; keep these trades out of the signal
+stats.
+
+- Migration `016_paper_trade_levels.sql`: `paper_trade_levels` (every set of levels a trade
+  has had) and `paper_trades.levels_edited`. A trade opened by hand stores
+  `MANUAL_SIGNAL_ID = 'manual'` as its `signal_id`, so `paper_trades` needs no new column.
+- `engine/signals.py`: the option level rule moves out of `_fire` into `levels_for` (with
+  `_delta` shared by the live levels); `manual_contract` and `default_levels` serve a trade
+  by hand. `ManualContract` describes what it is in. `engine/bullion_signals.py`: the same
+  through `future_levels`.
+- `engine/paper.py`: the entry gates in one `_entry_gate`, with the signal cut-off from
+  `PaperRules.last_entry` for a trade by hand; `quote_manual` (the ticket, never opens),
+  `open_manual`, `set_levels`; `check_levels` (target and stop either side of the price);
+  each open and change writes a levels row; `journal_stats` adds the `manual` scope and
+  keeps those trades out of the others.
+- `api/paper.py`: `GET /paper-trades/ticket`, `POST /paper-trades/manual`,
+  `PATCH /paper-trades/{id}/levels`; `PaperTradeOut` gains `manual` and `levels_edited`,
+  the detail gains `levels`; `POST /paper-trades` refuses the manual id.
+- Frontend: `TradeTicket` (dialog), `LevelsEditor` (Open paper trades and the Trades page,
+  each open row's Levels button), `lib/ticket.ts`; the option chain's prices and the
+  bullion cards' Buy / Sell open the ticket from `ChainPanel` and `BullionTilesPanel`; a
+  "manual" badge, a `*` on changed levels, "Opened by hand" in the detail and the Journal,
+  and the levels history on the Trades page.
+- Tests: `tests/test_manual_trades.py` (a quote and an open at any strike; slippage from
+  the ticket; typed and partly typed levels; levels the fill has passed; every gate
+  including both cut-offs, the bank and the US pause; levels matching a signal's on a
+  normal and an expiry day; unknown contracts; no price; five-paise options; stop, close
+  and restart; editing a signal trade and a hand trade, refusals, the history; property
+  tests that the default option and future levels bracket the fill; the journal scope;
+  the API routes for an index option and a GOLD future). Vitest for the ticket, the
+  editor, the chain and bullion buttons, Open paper trades, the Journal card and the
+  Trades page detail.
+
+- Follow-up (enhancement 24): targets and stops in whole rupees everywhere.
+  `signals.py:round_rupee` / `round_levels` (half up; a level rounded onto the entry moves a
+  rupee out; the 0.05 stop floor) used by the percentage and points rules, `rescale_levels`
+  and `future_levels`; typed and edited levels rounded before they are checked. The level
+  boxes step by a rupee. `tests/test_level_rounding.py` (table-driven and a property test
+  that rounded levels are whole and bracket the entry) and the existing level tests
+  updated to whole rupees.
+
+**Demo:** on NIFTY, click a call's price two strikes above ATM in the option chain: the
+ticket shows the price, money and the signal rule's levels; open it. Click a put's price,
+type your own stop, open it. On BULLION, Sell GOLD. In Open paper trades, Levels on a
+trade, change the target; it closes there. The Journal has an "Opened by hand" card; the
+Trades page shows the trades badged "manual", with "Opened by hand" and the levels history
+in the detail.
+
+**Status (2026-11-26):** built, with unit tests; `make check` green. End-to-end check in
+the running app to be asked of the owner.
+
 ## Frontend review fixes (26/11/2026, not a milestone)
 
 **Goal:** the owner asked for a review of the frontend and its five most important

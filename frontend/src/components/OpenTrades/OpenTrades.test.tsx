@@ -74,3 +74,34 @@ describe('OpenTrades', () => {
     expect(screen.getAllByRole('alert')).toHaveLength(1) // A's success does not clear B's refusal
   })
 })
+
+describe('OpenTrades levels and trades opened by hand', () => {
+  it('marks a trade opened by hand and levels changed since it opened', () => {
+    render(
+      <OpenTrades trades={[{ ...trade, manual: true, levels_edited: true }]} now={0} canClose />,
+    )
+    const panel = screen.getByTestId('open-trades')
+    expect(panel).toHaveTextContent('manual')
+    expect(panel).toHaveTextContent('130.00*')
+  })
+
+  it('opens the levels editor for a row and saves through it', async () => {
+    const saveLevels = vi.fn().mockResolvedValue(trade)
+    render(<OpenTrades trades={[trade]} now={0} canClose saveLevels={saveLevels} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Levels' }))
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Target' }), {
+      target: { value: '150' },
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      await Promise.resolve()
+    })
+    expect(saveLevels).toHaveBeenCalledWith('t1', 150, 85)
+    expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument()
+  })
+
+  it('cannot change levels while the feed is down', () => {
+    render(<OpenTrades trades={[trade]} now={0} canClose={false} />)
+    expect(screen.getByRole('button', { name: 'Levels' })).toBeDisabled()
+  })
+})

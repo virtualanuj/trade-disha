@@ -30,6 +30,8 @@ export const trade: PaperTradeOut = {
   warning: null,
   blocked: 6625,
   banked: true,
+  levels_edited: false,
+  manual: false,
   ltp: 111,
   ltp_ts: 1_700_000_300_000,
   live_gross: 650,

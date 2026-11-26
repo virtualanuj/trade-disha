@@ -23,20 +23,33 @@ from dataclasses import replace
 from tradedisha.clock import MarketClock, ms_to_ist
 from tradedisha.engine.bias_engine import BiasComputed, breakdown_json
 from tradedisha.engine.signals import (
+    FUTURE_DIRECTIONS,
     Direction,
     Gate,
     LiveLevels,
+    ManualContract,
     NoFireReason,
     Signal,
     SignalStore,
     Status,
     rescale_levels,
+    round_levels,
 )
 from tradedisha.market.bullion import BullionTracker
 from tradedisha.market.us_events import UsEvent, event_in_window
 from tradedisha.parameters.model import ParameterSet
 
 log = logging.getLogger(__name__)
+
+
+def future_levels(direction: Direction, entry: float, p: ParameterSet) -> tuple[float, float]:
+    """Target and stop for a future entered at `entry`: a percentage of the price in the
+    trade's favour and against it, in whole rupees. Signals and paper trades opened by hand
+    use this rule."""
+    side = -1 if direction == "SELL_FUT" else 1
+    target = entry * (1 + side * p.bullion.target_pct / 100)
+    stop = entry * (1 - side * p.bullion.stop_pct / 100)
+    return round_levels(direction, entry, target, stop)
 
 
 class BullionSignalEngine:
@@ -110,6 +123,30 @@ class BullionSignalEngine:
     def levels_at(self, s: Signal, price: float) -> tuple[float, float]:
         return rescale_levels(s, price, None)
 
+    def manual_contract(
+        self, index: str, direction: Direction, strike: float | None
+    ) -> ManualContract | None:
+        """A metal's near-month future to paper-trade by hand; None if there is none.
+        `strike` plays no part."""
+        contract = self._tracker.contracts.get(index)
+        if contract is None or direction not in FUTURE_DIRECTIONS:
+            return None
+        near = contract.near
+        return ManualContract(
+            index=index,
+            direction=direction,
+            instrument_key=near.instrument_key,
+            trading_symbol=near.trading_symbol,
+            strike=0.0,
+            expiry=near.expiry.isoformat() if near.expiry else "",
+            lot_size=round(near.qty_multiplier),
+            is_expiry_day=False,
+        )
+
+    def default_levels(self, c: ManualContract, price: float) -> tuple[float, float]:
+        """The signal rule's target and stop for `c` entered at `price`."""
+        return future_levels(c.direction, price, self._params())
+
     def mark_traded(self, signal_id: str, now_ms: int) -> Signal | None:
         for s in list(self.active.values()):
             if s.id == signal_id:
@@ -172,10 +209,8 @@ class BullionSignalEngine:
             return None
         near = self._tracker.contracts[metal].near
         direction = self._direction(b.bias.bias)
-        side = 1 if direction == "BUY_FUT" else -1
         entry = tick.ltp
-        target = round(entry * (1 + side * p.bullion.target_pct / 100), 2)
-        stop = round(entry * (1 - side * p.bullion.stop_pct / 100), 2)
+        target, stop = future_levels(direction, entry, p)
         spread = (
             round((tick.ask - tick.bid) / ((tick.ask + tick.bid) / 2) * 100, 4)
             if tick.ask and tick.bid

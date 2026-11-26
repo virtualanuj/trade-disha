@@ -59,3 +59,18 @@ describe('Journal', () => {
     )
   })
 })
+
+describe('Journal trades opened by hand', () => {
+  it('shows them in their own card', async () => {
+    const overall = journal.stats[0]
+    if (!overall) throw new Error('fixture')
+    const load = vi.fn().mockResolvedValue({
+      ...journal,
+      stats: [overall, { ...overall, scope: 'manual', trades: 3 }],
+    })
+    render(<Journal indices={['NIFTY']} revision={0} load={load} />)
+    const card = await screen.findByTestId('stats-manual')
+    expect(card).toHaveTextContent('Opened by hand')
+    expect(card).toHaveTextContent('3 closed trades')
+  })
+})

@@ -663,6 +663,69 @@ Each open row has the dashboard's Close button: one click closes at the current 
 (no confirm step, as on the dashboard), disabled while that trade's market has no live
 price, and a refusal is shown with the server's reason.
 
+### 23. Paper trades opened by hand
+
+Asked for (2026-11-26): open a paper trade at will, without a signal.
+
+Status: built in Milestone E20. Design in [spec.md](spec.md) §10.1 ("Opened by hand",
+"Changing the levels"), §10.3, §12.1 and §13.2 (TradeTicket, LevelsEditor); planned in
+[plan.md](plan.md) Milestone E20.
+
+Decided with the owner on 2026-11-26:
+- From the option chain (each call and put price opens a ticket for that strike, any
+  strike in the window) and, on the BULLION tab, Buy and Sell on each metal's card.
+- Target and stop are the signal rule's at the price, and the trader can change them on
+  the ticket before opening.
+- The target and stop of any open trade, from a signal or by hand, can be changed later,
+  from Open paper trades and from the Trades page. Every change is recorded.
+- In the Journal these trades have their own "Opened by hand" card and are kept out of
+  overall, per index, bullion and per metal, so those still measure the signals. The bank
+  counts them like any other trade.
+- The same gates as a signal trade (market open, feed live, before the square-off, the bank
+  can fund it, the US-release pause for bullion when it refuses trades), plus the signal
+  cut-off: no index trade from 15:00 (13:00 on expiry day), no bullion trade from 22:45.
+- One constant, `manual`, is the `signal_id` of every trade opened by hand (the owner's
+  call, over a nullable column).
+
+Builder's calls:
+- Levels left as they are on the ticket are worked out again at the fill, as a signal
+  trade's are; typed ones are kept. Either way they must stand at the fill (target above
+  and stop below, mirrored for a short), or the open is refused with the reason. The same
+  check runs on a change of levels, against the price then, so a change needs a live feed.
+- `signal_entry` keeps the price the ticket showed and `slippage` is the fill minus it, so
+  a hand trade records its ticket-to-click slippage as a signal trade does.
+- Signal trades stay one click from the signal card; their levels can be changed once open.
+- Signal trades are still not held to the cut-off: a signal fired at 14:59 can be traded
+  until it lapses, as before.
+- Each bullion card has its own Buy and Sell, rather than buttons for the focused metal
+  only.
+
+### 24. Target and stop in whole rupees
+
+Asked for (2026-11-26): target and stop numbers should be rounded off to the nearest value.
+
+Status: built in Milestone E20 (a follow-up to item 23). Design in [spec.md](spec.md) §9.3
+("Whole rupees").
+
+Decided with the owner on 2026-11-26:
+- The nearest whole rupee, for every instrument (not the exchange tick).
+- Everywhere: signal levels as fired and live, a paper trade's levels at its fill (from a
+  signal or by hand), the ticket's levels, and levels the trader types or changes.
+
+Builder's calls:
+- Half a rupee rounds up.
+- A level the rounding would put on or past the entry (a cheap option: entry 2.00, stop
+  1.70 rounds to 2) moves out to the next whole rupee beyond it, so a trade never opens on
+  its own target or stop. An option's stop keeps its 0.05 floor, so below a rupee the stop
+  is 0.05.
+- A typed level is only rounded, never moved: one that rounds onto or past the price is
+  refused with the reason.
+- A percentage signal's live levels keep the ratios of its rounded fired levels, so they
+  can differ from the configured percentages by up to half a rupee over the entry (under
+  1 % for premiums above ₹50).
+- The ticket's and the editor's boxes step by a rupee; a decimal can still be typed and is
+  rounded by the server.
+
 ## Deferred
 
 ### Strike ladder (ATM ±3)

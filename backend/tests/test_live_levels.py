@@ -27,7 +27,7 @@ from tests.test_bullion_trading import (
 from tests.test_signals import EXPIRY, Harness
 from tradedisha.clock import epoch_ms_now
 from tradedisha.engine.paper import PaperTradeManager, Price
-from tradedisha.engine.signals import rescale_levels
+from tradedisha.engine.signals import rescale_levels, round_rupee
 from tradedisha.feed.bus import StampedTick
 from tradedisha.feed.provider import Tick
 
@@ -35,8 +35,8 @@ from tradedisha.feed.provider import Tick
 def test_a_pct_signal_keeps_its_ratios_at_a_new_price() -> None:
     h = Harness()
     h.minute(10, 0, 0.62)
-    s = h.engine.active["NIFTY"]  # 150 / 195 / 127.5: +30 %, -15 %
-    assert rescale_levels(s, 160.0, None) == (208.0, 136.0)
+    s = h.engine.active["NIFTY"]  # 150 / 195 / 128: +30 %, -15 % in whole rupees
+    assert rescale_levels(s, 160.0, None) == (208.0, 137.0)  # 160 x 128 / 150 = 136.53
     assert rescale_levels(s, 150.0, None) == (s.target_price, s.stop_price)
 
 
@@ -63,7 +63,7 @@ def test_the_index_engine_reads_live_levels_from_the_chain() -> None:
 
     live = h.engine.live(s)
     assert live is not None
-    assert (live.ltp, live.target, live.stop) == (160.0, 208.0, 136.0)
+    assert (live.ltp, live.target, live.stop) == (160.0, 208.0, 137.0)
     assert h.engine.levels_at(s, 140.0) == (182.0, 119.0)
 
 
@@ -75,7 +75,7 @@ def test_an_expiry_day_live_level_uses_the_chain_delta_when_upstox_sends_one() -
     h.chain.apply(Tick(key=row.ce.key, ts=5, ltp=170.0, delta=0.62))
     live = h.engine.live(s)
     assert live is not None
-    assert (live.target, live.stop) == (round(170 + 0.62 * 40, 2), round(170 - 0.62 * 20, 2))
+    assert (live.target, live.stop) == (round_rupee(170 + 0.62 * 40), round_rupee(170 - 0.62 * 20))
 
 
 def test_no_live_levels_without_a_price() -> None:
@@ -111,7 +111,7 @@ def test_a_paper_trade_takes_the_live_levels_at_its_fill() -> None:
         enforce_hours=False,
     )
     t = paper.open(s.id)
-    assert (t.entry_price, t.target_price, t.stop_price) == (160.0, 208.0, 136.0)
+    assert (t.entry_price, t.target_price, t.stop_price) == (160.0, 208.0, 137.0)
     assert t.signal_entry == 150.0  # the fired entry is kept for slippage
     assert t.slippage == pytest.approx(10.0)
 

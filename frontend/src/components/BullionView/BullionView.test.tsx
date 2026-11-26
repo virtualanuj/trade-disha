@@ -141,3 +141,21 @@ describe('the metal in focus', () => {
     expect(pick).toHaveBeenCalledWith('SILVER')
   })
 })
+
+describe('BullionCards paper trades by hand', () => {
+  it('buys or sells each metal future from its card', () => {
+    const onTrade = vi.fn()
+    render(<BullionCards bullion={bullion} onTrade={onTrade} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Buy', description: /GOLD/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sell', description: /SILVER/ }))
+    expect(onTrade.mock.calls).toEqual([
+      [{ index: 'GOLD', direction: 'BUY_FUT', strike: null }],
+      [{ index: 'SILVER', direction: 'SELL_FUT', strike: null }],
+    ])
+  })
+
+  it('has no trade buttons without a handler', () => {
+    show()
+    expect(screen.queryByRole('button', { name: 'Buy' })).not.toBeInTheDocument()
+  })
+})
