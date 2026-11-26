@@ -26,9 +26,10 @@ accounts to manage, and no hosting.
   market and a live option chain without needing to look anywhere else.
 - When the app recommends a trade, the trader can see in one glance what the recommendation
   is, why it was made, and what entry, target, and stop it suggests.
-- The trader can paper-trade a recommendation with one click, watch it live, close it when
-  they choose, and later open it again to see why it was taken and how it played out,
-  alongside every other paper trade, with hit rate, profit or loss and the bank balance.
+- The trader can paper-trade a recommendation with one click, or open a trade of their
+  own choosing by hand, watch it live, close it when they choose, and later open it again
+  to see why it was taken and how it played out, alongside every other paper trade, with
+  hit rate, profit or loss and the bank balance.
 - Over weeks of use, the journal and the scores kept for every recommendation give an
   honest answer to the question "are these signals worth real money?"
 
@@ -61,10 +62,11 @@ These apply to the whole product, not to one feature.
    behaviour.
 4. **Tunable signal algorithm.** Everything that shapes a recommendation — the weight of
    each kind of evidence, the thresholds, the indicator settings, targets and stops,
-   time cut-offs — can be changed by the trader in the app, without restarting; the new
-   values take effect from the next minute. Each individual piece of evidence can also be
-   switched off for one index or metal. Every saved set is kept as a numbered version that
-   can be brought back (see "Configuration" under "The screen").
+   time cut-offs, the size of a paper trade and, for a metal, which contract its
+   recommendations trade — can be changed by the trader in the app, without restarting;
+   the new values take effect from the next minute. Each individual piece of evidence can
+   also be switched off for one index or metal. Every saved set is kept as a numbered
+   version that can be brought back (see "Configuration" under "The screen").
 
 ## Scope
 
@@ -83,9 +85,12 @@ These apply to the whole product, not to one feature.
   - the evidence breakdown makes clear that it is expiry day and that open-interest
     readings should be trusted less.
 - Gold and silver as traded in India: the near-month MCX futures of GOLD (₹ per 10 g) and
-  SILVER (₹ per kg), the full contracts rather than the minis. The broker has no spot
-  price for them, and these are what Indian markets quote. A metal moves to the next
-  month's contract on its expiry day.
+  SILVER (₹ per kg). The broker has no spot price for them, and these are what Indian
+  markets quote. The market view and the recommendations read the full contracts; each
+  metal can also be traded in its mini, GOLDM (100 g) or SILVERM (5 kg), the same price in
+  smaller lots. A metal moves to the next month's contract on its expiry day.
+- For reading only, never recommended or traded: SENSEX, and the NSE gold and silver ETFs,
+  Nippon India's Gold BeES and Silver BeES.
 
 ### Data
 - Live prices, open interest and the order book (the quantities waiting to buy and to
@@ -97,13 +102,14 @@ These apply to the whole product, not to one feature.
   dollar, crude oil, gold and silver. GIFT Nifty is available from the broker only with a
   two-minute delay, so it is used for the overnight gap at the open, not during the
   session.
+- SENSEX and the two ETFs, from the same broker; the ETFs keep NSE's hours and holidays.
 - The latest headlines from the broker. The broker carries news for individual NSE stocks
   only, not for indices, gold or silver, so the headlines are those of the heaviest NIFTY
   and BANK NIFTY stocks.
 - Market data, the app's own calculations, recommendations, paper trades and the paper
   bank's history are all kept on the trader's computer so past days can be reviewed, and
-  replayed, later. Gold and silver are recorded apart from the index market, so the
-  evening session never stretches a replay of the NSE day.
+  replayed, later. The MCX futures are recorded apart from the NSE market, so the evening
+  session never stretches a replay of the NSE day.
 - Raw tick data is the bulky part. The trader can delete raw ticks up to and including a
   chosen date from within the app, and the space goes back to the disk. Everything derived
   from them (minute candles, option-chain history, market views, recommendations, paper
@@ -141,11 +147,16 @@ These apply to the whole product, not to one feature.
   selling, no spreads, no multi-leg strategies.
 - When the view for a metal becomes strong enough, the app recommends buying its future
   (bullish) or selling it (bearish). This is the one place the app recommends selling.
-  Gold and silver play no part in the index views or recommendations.
+  Its paper trade opens the contract the trader has chosen for that metal, the full future
+  or its mini, with that contract's lots, and the recommendation says which. Gold and
+  silver play no part in the index views or recommendations.
 - A recommendation states: the market, the exact contract (for an option its strike,
   expiry and side), a suggested entry price, a target, a stop, the time it was issued, the
   configuration version it was made under, and a breakdown of the evidence that produced
   it.
+- Targets and stops are whole rupees: as issued, as worked out from the price now, at a
+  paper trade's fill and when the trader types them. Rounding never puts a level on the
+  entry itself.
 - Only one recommendation per index or metal is active at a time.
 - While a recommendation waits, it shows both the entry, target and stop it was issued
   with and the same levels worked out from the price now, updated every second.
@@ -179,6 +190,22 @@ These apply to the whole product, not to one feature.
 ### Paper trading
 - Every active recommendation has a "Paper trade" action. Nothing happens unless the
   trader uses it.
+- The trader can also open a paper trade by hand, with no recommendation behind it: a call
+  or a put at any strike in the option chain (bought only), or a metal's future or mini,
+  bought or sold, from its card. A ticket shows the contract, the price now, the quantity,
+  the cost, the money the bank would hold and the money free, and the recommendation
+  rule's target and stop at that price, which the trader can change before opening; for a
+  future it also shows the lots, starting from that contract's default, which can be
+  changed for that one trade. Levels left as they are are worked out again at the fill.
+  A trade by hand follows the same rules as a recommendation's trade and, like a
+  recommendation, cannot open in the final part of the market's day.
+- The target and stop of any open paper trade, from a recommendation or by hand, can be
+  changed later, from the dashboard or from the Trades page. A change must make sense at
+  the price then, and every change is recorded.
+- A trade's size is a number of lots: one setting for the index options, and a default for
+  each metal contract (GOLD, GOLDM, SILVER, SILVERM). A trade in a mini counts as its
+  metal's: the same margin rate, the same line in the Journal, the same pause around US
+  data.
 - A paper trade opens at the price prevailing at the moment of the click, and records how
   far that was from the recommended entry; it takes the target and stop worked out at its
   own fill.
@@ -207,14 +234,17 @@ These apply to the whole product, not to one feature.
 - The **Journal** shows the paper bank (balance, money blocked by open trades, money free,
   and every payment in and out) and the summary: hit rate, average win, average loss, net
   result and how trades closed, for index options overall, per index, for bullion overall
-  and per metal.
+  and per metal. Trades opened by hand have their own figures and are kept out of all of
+  those, so those still measure the recommendations; the bank counts them like any other
+  trade.
 - The **Trades** page lists every paper trade. Open trades come first, at the current
   price, each with its profit or loss so far, the time held and a Close action. Closed
   trades follow, grouped by day, each day with its count, wins and losses and net result.
   The list can be narrowed by market, dates, how a trade closed, and whether its exit was
-  on a live price. Any trade opens to show its levels and fills, its risk against reward
-  and result, the recommendation it was taken on, what the contract did afterwards, and
-  the evidence as it stood at that minute.
+  on a live price. Any trade opens to show its levels and fills, every target and stop it
+  has had, its risk against reward and result, the recommendation it was taken on (or that
+  it was opened by hand), what the contract did afterwards, and the evidence as it stood
+  at that minute.
 
 ### The screen
 - **Top bar**, in groups that look different from each other:
@@ -225,9 +255,16 @@ These apply to the whole product, not to one feature.
     trades on Trades), then the dashboard's own controls (restore minimised panels,
     show or hide the headlines), then the tools (Data, Configuration with the version in
     force, the latency overlay, light or dark), and last, on its own, Login or Logout.
+  - hovering Trades, Data or the latency tool shows a quick preview without leaving the
+    page: every open trade with its live profit or loss and their total, the stored-data
+    figures, or the latency figures. The click does what it always does.
   - It never scrolls sideways: on a narrow window it wraps onto a second line.
-- **Dashboard**, switchable between NIFTY, BANK NIFTY and, when gold and silver data is
-  available, BULLION (where the same panels follow the metal chosen with a switch):
+- **Rates strip**, under the top bar on every page: NIFTY, SENSEX, gold, silver, Gold BeES
+  and Silver BeES, each with its price and change on the day. Clicking one opens its tab
+  on the dashboard; SENSEX has none.
+- **Dashboard**, with its tabs grouped by exchange: NSE — NIFTY, BANK NIFTY and BULLION
+  (the gold and silver ETFs); MCX — GOLD and SILVER, where the same panels follow that
+  metal. A tab shows only while its data is available. The dashboard shows:
   - a summary of the index, with a details view that can be opened and closed, showing
     the day's open, high and low and where the price sits in that range, the 52-week high
     and low, the previous close and the change on the day, the futures premium over the
@@ -235,19 +272,25 @@ These apply to the whole product, not to one feature.
     Auto, FMCG, IT, Pharma, Metal, Energy, Realty, Media, Financial Services and PSU Bank;
     for BANK NIFTY its bank sub-indices), each with its level and change, in a block that
     can be closed;
-  - on BULLION instead, gold and silver side by side: the price and change on the day,
-    and behind a details toggle the day's range, trading activity, the contract's range
-    and price limits, the next month's price and the gap to it; and the gold/silver ratio;
+  - on an MCX tab instead, the metal's future and its mini side by side, each with its
+    price and change on the day, Buy and Sell for a trade by hand, and behind its own
+    details toggle the day's range, trading activity, the contract's range and price
+    limits, and the next month's price and the gap to it; and the gold/silver ratio;
+  - on NSE's BULLION, only the two ETFs, each with its price and change on the day and
+    behind its own details toggle the day's range, the previous close, trading activity
+    and the 52-week range, with a note while NSE is closed and MCX trades on. Nothing else
+    is on that tab: the ETFs have no view, recommendations or trades;
   - the active recommendation, if any, with its details, live levels and the Paper trade
-    action;
+    action (for a metal, which contract and how many lots it opens);
   - the market view: a bearish-to-bullish meter with its strength across the full width,
     with the evidence behind it underneath, each piece showing whether it is switched on;
     for an index, the order-flow reading below;
   - an intraday minute chart with the recommendation markers, and under it each minute's
-    buying against selling volume of the near-month future (the metal's own future on
-    BULLION), for display only;
+    buying against selling volume of the near-month future (on an MCX tab, the metal's own
+    future), for display only;
   - the open paper trades with their live profit or loss and the paper bank, always on
-    the page, saying so when none are open;
+    the page, saying so when none are open; each trade's target and stop can be changed
+    from here;
   - the day's recommendations, with how each one turned out.
 - **Right-hand column**: a live option chain for the selected index and expiry, showing
   for each strike the call and put price, change, open interest, change in open interest,
@@ -256,8 +299,9 @@ These apply to the whole product, not to one feature.
   top. Below the chain, the latest headlines, newest first and grouped by day, with new
   ones marked, the freshest in accent, and each stock tagged by the index it moves (never
   in green or red, which mean bullish and bearish here). Headlines are a quick check on
-  what is moving the market, never an input to the recommendations. There is no chain on
-  BULLION.
+  what is moving the market, never an input to the recommendations. Each call and put
+  price in the chain opens a ticket for a paper trade by hand. There is no chain on the
+  MCX tabs or on NSE's BULLION.
 - **Journal** and **Trades** pages, as described under "Paper trading".
 - **Configuration**: a panel on the right of the screen with three tabs: the values, each
   explained on the line below its name with its allowed range; the evidence switches, each
@@ -283,6 +327,8 @@ These apply to the whole product, not to one feature.
 - The panels of the dashboard can be moved up and down into the order the trader
   prefers, each on its own; one control puts every panel back as it was, in the original
   order. The app remembers the order.
+- On the MCX tabs and NSE's BULLION, each card's details view opens and closes on its
+  own, and each one is remembered.
 - Dates are shown as DD/MM/YYYY everywhere on screen.
 
 ### Operating hours
@@ -303,7 +349,9 @@ These apply to the whole product, not to one feature.
   them later; headlines are shown, but only for reading).
 - Real order placement, including one-click or automatic ordering.
 - Option selling, spreads, and multi-leg strategies.
-- Stock options and other indices (FINNIFTY, MIDCPNIFTY, SENSEX, BANKEX).
+- Stock options, and recommendations or trades on other indices (FINNIFTY, MIDCPNIFTY,
+  SENSEX, BANKEX). SENSEX is shown as a rate only.
+- Recommendations or trades on the gold and silver ETFs, which are shown for reading.
 - Multiple users, logins, cloud hosting, mobile apps.
 - Back-testing over historical data, beyond replaying recorded days (data is stored so
   this becomes possible).
@@ -317,10 +365,15 @@ silver (MCX options, multi-day levels, international prices).
 ## Assumptions and defaults chosen during planning
 These were set by the planner, not the trader, and can be changed:
 - Strikes covered: ten either side of the current level.
-- Default target and stop: +30% and −15% of the option premium.
+- Default target and stop: +30% and −15% of the option premium, to the nearest rupee
+  (half a rupee rounds up). A level the rounding would put on the entry moves a rupee
+  further out, and an option's stop is never below ₹0.05.
 - A recommendation lapses after five minutes if not paper-traded.
-- Indices: no new recommendations after 15:00; open paper trades square off at 15:15.
-- Paper trades are one lot each.
+- Indices: no new recommendations, and no trades opened by hand, from 15:00 (13:00 on
+  expiry day); open paper trades square off at 15:15.
+- Paper trades are one lot each by default: the index options, and each of GOLD, GOLDM,
+  SILVER and SILVERM. A metal's recommendations trade its full contract until the trader
+  picks the mini.
 - Default round-trip trading cost per lot: ₹60; for a future, also 0.012 % of the value
   traded.
 - Expiry-day target and stop in index points: 40 / 20 for NIFTY, 100 / 50 for BANK NIFTY.
@@ -328,22 +381,25 @@ These were set by the planner, not the trader, and can be changed:
   the view follows the gap rather than fading it.
 - Gold and silver: a recommendation needs a stronger view than for the indices (0.60
   against 0.50); target and stop are 0.40 % and 0.20 % of the future's price;
-  recommendations from 09:15 to 22:45, square-off at 23:00. Price trend carries 60 % of
-  the view, open interest and order flow 15 % each, other markets 10 %. The view is worked
-  out 20 seconds after each minute so it never competes with the index work.
+  recommendations, and trades by hand, from 09:15 to 22:45; square-off at 23:00. Price
+  trend carries 60 % of the view, open interest and order flow 15 % each, other markets
+  10 %. The view is worked out 20 seconds after each minute so it never competes with the
+  index work.
 - US data releases pause metal recommendations from 15 minutes before to 15 minutes after;
   ending a waiting recommendation and refusing a manual paper trade during the pause are
   both off. Release times are written in IST by hand, as MCX's winter close is changed by
   hand.
-- The paper bank opens with ₹25 lakh. A gold future blocks 10 % of its value, a silver
-  future 12 %.
+- The paper bank opens with ₹25 lakh. A gold future, full or mini, blocks 10 % of its
+  value; a silver one 12 %.
 - Headlines are asked for every three minutes while logged in.
+- A hover preview opens after about a quarter of a second, so passing the mouse across the
+  top bar opens none.
 - When the app is started after market open, it fills in the morning's data so that its
   view is valid immediately rather than after a warm-up.
 - Raw tick data is kept until the trader deletes it; nothing is pruned automatically.
-- The right-hand column starts shown; the index details view starts closed and the
-  sectors block open. These choices, the panel sizes, the order and what is minimised are
-  remembered on the trader's computer.
+- The right-hand column starts shown; the index details view and every gold, silver and
+  ETF card's details start closed, and the sectors block open. These choices, the panel
+  sizes, the order and what is minimised are remembered on the trader's computer.
 - The 52-week high and low are worked out from a year of daily prices from the broker and
   include today.
 

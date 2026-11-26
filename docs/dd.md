@@ -14,7 +14,7 @@ differs, its value follows or is in §1a.
 | Term | Meaning |
 |---|---|
 | **BANK NIFTY (NIFTY BANK)** | NSE index of the 12 most liquid banking stocks. Options on it are one of the two instruments TradeDisha covers. Strike step ₹100. Only monthly expiries since November 2024. |
-| **BSE** | Bombay Stock Exchange. Not used by TradeDisha v1; listed because the data provider also covers it. |
+| **BSE** | Bombay Stock Exchange. TradeDisha reads one BSE value, SENSEX, for the rates strip; nothing on BSE is recommended or traded. |
 | **DII** | Domestic Institutional Investors: Indian mutual funds, insurers, banks. Their net daily buying/selling is published by NSE after close. Planned v2 input, not in v1. |
 | **FII / FPI** | Foreign Institutional (Portfolio) Investors. Their net daily buying/selling is a widely watched sentiment input. Planned v2 input, not in v1. |
 | **F&O** | Futures and Options segment of NSE. |
@@ -25,10 +25,11 @@ differs, its value follows or is in §1a.
 | **IST** | Indian Standard Time (UTC+5:30). All user-facing times and all trading-hour rules are in IST. Stored timestamps are UTC epoch milliseconds. |
 | **Lot / lot size** | The minimum tradable quantity of an F&O contract, set by NSE (for example 75 for NIFTY, 30 for BANK NIFTY; these change). Read from the instrument master. Paper trades are one lot. |
 | **Market hours** | NSE: 09:15 to 15:30 IST on trading days. MCX bullion trades longer hours (§1a). |
-| **Market status** | One of `pre_open`, `live`, `closed`, `holiday`, derived from IST time and the holiday calendar. Means the NSE session unless stated; the BULLION tab shows the MCX status instead. |
+| **Market status** | One of `pre_open`, `live`, `closed`, `holiday`, derived from IST time and the holiday calendar. Means the NSE session unless stated; an MCX tab shows the MCX status instead. |
 | **NIFTY (NIFTY 50)** | NSE's benchmark index of 50 large-cap stocks. Strike step ₹50. Weekly expiries. |
 | **NSE** | National Stock Exchange of India, where NIFTY and BANK NIFTY derivatives trade. |
 | **Pre-open** | 09:00 to 09:15 IST, when NSE runs its opening auction. TradeDisha shows status but does not evaluate signals. |
+| **SENSEX** | BSE's benchmark index of 30 large stocks (`BSE_INDEX|SENSEX`). Shown as a rate on the rates strip only: no tab, view, recommendation or trade. |
 | **Square-off** | Closing an intraday position before the session ends. TradeDisha squares off open index paper trades at 15:15 IST and bullion ones at 23:00 (defaults). |
 | **Tick** | One price/volume/OI update for one instrument from the exchange feed. The smallest unit of market data in the system. |
 | **Tick size** | The minimum price increment of an instrument (₹0.05 for index options). |
@@ -44,11 +45,11 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | Term | Meaning |
 |---|---|
 | **ATP (average traded price)** | The exchange's own volume-weighted average price for the day, sent with each full-mode tick. Shown as "ATP (VWAP)" on the metal card. |
-| **Bullion** | Gold and silver. In TradeDisha, the MCX `GOLD` and `SILVER` futures shown on the BULLION tab. Upstox has no spot price for either, so the near-month future stands in for it. |
+| **Bullion** | Gold and silver. In TradeDisha, the MCX `GOLD` and `SILVER` futures shown on the MCX tabs, GOLD and SILVER. Upstox has no spot price for either, so the near-month future stands in for it. |
 | **Bullion bias** | The bias of one metal, from four groups read off its near-month future: trend (EMA cross, VWAP position, supertrend on the 1-minute candles), OI (`futures_oi`), flow (`net_volume`, `book_imbalance`) and macro (`dollar_index`, `usd_inr`, `peer_metal`). Default weights: OI 0.15, flow 0.15, macro 0.10, trend the rest (0.60); a group with no `ok` reading hands its share to the others. Worked out `eval_offset_seconds` after each minute close. |
 | **Bullion gap** | An MCX outage while MCX is open: no bullion tick for `bullion_live_max_tick_age_ms` (15 s). Logged to `feed_events` as `bullion_gap_start` / `bullion_gap_end`. While it lasts the bullion status is `stale`, so bullion signals and paper-trade entry pause; the index side is unaffected. |
 | **Bullion signal** | A recommendation to buy or sell a metal's near-month future, fired when its bullion bias reaches `bullion.entry_threshold` within the bullion signal hours (09:15–22:45). Target and stop are a % of the price. Paper only. |
-| **Bullion status** | `live`, `stale`, `closed` or `holiday`: MCX status combined with how fresh the last bullion tick is. `stale` means MCX is open but no bullion tick has arrived recently. Sent in the health response; drives the BULLION tab's banner and top-bar pills, and only `live` lets bullion signals fire and paper trades open or close. |
+| **Bullion status** | `live`, `stale`, `closed` or `holiday`: MCX status combined with how fresh the last bullion tick is. `stale` means MCX is open but no bullion tick has arrived recently. Sent in the health response; drives the MCX tabs' banner and top-bar pills, and only `live` lets bullion signals fire and paper trades open or close. |
 | **BUY_FUT / SELL_FUT** | A bullion signal's direction: buy (long) or sell (short) the near-month future. A short gains when the price falls; its target is below the entry and its stop above. |
 | **Buy / sell quantity** | Total buy quantity (TBQ) and total sell quantity (TSQ): all buy and sell orders pending on the exchange for the contract. The **buy/sell ratio** is TBQ ÷ TSQ; above 1 means more waiting to buy than to sell. |
 | **Calendar spread** | Next-month price minus near-month price, also shown as a % of the near price. Normally positive (contango), reflecting the cost of carry. |
@@ -59,17 +60,22 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Delivery period** | The last days of an MCX contract, when open positions settle by physical delivery. TradeDisha rolls to the next contract on expiry day so it never shows a contract in delivery. |
 | **Evening session / late open** | A day when MCX shuts its morning session but trades in the evening, often on an NSE holiday. Written as `YYYY-MM-DD HH:MM` in the MCX calendar; MCX status is `closed` until that time. |
 | **Gold (MCX `GOLD`)** | The 1 kg gold futures contract, quoted in ₹ per 10 g. |
+| **Gold BeES / Silver BeES (`GOLDBEES`, `SILVERBEES`)** | Nippon India's gold and silver ETFs, traded on NSE in rupees per unit. Shown on NSE's BULLION tab for reading only: NSE hours, recorded with the NSE ticks, never recommended or traded. Set in the `bullion_etfs` setting. |
 | **Gold/silver ratio** | How many kilograms of silver one kilogram of gold buys: gold × 100 ÷ silver (gold is quoted per 10 g, silver per kg). A widely watched gauge of whether gold or silver is relatively expensive. |
+| **Lots per contract** | The default number of lots of a bullion paper trade, set for each contract on its own: `bullion.gold_lots`, `goldm_lots`, `silver_lots`, `silverm_lots` (one each by default). A ticket for a trade by hand can change it for that trade, from 1 to 100. |
 | **MCX** | Multi Commodity Exchange of India, where gold and silver futures trade. A different exchange from NSE, with its own hours and holidays. |
 | **MCX holiday calendar** | `config/mcx-holidays.txt`: `YYYY-MM-DD` for a day closed throughout, `YYYY-MM-DD HH:MM` for an evening-only day. Maintained by hand from the MCX circular. |
 | **MCX hours** | 09:00 to 23:30 IST, extended to 23:55 while the US is on standard time (roughly November to March). Settings `mcx_open` and `mcx_close`; the close is changed by hand with the season. |
-| **Mini / petal contracts** | Smaller gold and silver contracts (`GOLDM`, `GOLDPETAL`, `SILVERM` and others). Excluded: only the full-size `GOLD` and `SILVER` contracts are shown. |
+| **MCX tab** | The dashboard tab of one metal, GOLD or SILVER, under the MCX group: its future and mini, signal, market view, chart and trades, on MCX hours. |
+| **Mini / petal contracts** | Smaller gold and silver contracts (`GOLDM`, `GOLDPETAL`, `SILVERM` and others). `GOLDM` (100 g, ₹10 a point) and `SILVERM` (5 kg, ₹5 a point) are loaded as each metal's **mini**: the same quote in smaller lots, shown beside the full contract with the same figures, and a trading choice only (see **Trading contract**); never read by the bias or signals. The other small contracts are not loaded. |
 | **Near / next month** | The near contract is the one with the nearest expiry strictly after today; the next is the one after it. Prices and charts are for the near contract; the next contract's price is shown for the calendar spread. |
+| **NSE BULLION tab** | The third NSE tab: the two gold and silver ETFs alone, display only, on NSE hours. |
 | **Placeholder price** | A made-up price on the daily candles of a future's early days, before it trades (one gold contract showed ₹2,47,917). Recognised by zero volume and skipped. |
 | **Point value / qty multiplier** | Rupees gained or lost per one-point price move, per lot: the MCX file's `qty_multiplier` (GOLD 100: priced per 10 g on a 1 kg lot; SILVER 30). Stored as a bullion signal's `lot_size`; paper P&L = side × move × point value × lots. |
 | **Previous close (bullion)** | Yesterday's settlement price. From the feed's `cp` field; before the first tick it is worked out from the full quote as last price − net change. |
 | **Roll** | Switching from the expiring contract to the next one. Bullion rolls on expiry day. |
 | **Silver (MCX `SILVER`)** | The 30 kg silver futures contract, quoted in ₹ per kg. |
+| **Trading contract** | What a metal's signal trade opens: the full future or its mini, set by `bullion.gold_contract` (`GOLD` or `GOLDM`) and `bullion.silver_contract` (`SILVER` or `SILVERM`). The signal itself always reads the full future; a mini trade counts as its metal's (margin rate, Journal row, US-release pause). |
 
 ---
 
@@ -170,17 +176,20 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Fill quality** | How trustworthy an exit price is: `live` (feed healthy), `after_gap` (first tick after a feed outage triggered the exit, so the price may have jumped past target or stop), `stale` (square-off fired while the feed was down; the last price seen was used, with its age recorded). Anything other than `live` is badged in the journal. |
 | **Gross P&L** | side × (exit − entry) × quantity, before costs; side is −1 for a short bullion future, else +1. |
 | **Hit / hit rate** | A trade is a hit if net P&L > 0. Hit rate is hits ÷ trades. |
-| **Journal** | The list of all paper trades with their outcomes, plus summary statistics. |
+| **Journal** | The page with the paper bank, its ledger and the summary statistics: overall (index options), per index, bullion and per metal, and trades opened by hand on their own. The trades themselves are on the Trades page. |
 | **Net P&L** | Gross P&L minus cost per trade. The figure hit rate and summaries are based on. |
 | **Open trade** | A paper trade not yet closed. Tracked tick by tick for target/stop. |
 | **Paper bank** | The fake bank account that funds paper trades, one for every market. Balance = opening balance + net of every closed trade it funded; available = balance − blocked. A trade opens only if available covers its block. The opening balance (`bank.opening_balance`, default ₹25 lakh) is the cash put in: raising it is a deposit of the difference, lowering it a withdrawal, each a row in `bank_ledger`. Nothing is deleted. |
 | **Paper trade** | A simulated trade opened by the trader: by clicking "Paper trade" on an active signal, or by hand from the option chain or a bullion card (see **Opened by hand**). Never placed with the broker. |
-| **Opened by hand (manual trade)** | A paper trade with no signal behind it: any option in the chain window, or a metal's future bought or sold, from the TradeTicket. Its `signal_id` is `manual`. Same gates as a signal trade plus the signal cut-off; target and stop are the signal rule's at the fill unless typed. Counted in the Journal's own "Opened by hand" card, never in the signal stats. |
+| **Opened by hand (manual trade)** | A paper trade with no signal behind it: any option in the chain window, or a metal's future or its mini bought or sold, from the TradeTicket. Its `signal_id` is `manual`. Same gates as a signal trade plus the signal cut-off; target and stop are the signal rule's at the fill unless typed. Counted in the Journal's own "Opened by hand" card, never in the signal stats. |
 | **Levels edited** | The target and stop of an open paper trade changed by the trader after it opened. Checked against the current price; every set of levels is kept in `paper_trade_levels`. |
 | **Quantity** | Lot size × lots (default 1 lot). For bullion, the traded contract's point value × its lots (GOLD 100, GOLDM 10, SILVER 30, SILVERM 5 per lot; default lots per contract in `bullion.<contract>_lots`). |
 | **Slippage** | Entry fill minus the signal's entry price: how far the price moved between the signal firing and the click. Recorded per trade. |
 | **Square-off time** | When open paper trades are force-closed. Default 15:15 IST for index options, 23:00 (on the MCX clock) for bullion. |
+| **Ticket (TradeTicket)** | The dialog that opens a paper trade by hand: the contract, the price now, quantity, cost, the money the bank would hold, and target and stop (the signal rule's, changeable); for a future also the lots. Nothing is opened until the trader confirms. |
+| **Trades page** | The page (`#trades`) listing every paper trade: open ones first at the live price with Close, closed ones by day; each opens to its levels, fills, signal, outcome and evidence. |
 | **Warning (bias reversed)** | A flag on an open paper trade whose direction opposes the current bias label (a CE or long-future trade while Bearish, a PE or short-future trade while Bullish). Set and cleared every minute as the label changes. Informational; does not close the trade. |
+| **Whole-rupee levels** | Every target and stop, as fired, live, at a fill or typed, is rounded to the nearest rupee (half up); a level rounded onto the entry moves a rupee further out, and an option's stop never goes below ₹0.05. |
 
 ---
 
@@ -236,8 +245,9 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Config drawer** | The panel the top bar's Config button opens on the right of the screen, with three tabs: Parameters (every typed value with its explanation and limits), Factors (the factor switches with a one-line explanation each) and Versions (every version, the one in force marked, Revert). Closes from its header, the Close button, the backdrop or Escape. |
 | **Config version** | One saved parameter set: a number (1, 2, 3, …), a tag typed by the trader and the values. The highest is in force; versions are never changed or removed. Each signal records the version it fired under. |
 | **Degraded mode** | NSE market is live but auth is missing/expired or the index feed is silent (see Index liveness). Last-known data is shown greyed; bias still computed but greyed; no new signals; paper-trade entry and manual close refused; target/stop checked again from the first tick after the feed returns (`after_gap`); the square-off timer still fires at the last known price (`stale`). |
-| **Display only** | Shown to the trader but never an input to the index bias, signals or paper trades: the headlines (not stored either), the index details and sector indices, and the net-volume histogram on the index tabs. Bullion is not display only: it has its own pipeline (see Bullion desk). |
+| **Display only** | Shown to the trader but never an input to the index bias, signals or paper trades: the headlines (not stored either), the index details and sector indices, the net-volume histogram on the index tabs, the NSE gold and silver ETFs, and SENSEX on the rates strip. Bullion is not display only: it has its own pipeline (see Bullion desk). |
 | **DTO (data transfer object)** | A typed structure that defines the shape of data crossing a boundary (API request/response, websocket frame). Pydantic models in `api/schemas.py` and the routers; mirrored by hand in `frontend/src/api/types.ts` (both sides change together). |
+| **ETF tracker** | `market/etfs.py:EtfTracker`: the latest tick and the day's range of GOLDBEES and SILVERBEES, for NSE's BULLION tab. Their ticks take the ordinary NSE path (`ticks`, NSE liveness); it never reaches a candle builder. |
 | **Evaluation offset** | `bullion.eval_offset_seconds`: how long after a minute close the bullion bias and signals run, so they never run at the same instant as the index engines. |
 | **Event bus** | `events.py:EventBus`, the in-process publish/subscribe used for low-rate state changes only: feed health, auth, strike-window change, parameters changed, headlines changed. The per-tick and per-minute data (candles, bias, signals, trades) goes through callback lists on `FeedSession` instead. |
 | **Event-loop lag** | How late asyncio runs a task compared to when it was due. Sampled every 100 ms; a sign the hot path is blocked. |
@@ -249,10 +259,11 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **`HeadlineOut` / `NewsOut`** | The headlines as sent to the browser in `hello` and the `news` frame. `NewsOut`: `status` (`needs_login`, `loading`, `ok`, `error`), `error` (why the last fetch failed, or null), `fetched_at` (epoch ms of the last successful fetch), `items` (newest first), `stock_indices` (each listed symbol's indices, which colour its chip). `HeadlineOut`: `heading`, `summary` (or null), `link` (the article, or null), `published_ts` (epoch ms), `symbols` (the listed stocks it was attached to). |
 | **Hop** | One leg of the data path used for latency measurement: exchange → ingest, ingest → sent, sent → received, received → painted. |
 | **Hot path** | The code executed for every tick. Must never block; anything slow is moved off it. |
+| **Hover card** | A read-only preview under a top-bar button (Trades, Data, Latency), opening after about a quarter of a second of hovering or on keyboard focus; the click still does the button's own thing. |
 | **Hypothesis** | A Python property-based testing library; used to assert indicator scores stay within bounds for any input. |
 | **Import-linter** | A tool that enforces which Python packages may import which. Named in the original plan; **not used**. The layering rule is kept by convention. |
 | **Incremental computation** | Updating a running value (EMA, rolling sum, chain totals) from the latest input rather than recomputing over the whole window. |
-| **Index liveness** | Whether the index feed is delivering: connected, and an NSE tick within `feed_live_max_tick_age_ms`. Bullion ticks on the same socket do not count, so gold ticking never hides an index outage. `FeedSession.feed_live()`. |
+| **Index liveness** | Whether the index feed is delivering: connected, and an index-side tick (the indices and their chains, the market-wide keys including SENSEX, the NSE ETFs) within `feed_live_max_tick_age_ms`. Bullion ticks on the same socket do not count, so gold ticking never hides an index outage. `FeedSession.feed_live()`. |
 | **Ingest timestamp (`t_in`)** | When the backend received a tick. Start of the latency budget TradeDisha controls. |
 | **Latency budget** | Agreed maximum time per hop at the 95th percentile, measured from arrival at the app (not from the exchange timestamp; the broker→app hop is shown separately). Total ingest → painted under 250 ms; minute close detected → signal painted under 100 ms. |
 | **lightweight-charts** | TradingView's open-source canvas charting library, used for the candlestick chart. |
@@ -268,6 +279,8 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Prune (ticks)** | Deleting raw tick rows up to and including a date the trader chooses, from the Data panel, after a preview and confirmation. Candles, chain minutes, bias, signals, and paper trades are never pruned. Nothing is pruned automatically. |
 | **Pure function** | A function whose output depends only on its inputs and which has no side effects. All indicator and signal maths is written this way so it is trivially testable. |
 | **Pydantic** | Python library for typed, validated data models; used for settings, the parameter set, DTOs, and boundary objects. |
+| **Quotes (strip quotes)** | The market-wide rates the rates strip needs that no other view carries, SENSEX today: `GET /api/quotes`, `quotes` in `hello` and a throttled `quotes` frame. |
+| **Rates strip** | The strip under the top bar on every page: NIFTY, SENSEX, gold, silver and the two ETFs, each with its price and day change %; clicking one opens its tab. |
 | **Repository (data access)** | A thin module that owns the SQL for one table or aggregate. |
 | **REST** | The HTTP request/response API (`/api/...`) used for snapshots, history, and all mutations. |
 | **Revert (config)** | Putting an old config version's values back in force by saving them as a new version. |
@@ -277,6 +290,7 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Standby mode** | NSE closed or holiday: no index ticks expected, last-known state shown under an amber "NSE market closed" (or holiday) banner, and a quiet index feed is not an outage. On the live feed the socket stays connected for MCX bullion until it closes. |
 | **Static settings** | Values that need a restart and are not about the algorithm (credentials, paths, indices, market hours). From `.env`. Distinct from the parameter set. |
 | **Store (frontend)** | A client-side state container (Zustand) holding live data per index; updated from websocket frames and rendered once per animation frame. |
+| **Tabs (NSE, MCX)** | The dashboard's tabs grouped by exchange: NSE has NIFTY, BANKNIFTY and BULLION (the ETFs), MCX has GOLD and SILVER (`lib/tabs.ts`). A group shows while it has data. |
 | **TanStack Query / Virtual** | React libraries for server-state caching and for rendering only visible table rows. Named in the original plan; **not used** (plain `fetch` in `api/client.ts`; the 21-row chain needs no virtualisation). |
 | **Throttle (leading-edge)** | The minimum gap between pushes on one websocket channel per index (50 ms for ticks, 500 ms for chain). The first update after a quiet gap goes out immediately; later ones wait for the gap, and only the latest state is sent. |
 | **Tick bus** | `feed/bus.py:TickBus`: a synchronous fan-out that hands each tick to every subscriber in turn (session, chain, flow, outcomes, paper trades, bullion tracker and desk). Subscribers must not block. |
@@ -323,6 +337,7 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | CTT | Commodity Transaction Tax |
 | DII | Domestic Institutional Investors |
 | EMA | exponential moving average |
+| ETF | exchange-traded fund (Gold BeES, Silver BeES) |
 | F&O | futures and options |
 | FII | Foreign Institutional Investors |
 | GST | Goods and Services Tax (on brokerage) |

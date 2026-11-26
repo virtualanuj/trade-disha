@@ -9,8 +9,8 @@ as if they had always been requirements. Until an item is merged, intent.md and 
 together are the requirements. Wording below such as "since", "now" or "superseded" is as
 of the request.
 
-**Merged into intent.md:** items 1 to 22 (compacted 25/11/2026). Items added after 22 are
-not merged yet.
+**Merged into intent.md:** items 1 to 32 (items 1 to 22 compacted 25/11/2026, 23 to 32 on
+27/11/2026). Items added after 32 are not merged yet.
 
 ## UI
 
@@ -18,9 +18,9 @@ not merged yet.
 
 Make the panels resizable.
 
-Status: built in Milestone E1 and checked in a browser. Requirement in [intent.md](intent.md)
-("The screen"); design in [spec.md](spec.md) §13.2 "Resizable layout"; planned in
-[plan.md](plan.md) Milestone E1.
+Status: built in Milestone E1 and checked in a browser. Requirement in
+[intent.md](intent.md) ("The screen"); design in [spec.md](spec.md) §13.2 "Resizable
+layout"; planned in [plan.md](plan.md) Milestone E1.
 
 Decided in the spec: two draggable dividers (main column / option chain, and under the
 price chart), with size limits, double-click to reset, and sizes remembered in the browser.

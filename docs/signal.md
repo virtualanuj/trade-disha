@@ -68,10 +68,10 @@ ticks ─┬─> 1-minute candles ─┐
 ```
 
 In one sentence: **nine indicators (plus the macro votes of other markets) each vote
-between −1 and +1, the votes are averaged into a bias, and when the bias is strong enough (and a few safety checks pass) the engine
-raises a signal to buy the call or the put nearest the current index level.** Sections 1
-to 12 describe this index engine; gold and silver run a smaller engine of their own that
-buys or sells a future (section 13).
+between −1 and +1, the votes are averaged into a bias, and when the bias is strong enough
+(and a few safety checks pass) the engine raises a signal to buy the call or the put
+nearest the current index level.** Sections 1 to 12 describe this index engine; gold and
+silver run a smaller engine of their own that buys or sells a future (section 13).
 
 Three properties hold throughout:
 
@@ -271,9 +271,10 @@ the bias already reads. What it does add is the overnight move: GIFT's last pric
 spot cancels out. The vote is that move against `macro.gift_full_pct` (0.50 %), signed by
 `macro.gift_direction` (`follow`: a gap up is bullish; `fade`: a gap up is bearish), and
 shrinks in a straight line to nothing over `macro.gift_fade_minutes` (30) after the open;
-after that it is shown as `info`. With no reading (Upstox had no price) it is `warming`; on
-the synthetic feed the vote does not appear at all. Example: on 19/11/2026 GIFT went from 25 237.5 to 25 154.0, −0.33 %; at the
-09:19 close (5 minutes in) it scores −0.33 / 0.50 × (1 − 5/30) = **−0.55**.
+after that it is shown as `info`. With no reading (Upstox had no price) it is `warming`;
+on the synthetic feed the vote does not appear at all. Example: on 19/11/2026 GIFT went
+from 25 237.5 to 25 154.0, −0.33 %; at the 09:19 close (5 minutes in) it scores −0.33 /
+0.50 × (1 − 5/30) = **−0.55**.
 
 ---
 
@@ -526,8 +527,16 @@ The index move is converted to an option price move with delta:
 Delta comes from the feed. If the feed has none, it is computed with Black-Scholes from
 spot, strike, time to the 15:30 close on expiry day, the option's IV (15 % if unknown) and
 the risk-free rate. If `signal.expiry_points` has no entry for the index, the normal-day
-percentages are used on expiry day too. Example: NIFTY call at ₹60 with delta 0.5 gives target 60 + 0.5 × 40 =
-₹80 and stop 60 − 0.5 × 20 = ₹50.
+percentages are used on expiry day too. Example: NIFTY call at ₹60 with delta 0.5 gives
+target 60 + 0.5 × 40 = ₹80 and stop 60 − 0.5 × 20 = ₹50.
+
+**Whole rupees.** Target and stop are then rounded to the nearest rupee, half a rupee up
+(`round_levels` in `engine/signals.py`), for every instrument and everywhere: as fired,
+live, at a paper trade's fill and on the ticket of a trade opened by hand. A level the
+rounding would put on or past the entry moves out to the next whole rupee beyond it, so a
+trade never opens on its own target or stop; an option's stop never goes below ₹0.05, so
+below a rupee it is ₹0.05. Example: entry ₹2.00 with a −15 % stop at ₹1.70 rounds onto the
+entry (₹2), so the stop moves out to ₹1.
 
 **What a signal records** (table `signals`):
 
@@ -546,12 +555,12 @@ percentages are used on expiry day too. Example: NIFTY call at ₹60 with delta 
 
 **Live levels while the signal waits.** The three prices above are the **fired** levels
 and are never changed. While the signal is active, the card also shows **live** levels:
-the same rule applied to the option's price now. A percentage signal keeps the
-target/entry and stop/entry ratios it fired with (so editing the config later does not move
-it); an expiry-day signal re-applies its index points through the option's **current**
-delta. They are sent once a second. When you paper-trade the signal, the trade opens at
-the price then and takes the live target and stop at that price (`rescale_levels` in
-`engine/signals.py`).
+the same rule applied to the option's price now, again in whole rupees. A percentage
+signal keeps the target/entry and stop/entry ratios of its rounded fired levels (so
+editing the config later does not move it); an expiry-day signal re-applies its index
+points through the option's **current** delta. They are sent once a second. When you
+paper-trade the signal, the trade opens at the price then and takes the live target and
+stop at that price (`rescale_levels` in `engine/signals.py`).
 
 ---
 
@@ -581,9 +590,9 @@ runs on its own target, stop and the 15:15 square-off.
 
 **Degraded feed.** If **index (NSE)** ticks stop for more than 5 seconds during NSE market
 hours, the feed is not live (gold and silver ticks on the same connection do not count,
-and silence after the close is not an outage): no signal fires (`feed_down`), paper-trade entry and manual close are refused,
-and the first fill after the gap is marked as such. Signals resume by themselves when
-ticks return.
+and silence after the close is not an outage): no signal fires (`feed_down`), paper-trade
+entry and manual close are refused, and the first fill after the gap is marked as such.
+Signals resume by themselves when ticks return.
 
 ---
 
@@ -651,7 +660,8 @@ Where to see it:
 
 - in the app, the Outcome column and count line in "Signals today";
 - `GET /api/signals/scorecard`;
-- offline, over recorded days: `cd backend && uv run python -m tradedisha.tools.score --db ../data/live.sqlite [--params trial.toml]`.
+- offline, over recorded days:
+  `cd backend && uv run python -m tradedisha.tools.score --db ../data/live.sqlite [--params trial.toml]`.
   This replays the days in a scratch copy, so trying different parameters never touches
   the recording.
 
@@ -667,12 +677,12 @@ on the right, whose **Parameters** tab lists every value with its explanation an
 range on the line below its name. Values are validated by `parameters/model.py`. Each save
 is a new numbered version that applies from the next minute close (`news.poll_seconds`
 applies at once); an invalid save is rejected and the previous values stay in force. Any
-earlier version can be reverted to from the **Versions** tab. Versions are stored in the `config_versions`
-table; `config/params.toml` only supplies version 1 for a new database.
+earlier version can be reverted to from the **Versions** tab. Versions are stored in the
+`config_versions` table; `config/params.toml` only supplies version 1 for a new database.
 
-The factor switches (section 4) are parameters too, but are not in the Parameters tab: each
-flip in the **Factors** tab (toggle, factor name and a one-line explanation) is its own version with a fixed tag such as `Factor NIFTY.pcr:
-off`.
+The factor switches (section 4) are parameters too, but are not in the Parameters tab:
+each flip in the **Factors** tab (toggle, factor name and a one-line explanation) is its
+own version with a fixed tag such as `Factor NIFTY.pcr: off`.
 
 Each signal records the version in force when it fired (`config_version`). It appears as
 a small `v7` on the signal card and in "Signals today"; hovering it shows that version's
@@ -881,8 +891,8 @@ neutral band and the bullion idle groups:
    ones are left out, not counted as zero.
 2. **Idle groups.** An OI, flow or macro group with no `ok` reading gives its share to the
    live groups in proportion to theirs. At start (backfilled candles have no OI, book or
-   sides) the bias is trend alone until the OI, flow and macro votes warm up; after 17:00, when the
-   currency market shuts, the other metal carries the macro share alone.
+   sides) the bias is trend alone until the OI, flow and macro votes warm up; after 17:00,
+   when the currency market shuts, the other metal carries the macro share alone.
 3. **Bias** = the weighted sum of the group scores, clamped to −1..+1.
 4. **Label**: ≥ +0.20 Bullish, ≤ −0.20 Bearish, otherwise Neutral (`bullion.neutral_band`).
    Strength is `round(|bias| × 100)`.
@@ -975,8 +985,8 @@ outage does not put the index engines into degraded mode.
 | Target | entry × (1 + 0.40 %) | entry × (1 − 0.40 %) |
 | Stop | entry × (1 − 0.20 %) | entry × (1 + 0.20 %) |
 
-(`bullion.target_pct = 0.40`, `bullion.stop_pct = 0.20`, both rounded to the paisa.) That is
-risking 1 to make 2, as with the index options.
+(`bullion.target_pct = 0.40`, `bullion.stop_pct = 0.20`, both rounded to the whole rupee,
+half a rupee up, as in section 7.) That is risking 1 to make 2, as with the index options.
 
 **Examples, one lot:**
 
@@ -1032,8 +1042,8 @@ a second), so it is not traded into the release.
 - **Opening** is refused unless MCX is open, the time is before the 23:00 square-off and
   bullion is live. With `bullion.event_block_trades = on` it is also refused during a
   US-release pause ("paused around US data: CPI 19:00"). Open trades are never touched by
-  the pause: target, stop and square-off carry on. The trade fills at the future's price at your click, with the live
-  target and stop at that price.
+  the pause: target, stop and square-off carry on. The trade fills at the future's price
+  at your click, with the live target and stop at that price.
 - **Contract.** The signal reads the full future, but its trade opens the contract set
   for the metal: `bullion.gold_contract` (GOLD or GOLDM, ₹10 a point) and
   `silver_contract` (SILVER or SILVERM, ₹5 a point). The levels are taken at that

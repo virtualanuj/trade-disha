@@ -1,6 +1,7 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this
+repository.
 
 ## What this is
 
@@ -86,7 +87,9 @@ MarketDataProvider (feed/synthetic | replay | upstox)
        -> FlowTracker (market/flow.py; order-flow score) -> SignalEngine.on_flow (trigger)
        -> OutcomeTracker (engine/outcomes.py; what each signal's option did next)
        -> PaperTradeManager.on_tick (target / stop)
-       -> BullionTracker (market/bullion.py; MCX gold/silver, own CandleBuilder)
+       -> MacroTracker (market/macro.py; currency futures, MCX crude)
+       -> EtfTracker (market/etfs.py; GOLDBEES / SILVERBEES, NSE, display only)
+       -> BullionTracker (market/bullion.py; MCX gold/silver and their minis, own CandleBuilder)
             -> bullion_tick_store (bullion_ticks; skipped in replay)
             -> BullionDesk (engine/bullion_desk.py), on mcx_clock:
                  candle close queued -> eval_offset_seconds later
@@ -164,7 +167,12 @@ Things that are easy to get wrong:
   its market's trades (`PaperRules`). "overall" in the journal is index options only.
   Every bullion load step fails soft so the index feed always starts. Upstox's full quote
   returns the live price in `ohlc.close`, and an untraded future's daily candles carry
-  placeholder prices (`parse_range(..., traded_only=True)`).
+  placeholder prices (`parse_range(..., traded_only=True)`). Each metal's mini (GOLDM,
+  SILVERM) is a `BullionContract` of its own on the same tracker, for trading only: never
+  its metal's candles, book, bias or signals. A bullion signal's paper trade opens the
+  contract set in `bullion.gold_contract` / `silver_contract` (`trade_contract`), with
+  that contract's lots. The NSE ETFs (GOLDBEES, SILVERBEES) are not bullion: they are NSE
+  ticks in `ticks`, display only (`market/etfs.py`).
 - **Generated code.** `feed/upstox_proto/` is protoc output and is excluded from ruff and
   mypy; do not edit it by hand.
 
@@ -236,10 +244,11 @@ Things that are easy to get wrong:
   table-driven lifecycle tests and hypothesis property tests for score bounds.
 
 The original plan named some tools that were not adopted (plan.md "Stack" lists them).
-Trust `pyproject.toml` and `package.json`: there is no SQLAlchemy, numpy, orjson, import-linter, TanStack Query,
-TanStack Virtual, Playwright test suite or OpenAPI type generation. The layering rule
-still holds by convention: `api` depends on `engine` / `market`, which depend on `store`;
-`indicators` imports nothing from `api`, `feed` or `store`.
+Trust `pyproject.toml` and `package.json`: there is no SQLAlchemy, numpy, orjson,
+import-linter, TanStack Query, TanStack Virtual, Playwright test suite or OpenAPI type
+generation. The layering rule still holds by convention: `api` depends on `engine` /
+`market`, which depend on `store`; `indicators` imports nothing from `api`, `feed` or
+`store`.
 
 ## Code standards enforced by the gates
 

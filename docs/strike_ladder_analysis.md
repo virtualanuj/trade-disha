@@ -8,6 +8,11 @@ strike alone: complexity, performance and data needs. Nothing here is built.
 concern. The work is plumbing, because everything after the signal decision assumes one
 option per signal.
 
+*Note, 27/11/2026:* since this analysis, a paper trade can be opened by hand at any strike
+in the window, from the option chain (enhancement 23), with the signal rule's target and
+stop at that strike's price. Signals still recommend the ATM strike alone, so the analysis
+below stands.
+
 ## How a signal is worked out today
 
 ```
@@ -27,7 +32,8 @@ ticks → candles + option chain (±10 strikes) → bias per index per minute (o
   - The `signals` row has a single `instrument_key`, `strike`, entry, target and stop.
   - `engine/outcomes.py:OutcomeTracker` follows that one key.
   - `SignalEngine.live()` and `levels_at()` read that one leg.
-  - `engine/paper.py:PaperTradeManager.open(signal_id)` buys `signal.instrument_key`.
+  - `engine/paper.py:PaperTradeManager.open(signal_id)` buys the signal's contract
+    (`trade_contract`: for an index, the signal's own option).
   - The signal card shows one option.
 
 So signals for ATM ±3 cannot mean seven separately decided signals: all seven would fire
