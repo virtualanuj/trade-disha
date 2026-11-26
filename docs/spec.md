@@ -671,6 +671,12 @@ back, and they count toward NSE liveness as VIX does; nothing else reads them (t
 builder takes spot and futures keys only). The default names were checked against the
 Upstox instrument file; a wrong name is not rejected, it just never ticks and shows "—".
 
+**SENSEX.** `market_wide_keys()` also subscribes `BSE_INDEX|SENSEX` (checked against
+Upstox's BSE instrument file), for the rates strip (§13.2) only. Like VIX it is recorded in
+`ticks` and counts toward liveness (one socket, the same hours); it has no candles, stats
+or tab. `market_quotes()` gives its price, previous close and change (`STRIP_QUOTES`), in
+`GET /api/quotes`, the `hello` and the `quotes` frame.
+
 ---
 
 ## 8. Indicators
@@ -1272,6 +1278,7 @@ only SQLite, and `GET /auth/login`; a test lists them.
 | GET | `/instruments` | resolved spot/futures/expiry/window per index |
 | GET | `/chain/{index}` | current `ChainState` snapshot + derived values |
 | GET | `/stats/{index}` | `IndexStats` for the details view (§7.4) |
+| GET | `/quotes` | the rates strip's market-wide quotes: SENSEX (§7.4) |
 | GET | `/candles/{index}?minutes=375` | today's spot candles with EMA/VWAP/supertrend series, and `fut_candles` (the near-month future's, whose `bv`/`sv` give net volume) |
 | GET | `/bias/{index}` | latest bias + breakdown |
 | GET | `/bias/{index}/history?day=` | per-minute bias for a day |
@@ -1289,7 +1296,7 @@ only SQLite, and `GET /auth/login`; a test lists them.
 | GET | `/paper-trades?index=&status=&from=&to=` | trades |
 | GET | `/paper-trades/{id}` | one trade (live P&L while open), the signal it was taken on with breakdown and outcome (none when opened by hand), and every set of levels it has had |
 | GET | `/journal/stats?from=&to=&index=` | summary stats: overall (index options), per index, `bullion` and per metal, from signal trades; `manual` for trades opened by hand |
-| GET | `/bullion` | the GOLD / SILVER snapshot (§6.6) |
+| GET | `/bullion` | the GOLD / SILVER snapshot, with the ETFs (§6.6) |
 | GET | `/bullion/{metal}/candles` | today's bullion candles with VWAP |
 | GET | `/parameters` | the config in force: version, tag, created_ts and the `ParameterSet` |
 | GET | `/parameters/schema` | one entry per editable value: path, group, kind (number, integer, choice, time), limits, choices, help |
@@ -1315,7 +1322,7 @@ Server → client JSON frames `{type, ts, payload}`:
 
 | type | cadence | payload |
 |---|---|---|
-| `hello` | on connect | full snapshot: health, instruments, prices, chain per index, candles, bias (indices and metals), parameters, active signals, today's signals, gates, flow, today's trades, index stats, bullion snapshot and candles, news |
+| `hello` | on connect | full snapshot: health, instruments, prices, chain per index, candles, bias (indices and metals), parameters, active signals, today's signals, gates, flow, today's trades, index stats, bullion snapshot and candles, news, quotes |
 | `stats` | checked once a second, sent when it changed | `IndexStats` |
 | `tick` | leading-edge throttle, max 20/s per index | `{index, spot_ltp, spot_ts, fut_ltp, fut_ts}` |
 | `chain` | leading-edge throttle, max 2/s per index | full window (21 rows) + derived values; small enough that diffs are not worth it |
@@ -1326,7 +1333,8 @@ Server → client JSON frames `{type, ts, payload}`:
 | `flow` | about 1/s per index | order-flow score and its three parts (§8.5) |
 | `paper_trade` | on change, and 1/s while open | trade with live P&L |
 | `health` | on change | feed/auth/market status, banner, bullion status |
-| `bullion` | leading-edge throttle like `tick` | the GOLD / SILVER snapshot |
+| `bullion` | leading-edge throttle like `tick` | the GOLD / SILVER snapshot, with the ETFs |
+| `quotes` | leading-edge throttle like `tick`, on a SENSEX tick | the market-wide quotes (§7.4) |
 | `bullion_candle` | per closed bullion minute | `{metal, candle, overlay}` |
 | `parameters` | on a save or revert | version, tag, created_ts, the set, effective-from minute |
 | `news` | on change (at most once per poll, §6.7) | `NewsOut`: status, error, fetched_at, headlines newest first |
@@ -1352,6 +1360,7 @@ On reconnect the client receives a fresh `hello`, so no event replay is needed.
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ TradeDisha ● LIVE 11:42:07 ● Feed 0.4s ● Login  [Dashboard|Journal|Trades] │
+│ NIFTY 24,512.40 +0.42% │ SENSEX 80,911.05 +0.38% │ GOLD 1,34,914.00 −1.31% │…│
 ├────────────────────────────────────────────────┬─────────────────────────────┤
 │  [NIFTY]  [BANKNIFTY]                          │ OPTION CHAIN             [–]│
 │  ┌ INDEX ─────────────────────────────── [–] ┐ │ NIFTY  17/11/2026           │
@@ -1431,7 +1440,16 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   status and the newest index tick; on BULLION they read `MCX LIVE` / `MCX CLOSED` and the
   newest bullion tick. While that market is closed, a quiet feed is shown muted instead of
   amber or red; a dropped connection is always red.
-- **StatusBanner**: one band under the top bar. Errors (login, feed gap, lost backend) are
+- **RatesStrip**: a thin strip under the top bar on every page: NIFTY, SENSEX, GOLD,
+  SILVER, GOLDBEES and SILVERBEES, always all six in that order, each with its price and
+  day change % (green up, red down by sign, muted flat). NIFTY is the live spot against
+  the stats' previous close; SENSEX comes from `quotes`; the metals and ETFs from
+  `bullion`. A rate not known yet (synthetic has only NIFTY) shows "—". A click opens the
+  entry's tab on the dashboard: NIFTY its tab, a metal or ETF BULLION with that metal in
+  focus (GOLDBEES → GOLD); SENSEX has no tab and is not a button, nor is BULLION while
+  there is no bullion. Too narrow a window scrolls it sideways. `lib/rates.ts:stripRates`
+  builds the entries; `LiveRatesStrip` reads the store, so its frames never re-render `App`.
+- **StatusBanner**: one band under the rates strip. Errors (login, feed gap, lost backend) are
   red with ⚠. A market's session state (closed, holiday, pre-open; NSE, or MCX on
   BULLION) is an amber band with ⏸ and a bold title such as "NSE MARKET CLOSED", so it
   is never mistaken for a quiet feed. On BULLION the bullion status decides the
@@ -1700,7 +1718,8 @@ NIFTY / BANK NIFTY tab               Chain minimised        BULLION tab
   `lastFrameAt`, `chains`, `candles`, `futCandles`, `overlays`, `bias`, `signals` (the
   active one, with `live` levels), `gates`, `flow`, `stats`; plus `ws`, `instruments`,
   `selectedIndex`, `trades`, `signalHistory`, `health`, `parameters`,
-  `parametersEffectiveFrom`, `bullion`, `bullionCandles`, `bullionOverlays` and `news`.
+  `parametersEffectiveFrom`, `bullion`, `bullionCandles`, `bullionOverlays`, `quotes` and
+  `news`.
   GOLD and SILVER use the same per-name maps as the indices. A slice that changes with
   the frames is read by the component that shows it (`components/Live/`), not by `App`,
   which selects small values (`lib/marketViews.ts`); `useNow` is one shared clock per

@@ -1,4 +1,4 @@
-"""Index day statistics for the details view."""
+"""Index day statistics for the details view, and the rates strip's market-wide quotes."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from tradedisha.api.deps import State
 from tradedisha.app_state import AppState
+from tradedisha.market.stats import market_quotes
 
 router = APIRouter()
 
@@ -40,6 +41,27 @@ class IndexStatsOut(BaseModel):
     vix_change_pct: float | None
     updated_ts: int | None
     sectors: list[SectorOut]
+
+
+class QuoteOut(BaseModel):
+    """A market-wide rate on the rates strip, such as SENSEX (Milestone E22)."""
+
+    name: str
+    ltp: float | None
+    prev_close: float | None
+    change: float | None
+    change_pct: float | None
+    updated_ts: int | None
+
+
+def all_quotes(state: AppState) -> list[QuoteOut]:
+    p = state.session.prices
+    return [QuoteOut(**asdict(q)) for q in market_quotes(p.ltp, p.close_prev, p.ts)]
+
+
+@router.get("/quotes", response_model=list[QuoteOut])
+async def quotes(state: State) -> list[QuoteOut]:
+    return all_quotes(state)
 
 
 def all_stats(state: AppState) -> list[IndexStatsOut]:

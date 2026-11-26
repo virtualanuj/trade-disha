@@ -1104,6 +1104,32 @@ their close with "NSE closed" while the futures tick on.
 **Status (2026-11-26):** built, with unit tests; `make check` green. Accepted by the owner
 without an end-to-end check in the running app.
 
+## Milestone E22 — Rates strip under the top bar
+
+**Goal:** NIFTY, SENSEX, GOLD, SILVER, GOLDBEES and SILVERBEES with price and day change %
+in a strip under the top bar on every page; a click opens the tab (enhancement 26).
+
+- `market/stats.py`: `SENSEX_KEY` (`BSE_INDEX|SENSEX`), `STRIP_QUOTES`, `MarketQuote`,
+  pure `market_quotes`; `market_wide_keys` subscribes SENSEX.
+- `api/stats.py`: `QuoteOut`, `all_quotes`, `GET /api/quotes`. `api/ws.py`: `quotes` in
+  `hello`; a SENSEX tick marks a throttled `quotes` frame due (`_push_quotes`); the
+  no-client reset moved to `_drop_pending`.
+- Frontend: `QuoteOut` / `QuotesFrame`, the store's `quotes` and `applyQuotes`;
+  `lib/rates.ts:stripRates`; `components/RatesStrip`; `LiveRatesStrip` in `Live.tsx`
+  between the top bar and the banner; `App`'s `openRate` selects the tab and metal and
+  goes to the dashboard.
+- Tests: `tests/market/test_quotes.py` (the key, the change maths with and without a
+  previous close, the API following ticks, the `quotes` frame); the market-wide keys test
+  takes SENSEX. Vitest: `stripRates` (order, changes, click targets, nothing known, no
+  BULLION tab), `RatesStrip` (text, colours by sign, clicks, SENSEX not a button) and
+  `App` (the strip shows ticks and quotes without re-rendering the page).
+
+**Demo:** on the live feed, the strip under the top bar shows all six rates ticking; click
+GOLDBEES on the Journal page: the dashboard opens on BULLION with GOLD in focus.
+
+**Status (2026-11-26):** built, with unit tests; `make check` green. Accepted by the owner
+without an end-to-end check in the running app.
+
 ## Frontend review fixes (26/11/2026, not a milestone)
 
 **Goal:** the owner asked for a review of the frontend and its five most important

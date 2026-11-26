@@ -752,6 +752,31 @@ Builder's calls:
 - The start quote and 52-week range are fetched on the live feed only; a replay shows
   them from the recorded ticks.
 
+### 26. A rates strip under the top bar
+
+Asked for (2026-11-26): a strip below the top menu bar with the current rates of NIFTY,
+SENSEX, gold, silver, Gold BeES and Silver BeES.
+
+Status: built in Milestone E22. Design in [spec.md](spec.md) §7.4 ("SENSEX"), §12 and §13.2
+(RatesStrip); planned in [plan.md](plan.md) Milestone E22.
+
+Decided with the owner on 2026-11-26:
+- Each entry shows the price and the day change %.
+- On every page. A click opens the entry's tab on the dashboard: NIFTY its tab, a metal or
+  an ETF BULLION with that metal in focus; SENSEX is not clickable (it has no tab).
+
+Builder's calls:
+- SENSEX is new to the app: `BSE_INDEX|SENSEX` subscribed with India VIX and the sector
+  indices, recorded in `ticks` and counted toward liveness like them, and sent in a new
+  small `quotes` list (`GET /api/quotes`, `hello`, a `quotes` frame).
+- NIFTY is the live spot, so the strip moves with the Index tile; its change % is against
+  the stats' previous close.
+- "Gold" and "silver" are the MCX near-month futures already on BULLION.
+- All six always show, in a fixed order; a rate not known yet is "—" (synthetic has only
+  NIFTY). Prices are formatted as on the cards; the change is coloured by its sign, so a
+  small move still shows its side.
+- A narrow window scrolls the strip sideways rather than wrapping it.
+
 ## Deferred
 
 ### Strike ladder (ATM ±3)

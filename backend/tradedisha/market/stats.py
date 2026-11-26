@@ -12,7 +12,10 @@ from tradedisha.config import Settings
 from tradedisha.market.candles import Candle
 
 VIX_KEY = "NSE_INDEX|India VIX"
+SENSEX_KEY = "BSE_INDEX|SENSEX"
 SECTOR_PREFIX = "Nifty "
+# The rates strip's quotes that no other view carries (Milestone E22): name -> key.
+STRIP_QUOTES: tuple[tuple[str, str], ...] = (("SENSEX", SENSEX_KEY),)
 
 
 @dataclass(frozen=True)
@@ -38,14 +41,40 @@ def sector_label(name: str) -> str:
     return name
 
 
+@dataclass(frozen=True)
+class MarketQuote:
+    """A market-wide rate on the rates strip, such as SENSEX (Milestone E22). Display only."""
+
+    name: str
+    ltp: float | None
+    prev_close: float | None
+    change: float | None
+    change_pct: float | None
+    updated_ts: int | None
+
+
 def market_wide_keys(settings: Settings) -> list[str]:
-    """India VIX and every configured sector index, each once; none on the synthetic feed."""
-    if settings.feed_provider == "synthetic":  # the generated market has neither
+    """India VIX, every configured sector index and the strip's quotes, each once; none on
+    the synthetic feed."""
+    if settings.feed_provider == "synthetic":  # the generated market has none of them
         return []
     keys = [VIX_KEY]
     for names in settings.sector_indices.values():
         keys += [k for k in map(sector_key, names) if k not in keys]
+    keys += [k for _, k in STRIP_QUOTES if k not in keys]
     return keys
+
+
+def market_quotes(
+    ltp: Mapping[str, float], close_prev: Mapping[str, float], ts: Mapping[str, int]
+) -> tuple[MarketQuote, ...]:
+    """Each strip quote's price and change on the previous close; unknown ones stay None."""
+    out: list[MarketQuote] = []
+    for name, key in STRIP_QUOTES:
+        price, prev = ltp.get(key), close_prev.get(key)
+        change = round(price - prev, 2) if price is not None and prev else None
+        out.append(MarketQuote(name, price, prev, change, _pct(price, prev), ts.get(key)))
+    return tuple(out)
 
 
 @dataclass(frozen=True)

@@ -15,8 +15,8 @@ milestone, is in [docs/plan.md](docs/plan.md).
 
 - **Market data:** the live Upstox feed (daily login, Logout at any time), with synthetic
   and replay feeds for testing. Index spot and futures, the option chain around ATM, India
-  VIX and the sector indices; MCX GOLD and SILVER near-month futures, with the GOLDBEES and
-  SILVERBEES ETFs under them; the currency futures
+  VIX and the sector indices; SENSEX; MCX GOLD and SILVER near-month futures, with the
+  GOLDBEES and SILVERBEES ETFs under them; the currency futures
   and crude behind the macro evidence; GIFT Nifty for the opening gap; headlines for the
   heaviest index stocks. Ticks are recorded (bullion apart from the NSE day) and can be
   replayed; starting after the open backfills the day. NSE and MCX keep their own hours
@@ -42,7 +42,8 @@ milestone, is in [docs/plan.md](docs/plan.md).
   ones by day, each opening to its fills, signal, outcome and evidence.
 - **Screen:** NIFTY, BANK NIFTY and BULLION tabs; panels that resize, minimise and
   re-order; a top bar with the market and feed status, the pages, the tools and Login or
-  Logout; DD/MM/YYYY dates; dark and light themes. A banner says why the screen isn't
+  Logout; under it a strip of rates (NIFTY, SENSEX, gold, silver and their ETFs, with the
+  day's change; a click opens the tab); DD/MM/YYYY dates; dark and light themes. A banner says why the screen isn't
   live.
 - **Config:** every tunable value is edited in the app (a drawer with Parameters, Factors
   and Versions), saved as a numbered, tagged version you can revert to; each signal

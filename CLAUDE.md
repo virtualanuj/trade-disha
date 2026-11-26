@@ -173,8 +173,8 @@ Things that are easy to get wrong:
 - `api/ws.ts:MarketSocket` keeps one WebSocket with exponential reconnect and feeds the
   Zustand store in `state/store.ts`. The `hello` frame replaces all live state; later
   frames (`tick`, `chain`, `candle`, `bias`, `signal`, `signal_live`, `paper_trade`,
-  `stats`, `flow`, `bullion`, `bullion_candle`, `health`, `parameters`, `news`) update it;
-  `pong` answers the client's ping. Live data is never polled.
+  `stats`, `flow`, `bullion`, `bullion_candle`, `quotes`, `health`, `parameters`, `news`)
+  update it; `pong` answers the client's ping. Live data is never polled.
 - Read a store slice that changes with the frames (prices, chains, bullion, flow, stats,
   the live signal or trades) in the component that shows it (`components/Live/Live.tsx`),
   never in `App`: read there, every frame re-renders the whole page (`App.test.tsx`

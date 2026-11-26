@@ -65,4 +65,25 @@ describe('App', () => {
     expect(screen.getByTestId('price-chart')).toBeInTheDocument()
     expect(useMarketStore.getState().prices.NIFTY?.spot_ts).toBe(5)
   })
+
+  it('shows the rates strip, which reads its prices itself (E22)', () => {
+    render(<App />)
+    const before = chartRenders.n
+    act(() => {
+      useMarketStore.getState().applyTick(tick(5), 5)
+      useMarketStore.getState().applyQuotes([
+        {
+          name: 'SENSEX',
+          ltp: 80_911.05,
+          prev_close: 80_605.95,
+          change: 305.1,
+          change_pct: 0.38,
+          updated_ts: 5,
+        },
+      ])
+    })
+    expect(chartRenders.n).toBe(before)
+    expect(screen.getByTestId('rate-NIFTY')).toHaveTextContent('25,005.00')
+    expect(screen.getByTestId('rate-SENSEX')).toHaveTextContent('80,911.05+0.38%')
+  })
 })

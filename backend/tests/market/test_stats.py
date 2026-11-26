@@ -8,6 +8,7 @@ from tradedisha.config import Settings
 from tradedisha.market.backfill import fetch_52w_range, parse_range
 from tradedisha.market.candles import Candle
 from tradedisha.market.stats import (
+    SENSEX_KEY,
     VIX_KEY,
     IndexStats,
     SectorQuote,
@@ -154,14 +155,14 @@ def test_compute_stats_carries_the_sectors() -> None:
     assert _stats().sectors == ()
 
 
-def test_market_wide_keys_are_vix_and_each_sector_once() -> None:
+def test_market_wide_keys_are_vix_each_sector_and_sensex_once() -> None:
     settings = Settings(_env_file=None, feed_provider="upstox")
     keys = market_wide_keys(settings)
     assert keys[0] == VIX_KEY
     assert len(keys) == len(set(keys))
     nifty = [sector_key(n) for n in settings.sector_indices["NIFTY"]]
     bank = [sector_key(n) for n in settings.sector_indices["BANKNIFTY"]]
-    assert set(keys) == {VIX_KEY, *nifty, *bank}
+    assert set(keys) == {VIX_KEY, *nifty, *bank, SENSEX_KEY}
 
 
 def test_the_synthetic_feed_has_no_market_wide_keys() -> None:

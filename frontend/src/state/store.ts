@@ -17,6 +17,7 @@ import type {
   OverlayOut,
   PaperTradeOut,
   ParametersOut,
+  QuoteOut,
   ResolvedIndexOut,
   SignalOut,
 } from '../api/types'
@@ -69,6 +70,8 @@ interface MarketStore {
   stats: Record<string, IndexStatsOut>
   /** gold and silver for the BULLION tab; null until the first hello */
   bullion: BullionOut | null
+  /** the rates strip's market-wide quotes (SENSEX) */
+  quotes: QuoteOut[]
   bullionCandles: Record<string, CandleOut[]>
   bullionOverlays: Record<string, OverlayOut[]>
   /** headlines (spec §6.7); null until the first hello */
@@ -98,6 +101,7 @@ interface MarketStore {
   applyStats: (s: IndexStatsOut) => void
   /** the snapshot; with candles (from hello) the chart series are replaced too */
   applyBullion: (b: BullionOut, candles?: BullionCandlesOut[]) => void
+  applyQuotes: (quotes: QuoteOut[]) => void
   applyBullionCandle: (metal: string, c: CandleOut, o: OverlayOut) => void
   applyNews: (news: NewsOut) => void
   applyBank: (bank: BankOut) => void
@@ -134,6 +138,7 @@ export const useMarketStore = create<MarketStore>((set) => ({
   trades: [],
   stats: {},
   bullion: null,
+  quotes: [],
   bullionCandles: {},
   bullionOverlays: {},
   news: null,
@@ -225,6 +230,9 @@ export const useMarketStore = create<MarketStore>((set) => ({
           ? (s.instruments[0]?.index ?? 'NIFTY')
           : s.selectedIndex,
     }))
+  },
+  applyQuotes: (quotes) => {
+    set({ quotes })
   },
   applyBullionCandle: (metal, c, o) => {
     set((s) => ({

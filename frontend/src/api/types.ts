@@ -129,7 +129,23 @@ export interface HelloFrame extends FrameBase {
     bullion: BullionOut
     bullion_candles: BullionCandlesOut[]
     news: NewsOut
+    quotes: QuoteOut[]
   }
+}
+
+/** A market-wide rate on the rates strip that no other view carries: SENSEX (E22). */
+export interface QuoteOut {
+  name: string
+  ltp: number | null
+  prev_close: number | null
+  change: number | null
+  change_pct: number | null
+  updated_ts: number | null
+}
+
+export interface QuotesFrame extends FrameBase {
+  type: 'quotes'
+  payload: QuoteOut[]
 }
 
 /** Order-flow score for an index and its parts, each -1 (selling) to +1 (buying). */
@@ -167,6 +183,7 @@ export interface PongFrame extends FrameBase {
 
 export type Frame =
   | HelloFrame
+  | QuotesFrame
   | TickFrame
   | HealthFrame
   | PongFrame

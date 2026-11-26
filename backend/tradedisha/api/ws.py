@@ -36,7 +36,7 @@ from tradedisha.api.signals import (
     signal_out,
     today_signals,
 )
-from tradedisha.api.stats import all_stats
+from tradedisha.api.stats import all_quotes, all_stats
 from tradedisha.app_state import AppState
 from tradedisha.clock import epoch_ms_now
 from tradedisha.engine.bias_engine import BiasComputed
@@ -53,12 +53,14 @@ from tradedisha.feed.bus import StampedTick
 from tradedisha.market.candles import Candle
 from tradedisha.market.chain import ChainState
 from tradedisha.market.flow import FlowReading
+from tradedisha.market.stats import STRIP_QUOTES
 
 log = logging.getLogger(__name__)
 router = APIRouter()
 
 SLOW_CLIENT_LIMIT = 64  # queued frames before we drop the client
 OPEN_TRADES_PUSH_MS = 1000
+STRIP_KEYS = frozenset(k for _, k in STRIP_QUOTES)  # SENSEX: the `quotes` frame
 
 
 class WsHub:
@@ -71,6 +73,8 @@ class WsHub:
         self._chain_dirty: dict[str, int] = {}  # index -> t_in of newest option tick
         self._bullion_dirty: int | None = None  # t_in of newest gold / silver tick
         self._last_bullion_push = 0.0
+        self._quotes_dirty: int | None = None  # t_in of newest strip-quote tick (SENSEX)
+        self._last_quotes_push = 0.0
         self._health_dirty = False
         # Frames to send on the next pusher pass; a callable is built then (see `_on_bias`).
         self._immediate: list[str | Callable[[], str]] = []
@@ -106,6 +110,9 @@ class WsHub:
         session = self._state.session
         if st.tick.key in session.bullion_keys or st.tick.key in session.etf_keys:
             self._bullion_dirty = st.t_in
+            return
+        if st.tick.key in STRIP_KEYS:
+            self._quotes_dirty = st.t_in
             return
         index = self._index_for(st.tick.key)
         if index is not None:
@@ -256,6 +263,7 @@ class WsHub:
             "paper_trades": [t.model_dump() for t in today_trades(s)],
             "bank": bank_out(s).model_dump(),
             "stats": [x.model_dump() for x in all_stats(s)],
+            "quotes": [x.model_dump() for x in all_quotes(s)],
             "bullion": bullion_out(s).model_dump(mode="json"),
             "bullion_candles": [x.model_dump() for x in all_bullion_candles(s, 900)],
             "news": news_out(s).model_dump(),
@@ -312,6 +320,27 @@ class WsHub:
         frame = self._frame("bullion", payload, t_src=max(stamps, default=None), t_in=t_in)
         self._broadcast(frame)
 
+    def _push_quotes(self, now: float, interval_ms: float) -> None:
+        """The strip's market-wide quotes (SENSEX) in one frame, throttled like `tick`."""
+        t_in = self._quotes_dirty
+        if t_in is None or now - self._last_quotes_push < interval_ms:
+            return
+        self._quotes_dirty = None
+        self._last_quotes_push = now
+        quotes = all_quotes(self._state)
+        stamps = [q.updated_ts for q in quotes if q.updated_ts is not None]
+        payload = [q.model_dump() for q in quotes]
+        self._broadcast(self._frame("quotes", payload, t_src=max(stamps, default=None), t_in=t_in))
+
+    def _drop_pending(self) -> None:
+        """With nobody connected, nothing waits to be sent: the next hello carries it all."""
+        self._dirty.clear()
+        self._chain_dirty.clear()
+        self._bullion_dirty = None
+        self._quotes_dirty = None
+        self._immediate.clear()
+        self._health_dirty = False
+
     async def _pusher(self) -> None:
         """Leading-edge throttle per channel; immediate frames go out on the next pass."""
         interval_ms = 1000.0 / self._state.settings.ws_tick_hz
@@ -323,11 +352,7 @@ class WsHub:
         while True:
             await asyncio.sleep(interval_ms / 4000)
             if not self._clients:
-                self._dirty.clear()
-                self._chain_dirty.clear()
-                self._bullion_dirty = None
-                self._immediate.clear()
-                self._health_dirty = False
+                self._drop_pending()
                 continue
             now = epoch_ms_now()
             if self._immediate:
@@ -345,6 +370,7 @@ class WsHub:
                 self._broadcast(frame)
                 self._state.latency.record("in_to_out", epoch_ms_now() - t_in)
             self._push_bullion(now, interval_ms)
+            self._push_quotes(now, interval_ms)
             mgr = self._state.session.chains
             for index in list(self._chain_dirty):
                 if mgr is None or now - last_chain_push.get(index, 0.0) < chain_interval_ms:

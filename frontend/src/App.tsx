@@ -19,6 +19,7 @@ import {
   HistoryPanel,
   IndexTilesPanel,
   LiveBank,
+  LiveRatesStrip,
   LiveTopBar,
   LiveTradeLog,
   NewsPanel,
@@ -162,6 +163,15 @@ export default function App() {
     return metalNames.length ? [...indices, BULLION_TAB] : indices
   }, [instruments, metalNames])
   const applyTrades = useMarketStore((s) => s.applyTrades)
+  /** a click on the rates strip: that tab (and metal) on the dashboard */
+  const openRate = useCallback(
+    (tab: string, rateMetal: string | null) => {
+      selectIndex(tab)
+      if (rateMetal) setMetal(rateMetal)
+      if (view !== 'dashboard') showView('dashboard')
+    },
+    [selectIndex, setMetal, view, showView],
+  )
 
   const feedLive = ws === 'open' && health?.feed_live === true
   const banner = useMemo(() => currentBanner(health, ws, onBullion), [health, ws, onBullion])
@@ -330,6 +340,7 @@ export default function App() {
           />
         }
       />
+      <LiveRatesStrip tabs={tabs} onOpen={openRate} />
       <StatusBanner banner={banner} />
       <main className="flex min-h-0 flex-1">
         {view === 'journal' ? (

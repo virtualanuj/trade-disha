@@ -21,7 +21,9 @@ import { useNow } from '../../lib/useNow'
 import { useMarketStore } from '../../state/store'
 import { Bank } from '../Bank/Bank'
 import { BiasMeter } from '../BiasMeter/BiasMeter'
+import { stripRates } from '../../lib/rates'
 import { BullionCards } from '../BullionView/BullionView'
+import { RatesStrip } from '../RatesStrip/RatesStrip'
 import { EvidenceTable } from '../EvidenceTable/EvidenceTable'
 import { FlowLine } from '../FlowLine/FlowLine'
 import { Headlines } from '../Headlines/Headlines'
@@ -65,6 +67,25 @@ export function LiveTopBar(
   )
   const count = useMarketStore((s) => openTradeCount(s.trades))
   return <TopBar {...props} now={now} lastTickTs={lastTickTs} openTradeCount={count} />
+}
+
+/** The rates strip (E22), reading its own prices so their frames re-render only it. */
+export function LiveRatesStrip({
+  tabs,
+  onOpen,
+}: {
+  tabs: readonly string[]
+  onOpen: (tab: string, metal: string | null) => void
+}) {
+  const nifty = useMarketStore((s) => s.prices.NIFTY)
+  const niftyStats = useMarketStore((s) => s.stats.NIFTY)
+  const quotes = useMarketStore((s) => s.quotes)
+  const bullion = useMarketStore((s) => s.bullion)
+  const rates = useMemo(
+    () => stripRates(nifty, niftyStats, quotes, bullion, tabs),
+    [nifty, niftyStats, quotes, bullion, tabs],
+  )
+  return <RatesStrip rates={rates} onOpen={onOpen} />
 }
 
 export function IndexTilesPanel({ frame, index }: { frame: FrameProps; index: string }) {
