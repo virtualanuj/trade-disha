@@ -3,7 +3,6 @@ import type {
   ConfigVersionDetail,
   ConfigVersionOut,
   HealthResponse,
-  JournalOut,
   MetricsResponse,
   PaperTradeDetailOut,
   PaperTradeOut,
@@ -247,10 +246,6 @@ export function fetchBankStatement(
   signal?: AbortSignal,
 ): Promise<BankStatementOut> {
   return getJson<BankStatementOut>(`/api/bank/statement${query(q)}`, signal)
-}
-
-export function fetchJournal(q: JournalQuery, signal?: AbortSignal): Promise<JournalOut> {
-  return getJson<JournalOut>(`/api/journal/stats${query(q)}`, signal)
 }
 
 export function fetchUsage(untilDate?: string, signal?: AbortSignal): Promise<UsageOut> {

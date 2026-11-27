@@ -959,6 +959,28 @@ Builder's calls:
 - Only the Trades page's first column changes; the dashboard's open-trades panel and the
   signal detail keep their colours.
 
+### 35. A better summary on the Trades page
+
+Asked for (2026-11-27): improve the summary on the Trades page, make it go with the
+trades table, and include more useful information.
+
+Status: built in Milestone E26 (it supersedes the summary cards of item 33). Design in
+[spec.md](spec.md) §13 (Trades page); planned in [plan.md](plan.md) Milestone E26.
+
+Builder's calls:
+- "Goes with the table": the summary heads the table's own box and is worked out on the
+  page from the rows the table shows, so every filter moves it, exit reason and fill
+  included (item 33 had it follow only market and dates). It stays when the table is
+  folded.
+- Added: profit factor, per trade (expectancy) and average R, best and worst trade, max
+  drawdown, the longest run of losses, costs, and open trades' live net, counted apart.
+  Kept: net and gross, hit rate, average win and loss, exits by reason, average time held,
+  and exits not on a live price.
+- A compact "by market" table replaces the cards, with the same groups as before (Index
+  options, Bullion, Opened by hand). A group is split into markets only when it has two or
+  more, and the table shows only when the rows span more than one group or market.
+- `/journal/stats` stays on the server, but the page no longer calls it.
+
 ## Deferred
 
 ### Strike ladder (ATM ±3)

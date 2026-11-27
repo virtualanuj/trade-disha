@@ -800,8 +800,9 @@ running figures (enhancement 33).
   `PaperBank.statement(start_ms, end_ms, kinds, index)`. It is worked out from `bank_ledger`
   and the funded `paper_trades`, with no migration.
 - `api/paper.py`: `GET /api/bank/statement` (`StatementRowOut`, `BankStatementOut`).
-- Frontend: `JournalStats` (the cards, moved out of `Journal`) under the `TradeLog`
-  table, following its market and dates. `Journal` rewritten as the statement with
+- Frontend: `TradeSummary` heads the `TradeLog` table, worked out from the rows shown
+  (`lib/tradeStats.ts`: `summarise`, `summaryScopes`), with headline figures and a by-market
+  table (enhancement 35; it replaced the first build's `JournalStats` cards). `Journal` rewritten as the statement with
   market, kind and date filters, refetched on a trade change or a new cash move. `Bank`
   loses its ledger table (`showLedger`). The `TradeLog` table folds away (`usePref`,
   `tradedisha.tradeTableOpen`), and each trade's first cell carries a neutral call / put /
@@ -810,13 +811,15 @@ running figures (enhancement 33).
 - Tests: `test_bank.py` (block then settlement, cash moves, the opening deposit first
   whatever the clocks, unfunded trades left out, filters keep the running figures, a
   hypothesis property that the statement ends at the summary, the endpoint).
-  `Journal.test.tsx`, `JournalStats.test.tsx`, and `TradeLog.test.tsx` (the cards follow
-  market and dates, not exit or fill; the side tags; folding the table).
+  `Journal.test.tsx`, `lib/tradeStats.test.ts` (table-driven: hit rate, profit factor,
+  expectancy, R, drawdown, losing run, open trades apart, the groups),
+  `TradeSummary.test.tsx`, and `TradeLog.test.tsx` (the summary follows every filter; the
+  side tags; folding the table).
 
 **Demo:** open and close a paper trade, then raise the opening balance in Config. The
 Journal lists Opening deposit, Blocked, Settled and Deposit with the balance and available
-after each. The Trades page shows the summary cards under the trades, and picking GOLD
-narrows both.
+after each. The Trades page's summary heads the table, and picking GOLD or an
+exit reason moves it with the rows.
 
 **Status (2026-11-27):** built, with unit tests; `make check` green.
 

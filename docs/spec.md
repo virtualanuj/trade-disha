@@ -1030,7 +1030,7 @@ GOLD and SILVER MCX near-month futures, run by `engine/bullion_desk.py:BullionDe
   with that contract's default lots (`bullion.<contract>_lots`), at that contract's price;
   the live levels are taken at that fill (§9.3) and slippage is the fill against the
   signal's entry. A configured mini that is not loaded refuses the trade (409). The trade
-  stays the metal's (`index` GOLD or SILVER): its margin %, its summary card, its US-release
+  stays the metal's (`index` GOLD or SILVER): its margin %, its summary row, its US-release
   pause. An active bullion signal carries `trade` (contract, symbol, lots, quantity) so
   the card can say what it opens.
 
@@ -1201,8 +1201,9 @@ total and per metal; these count only trades taken from signals, so they measure
 signals. Last, when there are any, `manual`: every trade opened by hand, index and bullion
 together. For each: trades, hits, hit rate, average win (net), average loss (net),
 net total, gross total, average duration, breakdown by exit reason, count of non-`live`
-fills. Computed on request from `paper_trades`; small enough not to cache. Shown as the
-summary cards under the trades on the Trades page.
+fills. Computed on request from `paper_trades`; small enough not to cache. The page does
+not call it: the Trades summary is worked out from the rows the table shows, with the same
+groups and the same win rule.
 
 ### 10.4 Tick pruning
 `POST /data/prune-ticks {until_date}` deletes rows from `ticks` and `bullion_ticks` with
@@ -1754,11 +1755,19 @@ NIFTY / BANK NIFTY tab               Chain minimised        MCX tab, NSE BULLION
   net and R so far instead of the exit. A trade opened by hand reads "Opened by hand: no
   signal is behind this trade" in place of the signal, outcome and evidence, and "Ticket →
   fill" for its slippage. A trade whose levels were changed lists each set of levels, when
-  and at what price. Under the trades are the summary cards (`JournalStats`, from
-  `/journal/stats`): hit rate, net P&L, avg win/loss, exits by reason and exits not on a
-  live price, overall (index options), per index, for bullion and per metal, and "Opened by
-  hand" for trades with no signal, with a note of trades still open. They follow the page's
-  market and dates; exit reason and fill narrow only the table.
+  and at what price. The summary (`TradeSummary`, `lib/tradeStats.ts`) heads the same
+  box and is worked out on the page from the rows the table shows, so every filter moves
+  it, exit reason and fill included. It stays when the table is folded. Headline figures
+  for closed trades: net (with gross and cost), hit rate (won and lost; a win is a
+  positive net), profit factor (money won ÷ money lost), per trade (expectancy) and the
+  average R (net over the money from fill to stop), average win and loss, best and worst
+  trade, max drawdown (the deepest fall of the running net from a peak, in exit order) and
+  the longest run of losses. Open trades are counted apart with their live net. A
+  footnote gives exits by reason, the average time held and exits not on a live price.
+  Under these, when the rows span more than one market, a "by market" table gives the
+  same figures per group: Index options, Bullion and Opened by hand, each split into its
+  markets when it has two or more. Signal trades and trades opened by hand are kept
+  apart, as in §10.3.
 - **Data panel** (drawer from the TopBar): DB size, tick days held, oldest/newest tick
   date; a date picker for "delete ticks up to and including"; a preview line ("N days,
   M rows, ~X MB") fetched from `/data/usage`; a confirm step that requires typing the date;

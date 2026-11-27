@@ -75,7 +75,7 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Previous close (bullion)** | Yesterday's settlement price. From the feed's `cp` field; before the first tick it is worked out from the full quote as last price − net change. |
 | **Roll** | Switching from the expiring contract to the next one. Bullion rolls on expiry day. |
 | **Silver (MCX `SILVER`)** | The 30 kg silver futures contract, quoted in ₹ per kg. |
-| **Trading contract** | What a metal's signal trade opens: the full future or its mini, set by `bullion.gold_contract` (`GOLD` or `GOLDM`) and `bullion.silver_contract` (`SILVER` or `SILVERM`). The signal itself always reads the full future; a mini trade counts as its metal's (margin rate, summary card, US-release pause). |
+| **Trading contract** | What a metal's signal trade opens: the full future or its mini, set by `bullion.gold_contract` (`GOLD` or `GOLDM`) and `bullion.silver_contract` (`SILVER` or `SILVERM`). The signal itself always reads the full future; a mini trade counts as its metal's (margin rate, summary row, US-release pause). |
 
 ---
 
@@ -182,13 +182,15 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Open trade** | A paper trade not yet closed. Tracked tick by tick for target/stop. |
 | **Paper bank** | The fake bank account that funds paper trades, one for every market. Balance = opening balance + net of every closed trade it funded; available = balance − blocked. A trade opens only if available covers its block. The opening balance (`bank.opening_balance`, default ₹25 lakh) is the cash put in: raising it is a deposit of the difference, lowering it a withdrawal, each a row in `bank_ledger`. Nothing is deleted. |
 | **Paper trade** | A simulated trade opened by the trader: by clicking "Paper trade" on an active signal, or by hand from the option chain or a bullion card (see **Opened by hand**). Never placed with the broker. |
-| **Opened by hand (manual trade)** | A paper trade with no signal behind it: any option in the chain window, or a metal's future or its mini bought or sold, from the TradeTicket. Its `signal_id` is `manual`. Same gates as a signal trade plus the signal cut-off; target and stop are the signal rule's at the fill unless typed. Counted in its own "Opened by hand" summary card on the Trades page, never in the signal stats. |
+| **Opened by hand (manual trade)** | A paper trade with no signal behind it: any option in the chain window, or a metal's future or its mini bought or sold, from the TradeTicket. Its `signal_id` is `manual`. Same gates as a signal trade plus the signal cut-off; target and stop are the signal rule's at the fill unless typed. Counted in its own "Opened by hand" row of the Trades summary, never in the signal stats. |
 | **Levels edited** | The target and stop of an open paper trade changed by the trader after it opened. Checked against the current price; every set of levels is kept in `paper_trade_levels`. |
 | **Quantity** | Lot size × lots (default 1 lot). For bullion, the traded contract's point value × its lots (GOLD 100, GOLDM 10, SILVER 30, SILVERM 5 per lot; default lots per contract in `bullion.<contract>_lots`). |
 | **Slippage** | Entry fill minus the signal's entry price: how far the price moved between the signal firing and the click. Recorded per trade. |
 | **Square-off time** | When open paper trades are force-closed. Default 15:15 IST for index options, 23:00 (on the MCX clock) for bullion. |
 | **Ticket (TradeTicket)** | The dialog that opens a paper trade by hand: the contract, the price now, quantity, cost, the money the bank would hold, and target and stop (the signal rule's, changeable); for a future also the lots. Nothing is opened until the trader confirms. |
-| **Trades page** | The page (`#trades`) listing every paper trade: open ones first at the live price with Close, closed ones by day; each opens to its levels, fills, signal, outcome and evidence. Under them, the summary cards: overall (index options), per index, bullion and per metal, and trades opened by hand. |
+| **Trades page** | The page (`#trades`) listing every paper trade: open ones first at the live price with Close, closed ones by day; each opens to its levels, fills, signal, outcome and evidence. A summary heads the table, worked out from the rows shown: net, hit rate, profit factor, per trade and average R, average win and loss, best and worst, max drawdown and losing run, open P&L, and the same by market. |
+| **Profit factor** | Money won over money lost on closed trades; above 1 makes money. |
+| **Max drawdown** | The deepest fall of the running net of closed trades, in exit order, from a peak (the start counts as 0). |
 | **Warning (bias reversed)** | A flag on an open paper trade whose direction opposes the current bias label (a CE or long-future trade while Bearish, a PE or short-future trade while Bullish). Set and cleared every minute as the label changes. Informational; does not close the trade. |
 | **Whole-rupee levels** | Every target and stop, as fired, live, at a fill or typed, is rounded to the nearest rupee (half up); a level rounded onto the entry moves a rupee further out, and an option's stop never goes below ₹0.05. |
 

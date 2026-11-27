@@ -6,7 +6,6 @@ import type { JournalQuery } from '../../api/client'
 import type {
   ExitReason,
   FillQuality,
-  JournalOut,
   LevelChangeOut,
   OutcomeOut,
   PaperTradeDetailOut,
@@ -36,9 +35,9 @@ import { usePref } from '../../lib/usePref'
 import { QUALITY_TEXT, REASON_TEXT } from '../../lib/tradeText'
 import { ConfigVersionChip } from '../ConfigVersionChip/ConfigVersionChip'
 import { EvidenceTable } from '../EvidenceTable/EvidenceTable'
-import { JournalStats } from '../JournalStats/JournalStats'
 import { LevelsEditor } from '../LevelsEditor/LevelsEditor'
 import { ManualBadge } from '../OpenTrades/OpenTrades'
+import { TradeSummary } from '../TradeSummary/TradeSummary'
 
 const TABLE_OPEN_KEY = 'tradedisha.tradeTableOpen'
 const asOpenByDefault = (v: unknown): boolean => v !== false
@@ -83,15 +82,13 @@ interface Props {
   closeBlock?: ((t: PaperTradeOut) => string | null) | undefined
   /** changes an open trade's target and stop; rejects with the server's reason (E23) */
   saveLevels?: (tradeId: string, target: number, stop: number) => Promise<unknown>
-  /** the summary cards' figures, for the page's market and dates (E26) */
-  loadStats?: (q: JournalQuery, signal: AbortSignal) => Promise<JournalOut>
 }
 
 /**
  * Executed paper trades (E19): the open ones at the current price, then closed trades by
  * day; each opens to its levels and fills, the signal it was taken on, what the instrument
- * did after it, and the evidence then. The summary cards sit below, for the same market and
- * dates (E26).
+ * did after it, and the evidence then. The summary heads the table, worked out from the
+ * rows it shows (E26).
  */
 export function TradeLog({
   markets,
@@ -103,7 +100,6 @@ export function TradeLog({
   onClose = closePaperTrade,
   closeBlock,
   saveLevels,
-  loadStats,
 }: Props) {
   const [market, setMarket] = useState('')
   const [from, setFrom] = useState('')
@@ -232,8 +228,8 @@ export function TradeLog({
   /** the table can be folded away, leaving the filters and the summary; remembered here */
   const [tableOpen, setTableOpen] = usePref(TABLE_OPEN_KEY, asOpenByDefault)
 
-  /** Exit and Fill narrow only the table; the cards follow the market and dates */
-  const statsQuery = useMemo(() => ({ index: market, from, to }), [market, from, to])
+  /** every row the table shows, after all the filters: what the summary is worked out from */
+  const shown = useMemo(() => [...openRows, ...days.flatMap((d) => d.trades)], [openRows, days])
 
   const field = 'rounded border border-border bg-bg px-2 py-1 text-fg'
   return (
@@ -330,25 +326,26 @@ export function TradeLog({
         </div>
       ))}
 
-      <div className="rounded border border-border bg-bg-elev p-3">
-        <button
-          type="button"
-          className="mb-2 flex items-center gap-1 font-sans text-fg-muted hover:text-fg"
-          aria-expanded={tableOpen}
-          aria-controls="trade-table"
-          onClick={() => {
-            setTableOpen(!tableOpen)
-          }}
-          data-testid="trade-table-toggle"
-        >
-          <span aria-hidden="true" className="w-3">
-            {tableOpen ? '▾' : '▸'}
-          </span>
-          {tableOpen ? 'Hide' : 'Show'} the trades
-          {trades
-            ? ` (${String(openRows.length + days.reduce((n, d) => n + d.trades.length, 0))})`
-            : ''}
-        </button>
+      <div className="flex flex-col gap-3 rounded border border-border bg-bg-elev p-3">
+        <TradeSummary trades={shown} />
+        <div className={shown.length ? 'border-t border-border/60 pt-3' : ''}>
+          <button
+            type="button"
+            className="flex items-center gap-1 font-sans text-fg-muted hover:text-fg"
+            aria-expanded={tableOpen}
+            aria-controls="trade-table"
+            onClick={() => {
+              setTableOpen(!tableOpen)
+            }}
+            data-testid="trade-table-toggle"
+          >
+            <span aria-hidden="true" className="w-3">
+              {tableOpen ? '▾' : '▸'}
+            </span>
+            {tableOpen ? 'Hide' : 'Show'} the trades
+            {trades ? ` (${String(shown.length)})` : ''}
+          </button>
+        </div>
         {!tableOpen ? null : days.length === 0 && openRows.length === 0 ? (
           <div className="text-fg-muted">{trades ? 'No paper trades match.' : 'Loading…'}</div>
         ) : (
@@ -384,7 +381,6 @@ export function TradeLog({
           </div>
         )}
       </div>
-      <JournalStats query={statsQuery} revision={revision} load={loadStats} />
     </section>
   )
 }

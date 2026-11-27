@@ -41,7 +41,8 @@ milestone, is in [docs/plan.md](docs/plan.md).
   net of costs. Trades opened by hand are kept out of the signal stats. The Journal is the
   bank's statement: every deposit, withdrawal, trade block and settlement with the balance
   and money free after it. The Trades page lists open trades live and closed ones by day,
-  each opening to its fills, signal, outcome and evidence, with the results under them.
+  each opening to its fills, signal, outcome and evidence, headed by a summary (net,
+  hit rate, profit factor, expectancy and R, best and worst, drawdown) that follows the filters.
 - **Screen:** tabs by exchange: NSE (NIFTY, BANK NIFTY, BULLION with the gold and silver
   ETFs) and MCX (GOLD, SILVER); panels that resize, minimise and re-order; a top bar with
   the market and feed status, the pages, the tools and Login or Logout (hover Trades, Data
