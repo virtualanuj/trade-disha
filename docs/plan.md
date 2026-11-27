@@ -853,6 +853,18 @@ backend and the day's 10 s bars are still there. 5m groups the minutes; MCX GOLD
 **Status (2026-11-27):** built, with unit tests; `make check` green. Seeding a recorded
 day (191,457 ticks over six keys) takes about 1.2 s at start.
 
+## Milestone E28 — Open trades stand out on the Trades page
+
+**Goal:** the open trades in the Trades table are easy to notice (enhancement 37).
+Frontend only.
+
+- `TradeLog.tsx`: an open trade's rows get an accent tint and a left accent bar
+  (`OPEN_ROW`, `OPEN_EDGE`; other first cells carry a transparent bar of the same width so
+  the columns line up) and a pulsing `LiveDot` before the name and on "Open now".
+- Test: `TradeLog.test.tsx` (open rows marked, closed rows not).
+
+**Status (2026-11-27):** built, with a unit test; `make check` green.
+
 ## Milestone S3 — Switch on, on evidence (planned)
 
 - After at least five live sessions recorded with S2, compare the two scorecard rows and

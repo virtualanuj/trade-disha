@@ -223,6 +223,22 @@ describe('TradeLog', () => {
     }
   })
 
+  it('marks open trades so they stand out from closed ones', async () => {
+    setup([win, opened])
+    const live = await screen.findByTestId('trade-o1')
+    const done = screen.getByTestId('trade-w1')
+    expect(live).toHaveAttribute('data-open', 'true')
+    expect(live.className).toMatch(/bg-accent/)
+    expect(live.querySelector('td')?.className).toMatch(/border-l-accent/)
+    expect(done).not.toHaveAttribute('data-open')
+    expect(done.className).not.toMatch(/bg-accent/)
+    expect(done.querySelector('td')?.className).toMatch(/border-l-transparent/)
+    expect(
+      within(live).getByTestId('trade-toggle-o1').querySelector('.animate-ping'),
+    ).not.toBeNull()
+    expect(within(done).getByTestId('trade-toggle-w1').querySelector('.animate-ping')).toBeNull()
+  })
+
   it('folds the table away and back, remembering the choice', async () => {
     setup()
     await screen.findByTestId('trade-w1')

@@ -1003,6 +1003,22 @@ Builder's calls:
   include backfilled minutes. Only closed bars are drawn, as before.
 - One choice for every tab, remembered in the browser; 1 m is the default.
 
+### 37. Open trades stand out on the Trades page
+
+Asked for (2026-11-27): on the Trades page, highlight the active trades in the trade table
+so they are easy to notice.
+
+Status: built in Milestone E28. Design in [spec.md](spec.md) §13 (Trades page); planned
+in [plan.md](plan.md) Milestone E28.
+
+Builder's calls:
+- An open trade's rows, including its levels editor and detail when opened, are tinted
+  in the accent colour with an accent bar down the left edge. It is not green or red, which
+  mean profit and loss there.
+- A pulsing dot before the trade's name and on the "Open now" row says it is live. Under
+  reduced motion the dot stays still.
+- Open trades still come first under "Open now", as before.
+
 ## Deferred
 
 ### Strike ladder (ATM ±3)

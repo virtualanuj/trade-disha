@@ -1758,7 +1758,11 @@ NIFTY / BANK NIFTY tab               Chain minimised        MCX tab, NSE BULLION
 - **Trades page** (`#trades`, `TradeLog`): paper trades, index options and bullion,
   filtered by market and dates on the server. Open trades come first under "Open now" with
   their unrealised total: the price now, net so far and time held, ticking from the
-  socket's `paper_trade` frames (a close shows before the page refetches). The table
+  socket's `paper_trade` frames (a close shows before the page refetches). Open trades
+  stand out: their rows (with any levels editor or detail opened under them) are tinted
+  in the accent colour with an accent bar down the left edge, and a pulsing dot sits
+  before the trade's name and on the "Open now" row (still under reduced motion, without
+  the pulse). The table
   folds away under "Hide the trades (N)" / "Show the trades (N)", remembered in the
   browser (`tradedisha.tradeTableOpen`, open by default); the filters and summary cards
   stay. A trade's first cell is its market and instrument with a neutral side tag

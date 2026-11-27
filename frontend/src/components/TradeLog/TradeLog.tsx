@@ -42,6 +42,22 @@ import { TradeSummary } from '../TradeSummary/TradeSummary'
 const TABLE_OPEN_KEY = 'tradedisha.tradeTableOpen'
 const asOpenByDefault = (v: unknown): boolean => v !== false
 
+/** an open trade's rows: tinted, with the accent down their left edge, so they stand out */
+const OPEN_ROW = 'bg-accent/5'
+const OPEN_EDGE = 'border-l-2 border-l-accent pl-1'
+/** the same edge, unseen, on every other first cell, so the columns stay in line */
+const NO_EDGE = 'border-l-2 border-l-transparent pl-1'
+
+/** a pulsing dot: this trade is live, its price and P&L still moving */
+function LiveDot() {
+  return (
+    <span className="relative mr-1 inline-flex h-2 w-2 shrink-0 align-middle" aria-hidden="true">
+      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60 motion-reduce:hidden" />
+      <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
+    </span>
+  )
+}
+
 /** trade, qty, in, out, entry, exit, reason, held, net, and the Close button */
 const COLUMNS = 10
 
@@ -353,7 +369,7 @@ export function TradeLog({
             <table className="w-full font-mono whitespace-nowrap">
               <thead className="text-fg-muted">
                 <tr className="h-6 font-sans">
-                  <th className="text-left font-normal">Trade</th>
+                  <th className={`text-left font-normal ${NO_EDGE}`}>Trade</th>
                   <th className="text-right font-normal">Qty</th>
                   <th className="text-right font-normal">In</th>
                   <th className="text-right font-normal">Out</th>
@@ -404,7 +420,7 @@ function DayRow({ day, trades }: { day: string; trades: PaperTradeOut[] }) {
   const n = trades.length
   return (
     <tr className="h-8 border-t border-border bg-bg-row/40 font-sans" data-testid={`day-${day}`}>
-      <td colSpan={COLUMNS - 2} className="font-semibold">
+      <td colSpan={COLUMNS - 2} className={`font-semibold ${NO_EDGE}`}>
         {day}
         <span className="ml-3 font-normal text-fg-muted">
           {n} trade{n === 1 ? '' : 's'} · {won} won · {n - won} lost
@@ -421,8 +437,9 @@ function OpenRow({ trades }: { trades: PaperTradeOut[] }) {
   const net = trades.reduce((sum, t) => sum + (t.live_net ?? 0), 0)
   const n = trades.length
   return (
-    <tr className="h-8 border-t border-border bg-accent/10 font-sans" data-testid="open-group">
-      <td colSpan={COLUMNS - 2} className="font-semibold text-accent">
+    <tr className="h-8 border-t border-border bg-accent/15 font-sans" data-testid="open-group">
+      <td colSpan={COLUMNS - 2} className={`font-semibold text-accent ${OPEN_EDGE}`}>
+        <LiveDot />
         Open now
         <span className="ml-3 font-normal text-fg-muted">
           {n} trade{n === 1 ? '' : 's'} · unrealised, at the current price
@@ -475,8 +492,12 @@ const TradeRows = memo(function TradeRows({
   const [editing, setEditing] = useState(false)
   return (
     <>
-      <tr className="h-7 border-t border-border/60" data-testid={`trade-${t.id}`}>
-        <td>
+      <tr
+        className={`h-7 border-t border-border/60 ${live ? OPEN_ROW : ''}`}
+        data-testid={`trade-${t.id}`}
+        data-open={live ? 'true' : undefined}
+      >
+        <td className={live ? OPEN_EDGE : NO_EDGE}>
           <button
             type="button"
             className="flex items-center gap-1 hover:underline"
@@ -491,6 +512,7 @@ const TradeRows = memo(function TradeRows({
             <span aria-hidden="true" className="w-3 text-fg-muted">
               {open ? '▾' : '▸'}
             </span>
+            {live ? <LiveDot /> : null}
             {t.index} {instrumentName(t)} <SideTag direction={t.direction} />
           </button>
         </td>
@@ -561,8 +583,8 @@ const TradeRows = memo(function TradeRows({
         </td>
       </tr>
       {live && editing ? (
-        <tr>
-          <td colSpan={COLUMNS} className="font-sans">
+        <tr className={OPEN_ROW}>
+          <td colSpan={COLUMNS} className={`font-sans ${OPEN_EDGE}`}>
             <LevelsEditor
               trade={t}
               onDone={() => {
@@ -575,8 +597,11 @@ const TradeRows = memo(function TradeRows({
         </tr>
       ) : null}
       {open ? (
-        <tr>
-          <td colSpan={COLUMNS} className="pb-3 font-sans whitespace-normal">
+        <tr className={live ? OPEN_ROW : ''}>
+          <td
+            colSpan={COLUMNS}
+            className={`pb-3 font-sans whitespace-normal ${live ? OPEN_EDGE : NO_EDGE}`}
+          >
             <DetailBody
               t={t}
               now={now}
