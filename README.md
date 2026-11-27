@@ -38,9 +38,10 @@ milestone, is in [docs/plan.md](docs/plan.md).
   in Config. Funded by a paper bank (an option blocks its premium, a future its margin,
   plus cost; ₹25 lakh to start, set in Config). Trades close at target, stop, the
   square-off or by hand, and the target and stop of an open trade can be changed; P&L is
-  net of costs. Trades opened by hand are kept out of the signal stats. The Journal shows
-  the bank, its ledger and the results; the Trades page lists open trades live and closed
-  ones by day, each opening to its fills, signal, outcome and evidence.
+  net of costs. Trades opened by hand are kept out of the signal stats. The Journal is the
+  bank's statement: every deposit, withdrawal, trade block and settlement with the balance
+  and money free after it. The Trades page lists open trades live and closed ones by day,
+  each opening to its fills, signal, outcome and evidence, with the results under them.
 - **Screen:** tabs by exchange: NSE (NIFTY, BANK NIFTY, BULLION with the gold and silver
   ETFs) and MCX (GOLD, SILVER); panels that resize, minimise and re-order; a top bar with
   the market and feed status, the pages, the tools and Login or Logout (hover Trades, Data

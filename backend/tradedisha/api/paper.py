@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from tradedisha.api.deps import State
 from tradedisha.api.signals import SignalOut, signal_out
 from tradedisha.app_state import AppState
+from tradedisha.engine.bank import StatementKind
 from tradedisha.engine.paper import (
     METALS,
     JournalStats,
@@ -110,6 +111,27 @@ class BankOut(BaseModel):
     available: float
     open_trades: int
     ledger: list[LedgerEntryOut]
+
+
+class StatementRowOut(BaseModel):
+    ts: int
+    kind: StatementKind
+    held: float  # change in what is blocked
+    cash: float  # change in the balance
+    balance: float
+    blocked: float
+    available: float
+    trade_id: str | None
+    index: str | None
+    direction: str | None
+    strike: float | None
+    trading_symbol: str | None
+
+
+class BankStatementOut(BaseModel):
+    """Every cash move in the paper bank, oldest first, with the figures after it (§10.5)."""
+
+    rows: list[StatementRowOut]
 
 
 def bank_out(state: AppState) -> BankOut:
@@ -357,6 +379,21 @@ def _level_out(c: LevelChange) -> LevelChangeOut:
 @router.get("/bank", response_model=BankOut)
 async def bank(state: State) -> BankOut:
     return bank_out(state)
+
+
+@router.get("/bank/statement", response_model=BankStatementOut)
+async def bank_statement(
+    state: State,
+    index: str | None = None,
+    kind: Annotated[list[StatementKind] | None, Query()] = None,
+    start: Annotated[date | None, Query(alias="from")] = None,
+    end: Annotated[date | None, Query(alias="to")] = None,
+) -> BankStatementOut:
+    lo, hi = _range(start, end)
+    rows = state.session.bank.statement(
+        start_ms=lo, end_ms=hi, kinds=kind, index=index.upper() if index else None
+    )
+    return BankStatementOut(rows=[StatementRowOut.model_validate(asdict(r)) for r in rows])
 
 
 @router.get("/journal/stats", response_model=JournalOut)

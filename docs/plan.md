@@ -790,6 +790,36 @@ NSE BULLION opens.
 **Status (2026-11-27):** built, with unit tests; `make check` green. Accepted by the owner
 without an end-to-end check in the running app.
 
+## Milestone E26 — The Journal as the bank statement; the summary on Trades
+
+**Goal:** the summary cards move from the Journal to the Trades page, under the executed
+trades. The Journal becomes the paper bank's full statement: every cash move with the
+running figures (enhancement 33).
+
+- `engine/bank.py`: `StatementRow`, pure `build_statement(ledger, trades)` and
+  `PaperBank.statement(start_ms, end_ms, kinds, index)`. It is worked out from `bank_ledger`
+  and the funded `paper_trades`, with no migration.
+- `api/paper.py`: `GET /api/bank/statement` (`StatementRowOut`, `BankStatementOut`).
+- Frontend: `JournalStats` (the cards, moved out of `Journal`) under the `TradeLog`
+  table, following its market and dates. `Journal` rewritten as the statement with
+  market, kind and date filters, refetched on a trade change or a new cash move. `Bank`
+  loses its ledger table (`showLedger`). The `TradeLog` table folds away (`usePref`,
+  `tradedisha.tradeTableOpen`), and each trade's first cell carries a neutral call / put /
+  long / short tag (`lib/direction.ts:sideTag`, `instrumentName`) instead of green or red
+  (enhancement 34).
+- Tests: `test_bank.py` (block then settlement, cash moves, the opening deposit first
+  whatever the clocks, unfunded trades left out, filters keep the running figures, a
+  hypothesis property that the statement ends at the summary, the endpoint).
+  `Journal.test.tsx`, `JournalStats.test.tsx`, and `TradeLog.test.tsx` (the cards follow
+  market and dates, not exit or fill; the side tags; folding the table).
+
+**Demo:** open and close a paper trade, then raise the opening balance in Config. The
+Journal lists Opening deposit, Blocked, Settled and Deposit with the balance and available
+after each. The Trades page shows the summary cards under the trades, and picking GOLD
+narrows both.
+
+**Status (2026-11-27):** built, with unit tests; `make check` green.
+
 ## Milestone S3 — Switch on, on evidence (planned)
 
 - After at least five live sessions recorded with S2, compare the two scorecard rows and

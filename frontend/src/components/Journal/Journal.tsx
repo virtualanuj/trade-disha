@@ -1,41 +1,57 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { fetchJournal } from '../../api/client'
-import type { JournalQuery } from '../../api/client'
-import type { ExitReason, JournalOut, JournalStatsOut } from '../../api/types'
-import { fmtDuration, fmtMoney, pnlColour } from '../../lib/format'
-import { REASON_TEXT } from '../../lib/tradeText'
+import { fetchBankStatement } from '../../api/client'
+import type { StatementQuery } from '../../api/client'
+import type { BankStatementOut, StatementKind, StatementRowOut } from '../../api/types'
+import { instrumentLabel } from '../../lib/direction'
+import { fmtDate, fmtIstTime, fmtMoney, fmtRupees, pnlColour } from '../../lib/format'
 
-/** "overall" is index options only; bullion has its own total (spec §10). */
-const SCOPE_LABEL: Partial<Record<string, string>> = {
-  overall: 'Index options',
-  bullion: 'Bullion',
-  manual: 'Opened by hand',
+const KIND_TEXT: Record<StatementKind, string> = {
+  OPEN: 'Opening deposit',
+  DEPOSIT: 'Deposit',
+  WITHDRAW: 'Withdrawal',
+  BLOCK: 'Blocked',
+  SETTLE: 'Settled',
+}
+
+const KIND_HELP: Record<StatementKind, string> = {
+  OPEN: 'The cash first put in: the opening balance when the bank was opened.',
+  DEPOSIT: 'The opening balance was raised in Config: the difference is cash in.',
+  WITHDRAW: 'The opening balance was lowered in Config: the difference is cash out.',
+  BLOCK: 'A trade opened: its premium (options) or margin (futures) plus cost is held.',
+  SETTLE: 'A trade closed: its block is released and its net P&L settles into the balance.',
 }
 
 interface Props {
-  indices: string[]
-  /** bumps when a trade changes, so the page refetches */
+  /** the indices and metals to filter by */
+  markets: string[]
+  /** bumps when a trade changes, so the statement refetches */
   revision: number
+  /** the number of cash moves the socket's bank shows: a deposit or withdrawal refetches */
+  cashMoves: number
   /** the paper bank strip, shown above the filters */
   bank?: ReactNode
-  load?: (q: JournalQuery, signal: AbortSignal) => Promise<JournalOut>
+  load?: (q: StatementQuery, signal: AbortSignal) => Promise<BankStatementOut>
 }
 
-/** The paper bank and the summary figures; each trade is on the Trades page (E19). */
-export function Journal({ indices, revision, bank, load = fetchJournal }: Props) {
+/**
+ * The paper bank's statement (E26): every cash move, oldest first, with the balance, the
+ * money blocked and the money available after it. The summary cards are on the Trades page.
+ */
+export function Journal({ markets, revision, cashMoves, bank, load = fetchBankStatement }: Props) {
   const [index, setIndex] = useState('')
+  const [kind, setKind] = useState<StatementKind | ''>('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
-  const [journal, setJournal] = useState<JournalOut | null>(null)
+  const [statement, setStatement] = useState<BankStatementOut | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const ctl = new AbortController()
-    load({ index, from, to }, ctl.signal)
-      .then((j) => {
-        setJournal(j)
+    load({ index, kind, from, to }, ctl.signal)
+      .then((s) => {
+        setStatement(s)
         setError(null)
       })
       .catch((e: unknown) => {
@@ -44,9 +60,10 @@ export function Journal({ indices, revision, bank, load = fetchJournal }: Props)
     return () => {
       ctl.abort()
     }
-  }, [index, from, to, revision, load])
+  }, [index, kind, from, to, revision, cashMoves, load])
 
   const field = 'rounded border border-border bg-bg px-2 py-1 text-fg'
+  const rows = statement?.rows ?? []
   return (
     <section
       className="flex min-w-0 flex-1 flex-col gap-3 overflow-auto p-4 text-xs"
@@ -54,9 +71,9 @@ export function Journal({ indices, revision, bank, load = fetchJournal }: Props)
     >
       {bank ? <div className="rounded border border-border bg-bg-elev p-3">{bank}</div> : null}
       <div className="flex flex-wrap items-end gap-3">
-        <h1 className="mr-4 text-base font-semibold">Paper-trade journal</h1>
+        <h1 className="mr-4 text-base font-semibold">Paper bank statement</h1>
         <label className="flex flex-col gap-1 text-fg-muted">
-          Index
+          Market
           <select
             className={field}
             value={index}
@@ -65,9 +82,26 @@ export function Journal({ indices, revision, bank, load = fetchJournal }: Props)
             }}
           >
             <option value="">All</option>
-            {indices.map((i) => (
-              <option key={i} value={i}>
-                {i}
+            {markets.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-fg-muted">
+          Kind
+          <select
+            className={field}
+            value={kind}
+            onChange={(e) => {
+              setKind(e.target.value as StatementKind | '')
+            }}
+          >
+            <option value="">Any</option>
+            {(Object.keys(KIND_TEXT) as StatementKind[]).map((k) => (
+              <option key={k} value={k}>
+                {KIND_TEXT[k]}
               </option>
             ))}
           </select>
@@ -95,7 +129,7 @@ export function Journal({ indices, revision, bank, load = fetchJournal }: Props)
           />
         </label>
         <span className="pb-1 text-fg-muted">
-          Each trade, with its signal and evidence, is on the{' '}
+          Each trade, and the summary figures, are on the{' '}
           <a href="#trades" className="text-accent hover:underline">
             Trades page
           </a>
@@ -105,85 +139,87 @@ export function Journal({ indices, revision, bank, load = fetchJournal }: Props)
 
       {error ? (
         <div className="text-bear" role="alert">
-          Could not load the journal: {error}
+          Could not load the statement: {error}
         </div>
       ) : null}
 
-      {journal ? null : <div className="text-fg-muted">Loading…</div>}
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {(journal?.stats ?? []).map((s) => (
-          <StatsCard key={s.scope} stats={s} />
-        ))}
+      <div className="rounded border border-border bg-bg-elev p-3">
+        {rows.length === 0 ? (
+          <div className="text-fg-muted">
+            {statement ? 'No cash moves match.' : error ? '' : 'Loading…'}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full font-mono whitespace-nowrap" data-testid="bank-statement">
+              <thead className="text-fg-muted">
+                <tr className="h-6 font-sans">
+                  <th className="text-left font-normal">Date</th>
+                  <th className="pl-3 text-left font-normal">Kind</th>
+                  <th className="pl-3 text-left font-normal">Trade</th>
+                  <th
+                    className="text-right font-normal"
+                    title="Change in the money blocked by open trades"
+                  >
+                    Held
+                  </th>
+                  <th className="text-right font-normal" title="Change in the balance">
+                    Cash
+                  </th>
+                  <th className="text-right font-normal">Balance</th>
+                  <th className="text-right font-normal">Blocked</th>
+                  <th className="text-right font-normal">Available</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <Row key={`${r.kind}-${r.trade_id ?? ''}-${String(r.ts)}-${String(i)}`} r={r} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
-      {journal && journal.open_trades > 0 ? (
-        <div className="text-fg-muted">
-          {journal.open_trades} trade{journal.open_trades === 1 ? ' is' : 's are'} still open and
-          not counted above.
-        </div>
-      ) : null}
     </section>
   )
 }
 
-function StatsCard({ stats: s }: { stats: JournalStatsOut }) {
-  const reasons = (Object.keys(REASON_TEXT) as ExitReason[])
-    .filter((r) => s.by_reason[r])
-    .map((r) => `${REASON_TEXT[r]} ${String(s.by_reason[r])}`)
-    .join(' · ')
-  return (
-    <div className="rounded border border-border bg-bg-elev p-3" data-testid={`stats-${s.scope}`}>
-      <div className="flex items-baseline justify-between">
-        <span className="text-[10px] uppercase tracking-wide text-fg-muted">
-          {SCOPE_LABEL[s.scope] ?? s.scope}
-        </span>
-        <span className="text-fg-muted">
-          {s.trades} closed trade{s.trades === 1 ? '' : 's'}
-        </span>
-      </div>
-      <div className="mt-2 grid grid-cols-4 gap-3">
-        <Figure
-          label="Net result"
-          value={fmtMoney(s.net_total)}
-          cls={pnlColour(s.net_total)}
-          sub={`gross ${fmtMoney(s.gross_total)}`}
-        />
-        <Figure
-          label="Hit rate"
-          value={s.hit_rate == null ? '—' : `${(s.hit_rate * 100).toFixed(0)}%`}
-          sub={`${String(s.hits)} of ${String(s.trades)} net-positive`}
-        />
-        <Figure label="Avg win" value={fmtMoney(s.avg_win)} cls="text-bull" />
-        <Figure label="Avg loss" value={fmtMoney(s.avg_loss)} cls="text-bear" />
-      </div>
-      <div className="mt-2 text-fg-muted">
-        {reasons || 'No exits yet'}
-        {s.avg_duration_s != null ? ` · avg held ${fmtDuration(s.avg_duration_s * 1000)}` : ''}
-        {s.non_live_fills > 0 ? (
-          <span className="ml-1 text-warn">
-            · {s.non_live_fills} exit{s.non_live_fills === 1 ? '' : 's'} not on a live price
-          </span>
-        ) : null}
-      </div>
-    </div>
-  )
+function tradeText(r: StatementRowOut): string {
+  if (r.direction === null || r.index === null) return ''
+  const label = instrumentLabel({
+    direction: r.direction,
+    strike: r.strike ?? 0,
+    index: r.index,
+    ...(r.trading_symbol === null ? {} : { trading_symbol: r.trading_symbol }),
+  })
+  return `${r.index} ${label}`
 }
 
-function Figure({
-  label,
-  value,
-  sub,
-  cls = '',
-}: {
-  label: string
-  value: string
-  sub?: string
-  cls?: string
-}) {
+function Row({ r }: { r: StatementRowOut }) {
+  const trade = tradeText(r)
   return (
-    <div>
-      <div className="text-[10px] uppercase tracking-wide text-fg-muted">{label}</div>
-      <div className={`font-mono text-sm ${cls}`}>{value}</div>
-      {sub ? <div className="text-[10px] text-fg-muted">{sub}</div> : null}
-    </div>
+    <tr className="h-6 border-t border-border" data-testid="statement-row">
+      <td className="text-fg-muted">
+        {fmtDate(r.ts)} {fmtIstTime(r.ts)}
+      </td>
+      <td className="pl-3 font-sans" title={KIND_HELP[r.kind]}>
+        {KIND_TEXT[r.kind]}
+      </td>
+      <td className="pl-3 font-sans">
+        {trade ? (
+          <a href="#trades" className="hover:underline" title="Open the Trades page">
+            {trade}
+          </a>
+        ) : null}
+      </td>
+      <td className="text-right text-fg-muted">{r.held === 0 ? '' : fmtMoney(r.held)}</td>
+      <td className={`text-right ${pnlColour(r.cash)}`}>
+        {r.kind === 'BLOCK' ? '' : r.kind === 'OPEN' ? fmtRupees(r.cash) : fmtMoney(r.cash)}
+      </td>
+      <td className="text-right">{fmtRupees(r.balance)}</td>
+      <td className="text-right text-fg-muted">{fmtRupees(r.blocked)}</td>
+      <td className={`text-right ${r.available <= 0 ? 'text-bear' : ''}`}>
+        {fmtRupees(r.available)}
+      </td>
+    </tr>
   )
 }

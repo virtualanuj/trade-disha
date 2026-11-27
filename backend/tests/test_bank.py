@@ -377,3 +377,148 @@ def test_hello_carries_the_bank_and_a_trade_pushes_it(client: TestClient) -> Non
             raise AssertionError("no bank frame")
     assert frame["payload"]["blocked"] == 1_353_300.0
     assert frame["payload"]["open_trades"] == 1
+
+
+# -- the statement (E26) -----------------------------------------------------------------------
+
+
+def _rows(bank: PaperBank) -> list[tuple[str, float, float, float, float, float]]:
+    return [(r.kind, r.held, r.cash, r.balance, r.blocked, r.available) for r in bank.statement()]
+
+
+@pytest.mark.parametrize(
+    ("exit_price", "net_per_unit"),
+    [
+        (125.0, 24.0),  # a win settles its profit
+        (90.0, -11.0),  # a loss is deducted
+    ],
+)
+def test_a_trade_is_a_block_then_a_settlement(exit_price: float, net_per_unit: float) -> None:
+    h = BankHarness()
+    trade = h.open(fill=101.0)
+    h.now = at(10, 5)
+    closed = h.close(trade, exit_price)
+    net = net_per_unit * h.r.lot_size - 60.0
+    b = trade.blocked
+    assert _rows(h.bank) == [
+        ("OPEN", 0.0, 100_000.0, 100_000.0, 0.0, 100_000.0),
+        ("BLOCK", b, 0.0, 100_000.0, b, 100_000.0 - b),
+        (
+            "SETTLE",
+            -b,
+            pytest.approx(net),
+            pytest.approx(100_000.0 + net),
+            0.0,
+            pytest.approx(100_000.0 + net),
+        ),
+    ]
+    block, settle = h.bank.statement()[1:]
+    assert (block.trade_id, settle.trade_id) == (trade.id, trade.id)
+    assert (block.ts, settle.ts) == (trade.entry_ts, closed.exit_ts)
+    assert (settle.index, settle.direction, settle.strike) == ("NIFTY", "BUY_CE", trade.strike)
+    assert settle.trading_symbol == trade.trading_symbol
+
+
+def test_an_open_trade_has_only_its_block_and_cash_moves_are_rows() -> None:
+    h = BankHarness()
+    trade = h.open(fill=101.0)
+    h.set_opening(150_000.0)
+    h.bank.ledger()  # the save is recorded when the bank is read
+    h.set_opening(5_000.0)
+    rows = h.bank.statement()
+    assert [r.kind for r in rows] == ["OPEN", "BLOCK", "DEPOSIT", "WITHDRAW"]
+    assert [r.cash for r in rows] == [100_000.0, 0.0, 50_000.0, -145_000.0]
+    last = rows[-1]
+    assert (last.balance, last.blocked) == (5_000.0, trade.blocked)
+    assert last.available == pytest.approx(5_000.0 - trade.blocked)  # below zero
+    assert (last.trade_id, last.index) == (None, None)
+
+
+def test_the_opening_deposit_comes_first_whatever_the_clocks() -> None:
+    """Ledger rows carry the wall clock and trades the market clock (a replay's day)."""
+    h = BankHarness()
+    h.open(fill=101.0)  # market time at(10, 0): in the past next to the ledger's wall clock
+    assert [r.kind for r in h.bank.statement()] == ["OPEN", "BLOCK"]
+
+
+def test_a_trade_the_bank_did_not_fund_is_not_on_the_statement() -> None:
+    h = Harness()
+    old = h.open(fill=101.0)
+    h.now = at(10, 5)
+    h.tick(old.instrument_key, 120.0)
+    h.paper.close_manual(old.id)
+    assert [r.kind for r in PaperBank(h.conn, lambda: h.params).statement()] == ["OPEN"]
+
+
+def test_filters_keep_the_running_figures_of_the_whole_history() -> None:
+    h = BankHarness()
+    first = h.open(fill=101.0)
+    h.now = at(10, 5)
+    h.close(first, 125.0)
+    h.now = at(10, 10)
+    second = h.open(fill=101.0)
+    full = h.bank.statement()
+
+    settles = h.bank.statement(kinds={"SETTLE"})
+    assert [r.trade_id for r in settles] == [first.id]
+    assert settles[0] == full[2]
+
+    later = h.bank.statement(start_ms=at(10, 6), index="NIFTY")  # the ledger is wall clock
+    assert [(r.kind, r.trade_id) for r in later] == [("BLOCK", second.id)]
+    assert later[0] == full[-1]
+
+    before = h.bank.statement(end_ms=at(10, 6) - 1)
+    assert [r.kind for r in before][-1] == "SETTLE"
+
+    assert h.bank.statement(index="BANKNIFTY") == []
+    assert [r.kind for r in h.bank.statement(index="NIFTY")] == ["BLOCK", "SETTLE", "BLOCK"]
+
+
+@settings(max_examples=30, deadline=None)
+@given(
+    st.lists(
+        st.tuples(st.booleans(), st.floats(min_value=50.0, max_value=200.0)),
+        min_size=1,
+        max_size=12,
+    )
+)
+def test_the_statement_ends_where_the_summary_is(steps: list[tuple[bool, float]]) -> None:
+    h = BankHarness(opening=50_000.0)
+    minute = 0
+    for opening, price in steps:
+        minute += 2
+        h.now = at(10, minute)
+        if opening or not h.paper.open_trades:
+            try:
+                signal = h.fire(entry=price)
+                h.tick(signal.instrument_key, price)
+                h.paper.open(signal.id)
+            except PaperError:
+                pass
+        else:
+            h.close(next(iter(h.paper.open_trades.values())), price)
+        last = h.bank.statement()[-1]
+        s = h.bank.summary()
+        assert last.balance == pytest.approx(s.balance)
+        assert last.blocked == pytest.approx(s.blocked)
+        assert last.available == pytest.approx(s.available)
+
+
+def test_statement_endpoint_lists_and_filters(client: TestClient) -> None:
+    signal_id = _gold_signal(client)
+    r = client.post("/api/paper-trades", json={"signal_id": signal_id})
+    assert r.status_code == 201, r.text
+    trade = r.json()
+    body = client.get("/api/bank/statement").json()
+    assert [row["kind"] for row in body["rows"]] == ["OPEN", "BLOCK"]
+    block = body["rows"][1]
+    assert (block["trade_id"], block["index"], block["held"]) == (
+        trade["id"],
+        "GOLD",
+        1_353_300.0,
+    )
+    assert block["available"] == 2_500_000.0 - 1_353_300.0
+    only = client.get("/api/bank/statement", params={"kind": "OPEN"}).json()["rows"]
+    assert [row["kind"] for row in only] == ["OPEN"]
+    assert client.get("/api/bank/statement", params={"index": "silver"}).json()["rows"] == []
+    assert client.get("/api/bank/statement", params={"kind": "NOPE"}).status_code == 422

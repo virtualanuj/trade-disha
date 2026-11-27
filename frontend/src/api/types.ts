@@ -503,6 +503,33 @@ export interface BankOut {
   ledger: BankLedgerEntryOut[]
 }
 
+export type StatementKind = 'OPEN' | 'DEPOSIT' | 'WITHDRAW' | 'BLOCK' | 'SETTLE'
+
+/** one cash move in the paper bank and its figures after it (spec §10.5) */
+export interface StatementRowOut {
+  /** epoch ms: wall clock for a cash move, market time for a trade */
+  ts: number
+  kind: StatementKind
+  /** change in what is blocked: + when a trade opens, − when it settles */
+  held: number
+  /** change in the balance: deposit +, withdrawal −, a settled trade's net ± */
+  cash: number
+  balance: number
+  blocked: number
+  available: number
+  /** the trade, for BLOCK and SETTLE rows */
+  trade_id: string | null
+  index: string | null
+  direction: SignalDirection | null
+  strike: number | null
+  trading_symbol: string | null
+}
+
+export interface BankStatementOut {
+  /** oldest first; the running figures are over the whole history, whatever the filter */
+  rows: StatementRowOut[]
+}
+
 export interface PaperTradeOut {
   id: string
   /** "manual" for a trade opened by hand; read `manual`, not this */

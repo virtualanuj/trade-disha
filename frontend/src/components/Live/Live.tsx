@@ -330,10 +330,10 @@ export function NewsPanel({
 }
 
 /** The paper bank with the open trades' live P&L, for the Journal page. */
-export function LiveBank({ showLedger = false }: { showLedger?: boolean }) {
+export function LiveBank() {
   const bank = useMarketStore((s) => s.bank)
   const open = useOpenTrades()
-  return <Bank bank={bank} openTrades={open} showLedger={showLedger} />
+  return <Bank bank={bank} openTrades={open} />
 }
 
 /** The Trades page, with the socket's trades and the clock for open trades' time held. */

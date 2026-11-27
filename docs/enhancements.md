@@ -915,6 +915,50 @@ Builder's calls:
 - The panel layout is shared by every tab, as before; the remembered metal choice
   (`tradedisha.bullionChart`) is no longer used.
 
+### 33. The Journal as the bank statement; the summary on Trades
+
+Asked for (2026-11-27): move the paper-trade journal cards to the Trades page, below the
+executed trades. Fill the Journal page with a detailed view of the bank transactions.
+
+Status: built in Milestone E26. Design in [spec.md](spec.md) §10.5 (Statement) and §13
+(Journal page, Trades page); planned in [plan.md](plan.md) Milestone E26.
+
+Decided with the owner on 2026-11-27:
+- The Journal is a full statement: every cash move, oldest first. That is the opening
+  deposit, deposits and withdrawals, and for each funded trade a "Blocked" row when it
+  opened and a "Settled" row when it closed (block released, net P&L settled), each with
+  the running balance, blocked and available. Filters: date range, kind, market.
+- The summary cards follow the Trades page's Market, From and To filters; Exit and Fill
+  narrow only the table.
+
+Builder's calls:
+- Nothing new is stored: the statement is worked out from `bank_ledger` and the funded
+  `paper_trades`, as the bank's figures already are.
+- The running figures are over the whole history, so a filtered row shows the bank as it
+  stood. Cash moves belong to no market, so a market filter shows trade rows only.
+- The opening deposit is always the first row: ledger rows carry the wall clock and
+  trades the market clock (another day in a replay).
+- The bank strip stays at the top of the Journal; the ledger table under it goes, since the
+  statement holds its rows. A trade on the statement links to the Trades page.
+
+### 34. Trades: a table that folds away, and side tags in place of colour
+
+Asked for (2026-11-27): on the Trades page, make the paper-trade table collapsible
+(show/hide). Do not colour the trade name (first column) green or red; tag it short, long,
+call or put instead.
+
+Status: built in Milestone E26. Design in [spec.md](spec.md) §13 (Trades page); planned
+in [plan.md](plan.md) Milestone E26.
+
+Builder's calls:
+- The toggle sits at the top of the table's box and shows the count ("Hide the trades
+  (3)"). Folding hides only the table; the filters and summary cards stay. The choice is
+  remembered in this browser, and the table starts open.
+- One neutral tag style for all four words, so the word carries the side. An option reads
+  "NIFTY 25000 CE call"; a future "GOLD FUT short" (a mini, "GOLD GOLDM FUT long").
+- Only the Trades page's first column changes; the dashboard's open-trades panel and the
+  signal detail keep their colours.
+
 ## Deferred
 
 ### Strike ladder (ATM ±3)

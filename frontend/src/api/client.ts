@@ -1,4 +1,5 @@
 import type {
+  BankStatementOut,
   ConfigVersionDetail,
   ConfigVersionOut,
   HealthResponse,
@@ -10,6 +11,7 @@ import type {
   ParametersOut,
   ParamValues,
   PruneOut,
+  StatementKind,
   TicketOut,
   TicketTarget,
   UsageOut,
@@ -213,7 +215,7 @@ export interface JournalQuery {
   status?: 'open' | 'closed'
 }
 
-function query(q: JournalQuery): string {
+function query(q: JournalQuery | StatementQuery): string {
   const params = new URLSearchParams()
   for (const [k, v] of Object.entries(q)) {
     if (typeof v === 'string' && v) params.set(k, v)
@@ -231,6 +233,20 @@ export function fetchPaperTradeDetail(
   signal?: AbortSignal,
 ): Promise<PaperTradeDetailOut> {
   return getJson<PaperTradeDetailOut>(`/api/paper-trades/${encodeURIComponent(tradeId)}`, signal)
+}
+
+export interface StatementQuery {
+  index?: string
+  from?: string
+  to?: string
+  kind?: StatementKind | ''
+}
+
+export function fetchBankStatement(
+  q: StatementQuery,
+  signal?: AbortSignal,
+): Promise<BankStatementOut> {
+  return getJson<BankStatementOut>(`/api/bank/statement${query(q)}`, signal)
 }
 
 export function fetchJournal(q: JournalQuery, signal?: AbortSignal): Promise<JournalOut> {

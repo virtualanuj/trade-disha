@@ -58,39 +58,4 @@ describe('Bank', () => {
     render(<Bank bank={null} />)
     expect(screen.getByTestId('bank')).toHaveTextContent('Paper bank: waiting for the server')
   })
-
-  it('lists the cash moves when asked, and only then', () => {
-    const { rerender } = render(<Bank bank={bank} />)
-    expect(screen.queryByTestId('bank-ledger')).toBeNull()
-    rerender(<Bank bank={bank} showLedger />)
-    const rows = screen.getAllByTestId('bank-ledger-entry')
-    expect(rows).toHaveLength(2)
-    expect(rows[0]).toHaveTextContent('20/11/2026 09:30')
-    expect(rows[0]).toHaveTextContent('Opening deposit')
-    expect(rows[0]).toHaveTextContent('₹20,00,000')
-    expect(rows[1]).toHaveTextContent('10:30')
-    expect(rows[1]).toHaveTextContent('Deposit')
-    expect(rows[1]).toHaveTextContent('+₹5,00,000')
-  })
-
-  it('shows a withdrawal as money out', () => {
-    const out = {
-      ...bank,
-      ledger: [
-        ...bank.ledger,
-        {
-          id: 3,
-          ts: opened + 7_200_000,
-          kind: 'WITHDRAW' as const,
-          amount: 300_000,
-          opening_balance: 2_200_000,
-          config_version: 5,
-        },
-      ],
-    }
-    render(<Bank bank={out} showLedger />)
-    const rows = screen.getAllByTestId('bank-ledger-entry')
-    expect(rows[2]).toHaveTextContent('Withdrawal')
-    expect(rows[2]).toHaveTextContent('−₹3,00,000')
-  })
 })

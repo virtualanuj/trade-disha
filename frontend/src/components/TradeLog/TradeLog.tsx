@@ -6,13 +6,20 @@ import type { JournalQuery } from '../../api/client'
 import type {
   ExitReason,
   FillQuality,
+  JournalOut,
   LevelChangeOut,
   OutcomeOut,
   PaperTradeDetailOut,
   PaperTradeOut,
   SignalOut,
 } from '../../api/types'
-import { directionLabel, instrumentLabel, isLong } from '../../lib/direction'
+import {
+  directionLabel,
+  instrumentLabel,
+  instrumentName,
+  isLong,
+  sideTag,
+} from '../../lib/direction'
 import {
   fmtDate,
   fmtDuration,
@@ -25,11 +32,16 @@ import {
 } from '../../lib/format'
 import { biasFromSignal } from '../../lib/signalBias'
 import { useInFlight } from '../../lib/useInFlight'
+import { usePref } from '../../lib/usePref'
 import { QUALITY_TEXT, REASON_TEXT } from '../../lib/tradeText'
 import { ConfigVersionChip } from '../ConfigVersionChip/ConfigVersionChip'
 import { EvidenceTable } from '../EvidenceTable/EvidenceTable'
+import { JournalStats } from '../JournalStats/JournalStats'
 import { LevelsEditor } from '../LevelsEditor/LevelsEditor'
 import { ManualBadge } from '../OpenTrades/OpenTrades'
+
+const TABLE_OPEN_KEY = 'tradedisha.tradeTableOpen'
+const asOpenByDefault = (v: unknown): boolean => v !== false
 
 /** trade, qty, in, out, entry, exit, reason, held, net, and the Close button */
 const COLUMNS = 10
@@ -71,12 +83,15 @@ interface Props {
   closeBlock?: ((t: PaperTradeOut) => string | null) | undefined
   /** changes an open trade's target and stop; rejects with the server's reason (E23) */
   saveLevels?: (tradeId: string, target: number, stop: number) => Promise<unknown>
+  /** the summary cards' figures, for the page's market and dates (E26) */
+  loadStats?: (q: JournalQuery, signal: AbortSignal) => Promise<JournalOut>
 }
 
 /**
  * Executed paper trades (E19): the open ones at the current price, then closed trades by
  * day; each opens to its levels and fills, the signal it was taken on, what the instrument
- * did after it, and the evidence then.
+ * did after it, and the evidence then. The summary cards sit below, for the same market and
+ * dates (E26).
  */
 export function TradeLog({
   markets,
@@ -88,6 +103,7 @@ export function TradeLog({
   onClose = closePaperTrade,
   closeBlock,
   saveLevels,
+  loadStats,
 }: Props) {
   const [market, setMarket] = useState('')
   const [from, setFrom] = useState('')
@@ -213,6 +229,12 @@ export function TradeLog({
       />
     ))
 
+  /** the table can be folded away, leaving the filters and the summary; remembered here */
+  const [tableOpen, setTableOpen] = usePref(TABLE_OPEN_KEY, asOpenByDefault)
+
+  /** Exit and Fill narrow only the table; the cards follow the market and dates */
+  const statsQuery = useMemo(() => ({ index: market, from, to }), [market, from, to])
+
   const field = 'rounded border border-border bg-bg px-2 py-1 text-fg'
   return (
     <section
@@ -309,10 +331,28 @@ export function TradeLog({
       ))}
 
       <div className="rounded border border-border bg-bg-elev p-3">
-        {days.length === 0 && openRows.length === 0 ? (
+        <button
+          type="button"
+          className="mb-2 flex items-center gap-1 font-sans text-fg-muted hover:text-fg"
+          aria-expanded={tableOpen}
+          aria-controls="trade-table"
+          onClick={() => {
+            setTableOpen(!tableOpen)
+          }}
+          data-testid="trade-table-toggle"
+        >
+          <span aria-hidden="true" className="w-3">
+            {tableOpen ? '▾' : '▸'}
+          </span>
+          {tableOpen ? 'Hide' : 'Show'} the trades
+          {trades
+            ? ` (${String(openRows.length + days.reduce((n, d) => n + d.trades.length, 0))})`
+            : ''}
+        </button>
+        {!tableOpen ? null : days.length === 0 && openRows.length === 0 ? (
           <div className="text-fg-muted">{trades ? 'No paper trades match.' : 'Loading…'}</div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto" id="trade-table">
             <table className="w-full font-mono whitespace-nowrap">
               <thead className="text-fg-muted">
                 <tr className="h-6 font-sans">
@@ -344,6 +384,7 @@ export function TradeLog({
           </div>
         )}
       </div>
+      <JournalStats query={statsQuery} revision={revision} load={loadStats} />
     </section>
   )
 }
@@ -442,7 +483,7 @@ const TradeRows = memo(function TradeRows({
         <td>
           <button
             type="button"
-            className={`flex items-center gap-1 hover:underline ${isLong(t.direction) ? 'text-bull' : 'text-bear'}`}
+            className="flex items-center gap-1 hover:underline"
             aria-expanded={open}
             aria-controls={open ? panelId : undefined}
             onClick={() => {
@@ -454,7 +495,7 @@ const TradeRows = memo(function TradeRows({
             <span aria-hidden="true" className="w-3 text-fg-muted">
               {open ? '▾' : '▸'}
             </span>
-            {t.index} {instrumentLabel(t)}
+            {t.index} {instrumentName(t)} <SideTag direction={t.direction} />
           </button>
         </td>
         <td className="text-right">{t.qty}</td>
@@ -649,6 +690,18 @@ function LevelHistory({ levels }: { levels: LevelChangeOut[] }) {
         </tbody>
       </table>
     </div>
+  )
+}
+
+/** call, put, long or short, in one neutral style: the word tells the side, not a colour */
+function SideTag({ direction }: { direction: PaperTradeOut['direction'] }) {
+  return (
+    <span
+      className="rounded border border-border px-1 font-sans text-[10px] uppercase tracking-wide text-fg-muted"
+      data-testid="side-tag"
+    >
+      {sideTag(direction)}
+    </span>
   )
 }
 

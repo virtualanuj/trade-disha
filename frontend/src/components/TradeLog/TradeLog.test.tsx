@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { describe, expect, it, vi } from 'vitest'
 
 import type { JournalQuery } from '../../api/client'
-import type { PaperTradeDetailOut, PaperTradeOut, SignalOut } from '../../api/types'
+import type { JournalOut, PaperTradeDetailOut, PaperTradeOut, SignalOut } from '../../api/types'
 import { trade } from '../OpenTrades/fixtures'
 import { TradeLog } from './TradeLog'
 
@@ -130,6 +130,25 @@ const detailOf = (t: PaperTradeOut): PaperTradeDetailOut => ({ trade: t, signal,
 const opened: PaperTradeOut = { ...trade, id: 'o1', entry_ts: win.entry_ts + 2 * 3_600_000 }
 const NOW = opened.entry_ts + 25 * 60_000
 
+const summary: JournalOut = {
+  open_trades: 0,
+  stats: [
+    {
+      scope: 'overall',
+      trades: 2,
+      hits: 1,
+      hit_rate: 0.5,
+      avg_win: 1825,
+      avg_loss: -1100,
+      net_total: 725,
+      gross_total: 845,
+      avg_duration_s: 660,
+      by_reason: { TARGET: 1, SQUARE_OFF: 1 },
+      non_live_fills: 1,
+    },
+  ],
+}
+
 interface Extra {
   latest?: PaperTradeOut[]
   closeBlock?: (t: PaperTradeOut) => string | null
@@ -147,8 +166,12 @@ function setup(trades: PaperTradeOut[] = [win, loss, gold], extra: Extra = {}) {
       return t ? Promise.resolve(detailOf(t)) : Promise.reject(new Error('unknown trade'))
     },
   )
+  const loadStats = vi.fn<(q: JournalQuery, signal: AbortSignal) => Promise<JournalOut>>(() =>
+    Promise.resolve(summary),
+  )
   const page = (store: PaperTradeOut[]) => (
     <TradeLog
+      loadStats={loadStats}
       markets={['NIFTY', 'BANKNIFTY', 'GOLD', 'SILVER']}
       revision={0}
       latest={store}
@@ -162,6 +185,7 @@ function setup(trades: PaperTradeOut[] = [win, loss, gold], extra: Extra = {}) {
   const { rerender } = render(page(latest))
   return {
     load,
+    loadStats,
     loadDetail,
     onClose,
     pushLive: (store: PaperTradeOut[]) => {
@@ -185,6 +209,59 @@ describe('TradeLog', () => {
         expect.any(AbortSignal),
       )
     })
+  })
+
+  it('shows the summary cards below the trades, for the market and dates only', async () => {
+    const { loadStats } = setup()
+    const card = await screen.findByTestId('stats-overall')
+    expect(card).toHaveTextContent('+₹725')
+    const table = screen.getByRole('table')
+    // the cards come after the table on the page
+    expect(table.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Market'), { target: { value: 'GOLD' } })
+    fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-11-20' } })
+    await waitFor(() => {
+      expect(loadStats).toHaveBeenLastCalledWith(
+        { index: 'GOLD', from: '', to: '2026-11-20' },
+        expect.any(AbortSignal),
+      )
+    })
+    const calls = loadStats.mock.calls.length
+    fireEvent.change(screen.getByLabelText('Exit'), { target: { value: 'TARGET' } })
+    fireEvent.change(screen.getByLabelText('Fill'), { target: { value: 'live' } })
+    expect(loadStats).toHaveBeenCalledTimes(calls) // exit and fill narrow the table only
+  })
+
+  it('tags each trade call, put, long or short, in no bull or bear colour', async () => {
+    const put: PaperTradeOut = { ...loss, direction: 'BUY_PE', trading_symbol: 'NIFTY 25000 PE' }
+    const long: PaperTradeOut = { ...gold, id: 'g2', direction: 'BUY_FUT' }
+    setup([win, put, gold, long])
+    await screen.findByTestId('trade-w1')
+    const tag = (id: string) => within(toggle(id)).getByTestId('side-tag')
+    expect(tag('w1')).toHaveTextContent('call')
+    expect(tag('l1')).toHaveTextContent('put')
+    expect(tag('g1')).toHaveTextContent('short')
+    expect(tag('g2')).toHaveTextContent('long')
+    expect(toggle('w1')).toHaveTextContent('NIFTY 25000 CE call')
+    expect(toggle('g2')).toHaveTextContent('GOLD FUT long')
+    for (const id of ['w1', 'l1', 'g1', 'g2']) {
+      expect(toggle(id).className).not.toMatch(/text-(bull|bear)/)
+    }
+  })
+
+  it('folds the table away and back, remembering the choice', async () => {
+    setup()
+    await screen.findByTestId('trade-w1')
+    const fold = screen.getByTestId('trade-table-toggle')
+    expect(fold).toHaveAttribute('aria-expanded', 'true')
+    expect(fold).toHaveTextContent('Hide the trades (3)')
+    fireEvent.click(fold)
+    expect(screen.queryByTestId('trade-w1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('trade-table-toggle')).toHaveTextContent('Show the trades (3)')
+    expect(screen.getByTestId('stats-overall')).toBeInTheDocument() // the summary stays
+    expect(localStorage.getItem('tradedisha.tradeTableOpen')).toBe('false')
+    fireEvent.click(screen.getByTestId('trade-table-toggle'))
+    expect(screen.getByTestId('trade-w1')).toBeInTheDocument()
   })
 
   it('groups trades by day, newest first, with each day’s result', async () => {
@@ -493,6 +570,7 @@ describe('TradeLog trades opened by hand and changed levels', () => {
         now={NOW}
         revision={0}
         load={vi.fn(() => Promise.resolve([open]))}
+        loadStats={() => Promise.resolve(summary)}
         saveLevels={saveLevels}
       />,
     )

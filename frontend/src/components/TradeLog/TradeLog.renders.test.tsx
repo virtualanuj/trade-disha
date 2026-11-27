@@ -60,13 +60,22 @@ const signal: SignalOut = {
   trade: null,
 }
 
+const loadStats = () => Promise.resolve({ stats: [], open_trades: 0 })
+
 async function openRow(t: PaperTradeOut, now: number) {
   const load = vi.fn(() => Promise.resolve([t]))
   const loadDetail = vi.fn(() =>
     Promise.resolve<PaperTradeDetailOut>({ trade: t, signal, levels: [] }),
   )
   const page = (at: number) => (
-    <TradeLog markets={['NIFTY']} revision={0} now={at} load={load} loadDetail={loadDetail} />
+    <TradeLog
+      markets={['NIFTY']}
+      revision={0}
+      now={at}
+      load={load}
+      loadDetail={loadDetail}
+      loadStats={loadStats}
+    />
   )
   const view = render(page(now))
   fireEvent.click(await screen.findByTestId(`trade-toggle-${t.id}`))

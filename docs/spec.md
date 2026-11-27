@@ -1030,7 +1030,7 @@ GOLD and SILVER MCX near-month futures, run by `engine/bullion_desk.py:BullionDe
   with that contract's default lots (`bullion.<contract>_lots`), at that contract's price;
   the live levels are taken at that fill (§9.3) and slippage is the fill against the
   signal's entry. A configured mini that is not loaded refuses the trade (409). The trade
-  stays the metal's (`index` GOLD or SILVER): its margin %, its journal row, its US-release
+  stays the metal's (`index` GOLD or SILVER): its margin %, its summary card, its US-release
   pause. An active bullion signal carries `trade` (contract, symbol, lots, quantity) so
   the card can say what it opens.
 
@@ -1179,7 +1179,7 @@ Exit fill uses the LTP that triggered the exit (no simulated slippage on exit).
 While the feed is down, target/stop are not evaluated (no prices). On the first tick after
 resume, all open trades on that instrument are evaluated against it. The square-off timer
 fires regardless of feed state. Entry always requires a live feed, so there is no entry
-fill quality. The journal shows a badge for anything other than `live`.
+fill quality. The Trades page shows a badge for anything other than `live`.
 
 ### 10.2 P&L
 ```
@@ -1201,7 +1201,8 @@ total and per metal; these count only trades taken from signals, so they measure
 signals. Last, when there are any, `manual`: every trade opened by hand, index and bullion
 together. For each: trades, hits, hit rate, average win (net), average loss (net),
 net total, gross total, average duration, breakdown by exit reason, count of non-`live`
-fills. Computed on request from `paper_trades`; small enough not to cache.
+fills. Computed on request from `paper_trades`; small enough not to cache. Shown as the
+summary cards under the trades on the Trades page.
 
 ### 10.4 Tick pruning
 `POST /data/prune-ticks {until_date}` deletes rows from `ticks` and `bullion_ticks` with
@@ -1257,8 +1258,18 @@ available = balance − held
   same object is in `hello` (`bank`) and in a `bank` frame after any paper-trade change
   and after a parameters change. The page shows it as a strip above the open trades and
   at the top of the journal, with unrealised P&L (the open trades' live net) beside it.
-  The journal also lists the ledger: date, time, kind, amount and the cash in after it.
   Each open trade shows what it blocks.
+- **Statement.** `GET /api/bank/statement?from=&to=&kind=&index=` lists every cash move,
+  oldest first. The ledger's rows come first: `OPEN`, `DEPOSIT`, `WITHDRAW`. Then, for each
+  funded trade, a `BLOCK` at its entry and a `SETTLE` at its exit. Each row has `held` (the
+  change in what is blocked: + at `BLOCK`, − at `SETTLE`), `cash` (the change in the
+  balance: a deposit +, a withdrawal −, the settled net ±), the balance, blocked and
+  available after it, and the trade (id, market, direction, strike, symbol) for trade rows.
+  The running figures are worked out over the whole history and then filtered, so a
+  filtered row still shows the bank as it stood. A market filter keeps trade rows only.
+  The opening deposit is always first: ledger rows carry the wall clock and trades the
+  market clock, which in a replay is another day. The last row's figures equal the
+  summary's. The Journal page is this statement.
 
 ---
 
@@ -1336,6 +1347,7 @@ only SQLite, and `GET /auth/login`; a test lists them.
 | GET | `/paper-trades/{id}` | one trade (live P&L while open), the signal it was taken on with breakdown and outcome (none when opened by hand), and every set of levels it has had |
 | GET | `/journal/stats?from=&to=&index=` | summary stats: overall (index options), per index, `bullion` and per metal, from signal trades; `manual` for trades opened by hand |
 | GET | `/bank` | the paper bank: balance, held, available and the ledger (§10.5) |
+| GET | `/bank/statement?from=&to=&kind=&index=` | every cash move with the bank's figures after it: deposits, withdrawals, each trade's block and settlement (§10.5) |
 | GET | `/bullion` | the GOLD / SILVER snapshot, with the minis and the ETFs (§6.6) |
 | GET | `/bullion/{metal}/candles` | today's bullion candles with VWAP |
 | GET | `/parameters` | the config in force: version, tag, created_ts and the `ParameterSet` |
@@ -1713,15 +1725,20 @@ NIFTY / BANK NIFTY tab               Chain minimised        MCX tab, NSE BULLION
   says which). A refusal is shown and Open is disabled. Open waits for the server
   (`POST /paper-trades/manual`), puts the trade in the store and closes; a refusal is
   shown under the boxes. Escape, Cancel or the backdrop close it.
-- **Journal page**: the paper bank and its ledger (§10.5), and summary cards (hit rate,
-  net P&L, avg win/loss, exits by reason, exits not on a live price) overall, per index
-  and for bullion, and "Opened by hand" for trades with no signal, filtered by index and
-  date range. It lists no trades: each trade is on
-  the Trades page, which it links to.
+- **Journal page** (`#journal`): the paper bank's strip and its statement (§10.5), oldest
+  first: date and time, kind (Opening deposit, Deposit, Withdrawal, Blocked, Settled),
+  the trade (linking to the Trades page), held, cash, then balance, blocked and available
+  after the row (available at or below zero in red). It is filtered by market, kind and
+  date range on the server, and refetched when a trade changes or the socket's bank shows a
+  new cash move.
 - **Trades page** (`#trades`, `TradeLog`): paper trades, index options and bullion,
   filtered by market and dates on the server. Open trades come first under "Open now" with
   their unrealised total: the price now, net so far and time held, ticking from the
-  socket's `paper_trade` frames (a close shows before the page refetches). Each has a
+  socket's `paper_trade` frames (a close shows before the page refetches). The table
+  folds away under "Hide the trades (N)" / "Show the trades (N)", remembered in the
+  browser (`tradedisha.tradeTableOpen`, open by default); the filters and summary cards
+  stay. A trade's first cell is its market and instrument with a neutral side tag
+  (call, put, long or short) in place of a bull or bear colour. Each has a
   Close button (`POST /paper-trades/{id}/close`, as on the dashboard), disabled while its
   own market has no live price: the index feed for NIFTY and BANK NIFTY, MCX for GOLD and
   SILVER. Closed trades follow by IST entry day (count, won/lost by net, net); the
@@ -1737,7 +1754,11 @@ NIFTY / BANK NIFTY tab               Chain minimised        MCX tab, NSE BULLION
   net and R so far instead of the exit. A trade opened by hand reads "Opened by hand: no
   signal is behind this trade" in place of the signal, outcome and evidence, and "Ticket →
   fill" for its slippage. A trade whose levels were changed lists each set of levels, when
-  and at what price.
+  and at what price. Under the trades are the summary cards (`JournalStats`, from
+  `/journal/stats`): hit rate, net P&L, avg win/loss, exits by reason and exits not on a
+  live price, overall (index options), per index, for bullion and per metal, and "Opened by
+  hand" for trades with no signal, with a note of trades still open. They follow the page's
+  market and dates; exit reason and fill narrow only the table.
 - **Data panel** (drawer from the TopBar): DB size, tick days held, oldest/newest tick
   date; a date picker for "delete ticks up to and including"; a preview line ("N days,
   M rows, ~X MB") fetched from `/data/usage`; a confirm step that requires typing the date;

@@ -1,22 +1,17 @@
-import type { BankLedgerEntryOut, BankOut, PaperTradeOut } from '../../api/types'
-import { fmtDate, fmtIstTime, fmtMoney, fmtRupees, pnlColour } from '../../lib/format'
-
-const KIND_TEXT: Record<BankLedgerEntryOut['kind'], string> = {
-  OPEN: 'Opening deposit',
-  DEPOSIT: 'Deposit',
-  WITHDRAW: 'Withdrawal',
-}
+import type { BankOut, PaperTradeOut } from '../../api/types'
+import { fmtDate, fmtMoney, fmtRupees, pnlColour } from '../../lib/format'
 
 interface Props {
   bank: BankOut | null
   /** every open trade, any market: their live P&L is the unrealised figure */
   openTrades?: PaperTradeOut[]
-  /** list the cash moves (the opening deposit, then each deposit or withdrawal) */
-  showLedger?: boolean
 }
 
-/** The paper bank that funds paper trades (spec §10.5): one account for every market. */
-export function Bank({ bank, openTrades, showLedger = false }: Props) {
+/**
+ * The paper bank that funds paper trades (spec §10.5): one account for every market. Its
+ * statement, every cash move, is the Journal page.
+ */
+export function Bank({ bank, openTrades }: Props) {
   if (bank === null) {
     return (
       <div className="text-xs text-fg-muted" data-testid="bank">
@@ -28,7 +23,7 @@ export function Bank({ bank, openTrades, showLedger = false }: Props) {
     ? openTrades.reduce((n, t) => n + (t.live_net ?? 0), 0)
     : null
   const empty = bank.available <= 0
-  const strip = (
+  return (
     <div
       className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs"
       data-testid="bank"
@@ -71,35 +66,6 @@ export function Bank({ bank, openTrades, showLedger = false }: Props) {
           {fmtMoney(bank.realised)}
         </span>
       </span>
-    </div>
-  )
-  if (!showLedger) return strip
-  return (
-    <div className="flex flex-col gap-2">
-      {strip}
-      <table className="self-start font-mono text-xs" data-testid="bank-ledger">
-        <tbody>
-          {bank.ledger.map((e) => (
-            <tr key={e.id} data-testid="bank-ledger-entry">
-              <td className="pr-4 text-fg-muted">
-                {fmtDate(e.ts)} {fmtIstTime(e.ts)}
-              </td>
-              <td className="pr-4 font-sans">{KIND_TEXT[e.kind]}</td>
-              <td
-                className={`pr-4 text-right ${e.kind === 'WITHDRAW' ? 'text-bear' : 'text-bull'}`}
-              >
-                {e.kind === 'OPEN'
-                  ? fmtRupees(e.amount)
-                  : fmtMoney(e.kind === 'WITHDRAW' ? -e.amount : e.amount)}
-              </td>
-              <td className="text-fg-muted">
-                <span className="font-sans">cash in </span>
-                {fmtRupees(e.opening_balance)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   )
 }

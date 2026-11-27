@@ -141,6 +141,8 @@ export default function App() {
   const hasEtfs = useMarketStore((s) => (s.bullion?.etfs.length ?? 0) > 0)
   /** changes whenever a trade opens or closes, so the journal refetches */
   const journalRevision = useMarketStore((s) => tradeRevision(s.trades))
+  /** a deposit or withdrawal adds a ledger row, so the statement refetches */
+  const cashMoves = useMarketStore((s) => s.bank?.ledger.length ?? 0)
   /** the headlines list is on screen: dots stay, and the newest is recorded as seen */
   const newsVisible = view === 'dashboard' && !panels.newsHidden && !panels.minimised.news
   const newsSeenTs = useNewsSeen(news, newsVisible)
@@ -352,9 +354,10 @@ export default function App() {
       <main className="flex min-h-0 flex-1">
         {view === 'journal' ? (
           <Journal
-            indices={instruments.map((i) => i.index)}
+            markets={tradeMarkets}
             revision={journalRevision}
-            bank={<LiveBank showLedger />}
+            cashMoves={cashMoves}
+            bank={<LiveBank />}
           />
         ) : view === 'trades' ? (
           <LiveTradeLog markets={tradeMarkets} revision={journalRevision} closeBlock={closeBlock} />
