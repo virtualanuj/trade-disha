@@ -100,6 +100,9 @@ export class MarketSocket {
       case 'bullion':
         s.applyBullion(frame.payload)
         break
+      case 'chart_bar':
+        s.applyChartBar(frame.payload)
+        break
       case 'bullion_candle':
         s.applyBullionCandle(frame.payload.metal, frame.payload.candle, frame.payload.overlay)
         break

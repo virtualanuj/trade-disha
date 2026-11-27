@@ -823,6 +823,36 @@ exit reason moves it with the rows.
 
 **Status (2026-11-27):** built, with unit tests; `make check` green.
 
+## Milestone E27 — Chart intervals: 10 s, 30 s, 1 m, 5 m
+
+**Goal:** the price chart can be drawn at 10 s, 30 s, 1 m or 5 m, on index and MCX tabs,
+with its lines and net volume recomputed on those bars (enhancement 36). Display only.
+
+- `market/candles.py`: `CandleBuilder(bar_ms=...)`; the 1-minute builder is unchanged.
+- `indicators/chart.py`: `aggregate` (1 m to 5 m) and `overlay_series` (EMAs, supertrend,
+  VWAP over a series), `ChartPoint`.
+- `market/chart_bars.py:ChartBars` on `FeedSession.chart`: 10 s / 30 s builders fed from
+  the tick bus for the chart keys, seeded from today's stored ticks at start (not in
+  replay), 5 m from the 1-minute candles; `chart_bar_listeners`.
+- `api/analysis.py`: `GET /api/chart/{name}?interval=`; `api/ws.py`: the `chart_bar` frame.
+- Frontend: `ChartIntervals` above the chart (`lib/chartIntervals.ts`, pref
+  `tradedisha.chartInterval`); `LiveIntervalChart` in `Live.tsx`; the store's `chartBars`
+  (`loadChart`, `applyChartBar`, cleared by `hello`); `PriceChart` takes `barMs` and
+  `barText`.
+- Tests: `test_candles.py` (10 s bars, gaps, flush, sides, bar sizes),
+  `tests/indicators/test_chart.py` (table-driven, and a hypothesis property that the last
+  point matches the bias engine's), `tests/market/test_chart_bars.py`, `test_chart_api.py`
+  (each interval, bars from ticks, 404/422, the frame); `ChartIntervals.test.tsx`,
+  `LiveIntervalChart.test.tsx`, the store, and `App.test.tsx` (a closed bar redraws only the
+  chart).
+
+**Demo:** on the synthetic feed pick 10s above the NIFTY chart: 10-second candles with
+their EMA, VWAP and supertrend, a new bar every 10 s, net volume beneath. Restart the
+backend and the day's 10 s bars are still there. 5m groups the minutes; MCX GOLD the same.
+
+**Status (2026-11-27):** built, with unit tests; `make check` green. Seeding a recorded
+day (191,457 ticks over six keys) takes about 1.2 s at start.
+
 ## Milestone S3 — Switch on, on evidence (planned)
 
 - After at least five live sessions recorded with S2, compare the two scorecard rows and

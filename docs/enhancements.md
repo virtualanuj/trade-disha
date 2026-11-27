@@ -981,6 +981,28 @@ Builder's calls:
   more, and the table shows only when the rows span more than one group or market.
 - `/journal/stats` stays on the server, but the page no longer calls it.
 
+### 36. Chart intervals: 10 s, 30 s, 1 m, 5 m
+
+Asked for (2026-11-27): an option to see the charts at 10 seconds, 30 seconds, 1 minute
+and 5 minutes, instead of the fixed 1-minute interval.
+
+Status: built in Milestone E27. Design in [spec.md](spec.md) §7.1 (Chart intervals) and
+§13 (PriceChart); planned in [plan.md](plan.md) Milestone E27.
+
+Decided with the owner on 2026-11-27:
+- The lines (EMA fast and slow, VWAP, supertrend) and the net-volume pane are recomputed
+  on the chosen interval's bars, with the same functions and parameters.
+- Index (NIFTY, BANK NIFTY) and MCX (GOLD, SILVER) charts both get the switch.
+
+Builder's calls:
+- Display only: the market view, signals and paper trades stay on 1-minute closes. Signal
+  markers sit on the bar that holds their minute.
+- Periods count bars, so a 9-bar EMA is 90 seconds at 10 s and 45 minutes at 5 m.
+- 10 s and 30 s bars are built from ticks and survive a restart (today's stored ticks are
+  replayed at start, except in replay). 5 m bars group the 1-minute candles, so they
+  include backfilled minutes. Only closed bars are drawn, as before.
+- One choice for every tab, remembered in the browser; 1 m is the default.
+
 ## Deferred
 
 ### Strike ladder (ATM ±3)

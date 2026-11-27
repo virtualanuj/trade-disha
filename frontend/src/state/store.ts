@@ -6,6 +6,9 @@ import type {
   FlowOut,
   BiasOut,
   CandleOut,
+  ChartBarFrame,
+  ChartInterval,
+  ChartOut,
   CandlesResponse,
   ChainOut,
   GateOut,
@@ -46,6 +49,25 @@ function pushCapped<T extends { t: number }>(list: T[], item: T, max = MAX_CANDL
   const last = list[list.length - 1]
   const next = last && last.t === item.t ? [...list.slice(0, -1), item] : [...list, item]
   return next.length > max ? next.slice(next.length - max) : next
+}
+
+/** 10 s bars over a full MCX day (09:00 to 23:30) */
+const MAX_CHART_BARS = 5_400
+
+/** a chart at one interval other than 1 m (E27): loaded on demand, then kept by frames */
+export interface ChartSeries {
+  candles: CandleOut[]
+  overlays: OverlayOut[]
+  vol: CandleOut[]
+}
+
+export const chartKey = (name: string, interval: ChartInterval): string => `${name}|${interval}`
+
+/** a closed bar onto its series: a repeat of the last replaces it, an older one is dropped */
+function appendBar<T extends { t: number }>(list: T[], item: T): T[] {
+  const last = list[list.length - 1]
+  if (last && item.t < last.t) return list
+  return pushCapped(list, item, MAX_CHART_BARS)
 }
 
 export type WsState = 'connecting' | 'open' | 'closed'
@@ -111,6 +133,10 @@ interface MarketStore {
   applyBullion: (b: BullionOut, candles?: BullionCandlesOut[]) => void
   applyQuotes: (quotes: QuoteOut[]) => void
   applyBullionCandle: (metal: string, c: CandleOut, o: OverlayOut) => void
+  /** the chart at other intervals, by `chartKey`; only loaded series take frames */
+  chartBars: Record<string, ChartSeries>
+  loadChart: (c: ChartOut) => void
+  applyChartBar: (b: ChartBarFrame['payload']) => void
   applyNews: (news: NewsOut) => void
   applyBank: (bank: BankOut) => void
   applyTrades: (t: PaperTradeOut[]) => void
@@ -149,6 +175,7 @@ export const useMarketStore = create<MarketStore>((set) => ({
   quotes: [],
   bullionCandles: {},
   bullionOverlays: {},
+  chartBars: {},
   news: null,
   bank: null,
   selectedIndex: 'NIFTY',
@@ -209,6 +236,8 @@ export const useMarketStore = create<MarketStore>((set) => ({
       candles: candlesByIndex,
       futCandles: futCandlesByIndex,
       overlays: overlaysByIndex,
+      // a reconnect may have missed bars: the charts at other intervals load afresh
+      chartBars: {},
       bias: biasByIndex,
       parameters,
       signals: signalsByIndex,
@@ -243,6 +272,30 @@ export const useMarketStore = create<MarketStore>((set) => ({
   },
   applyQuotes: (quotes) => {
     set({ quotes })
+  },
+  loadChart: (c) => {
+    const series: ChartSeries = {
+      candles: c.candles.slice(-MAX_CHART_BARS),
+      overlays: c.overlays.slice(-MAX_CHART_BARS),
+      vol: c.vol_candles.slice(-MAX_CHART_BARS),
+    }
+    set((s) => ({ chartBars: { ...s.chartBars, [chartKey(c.name, c.interval)]: series } }))
+  },
+  applyChartBar: (b) => {
+    set((s) => {
+      const key = chartKey(b.name, b.interval)
+      const cur = s.chartBars[key]
+      if (!cur) return {} // not on screen: fetched when it is
+      const next: ChartSeries =
+        b.role === 'vol'
+          ? { ...cur, vol: appendBar(cur.vol, b.candle) }
+          : {
+              ...cur,
+              candles: appendBar(cur.candles, b.candle),
+              overlays: b.overlay ? appendBar(cur.overlays, b.overlay) : cur.overlays,
+            }
+      return { chartBars: { ...s.chartBars, [key]: next } }
+    })
   },
   applyBullionCandle: (metal, c, o) => {
     set((s) => ({

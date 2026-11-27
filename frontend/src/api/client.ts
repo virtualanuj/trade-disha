@@ -1,5 +1,7 @@
 import type {
   BankStatementOut,
+  ChartInterval,
+  ChartOut,
   ConfigVersionDetail,
   ConfigVersionOut,
   HealthResponse,
@@ -221,6 +223,15 @@ function query(q: JournalQuery | StatementQuery): string {
   }
   const text = params.toString()
   return text ? `?${text}` : ''
+}
+
+export function fetchChart(
+  name: string,
+  interval: ChartInterval,
+  signal?: AbortSignal,
+): Promise<ChartOut> {
+  const q = `?interval=${encodeURIComponent(interval)}`
+  return getJson<ChartOut>(`/api/chart/${encodeURIComponent(name)}${q}`, signal)
 }
 
 export function fetchPaperTrades(q: JournalQuery, signal?: AbortSignal): Promise<PaperTradeOut[]> {

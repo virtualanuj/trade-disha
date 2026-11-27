@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 from datetime import date
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -14,6 +14,7 @@ from tradedisha.api.deps import State
 from tradedisha.app_state import AppState
 from tradedisha.engine.bias_engine import BiasComputed, OverlayPoint
 from tradedisha.events import ParametersChanged
+from tradedisha.indicators.chart import ChartPoint
 from tradedisha.market.candles import Candle
 from tradedisha.parameters import ParameterValidationError
 from tradedisha.parameters.model import ParameterSet
@@ -48,6 +49,17 @@ class OverlayOut(BaseModel):
     vwap: float | None
     supertrend: float | None
     supertrend_dir: int
+
+
+class ChartOut(BaseModel):
+    """A chart at one interval (E27): closed bars, the lines at each, and the volume bars
+    (an index's future, or the metal itself) for VWAP and net volume."""
+
+    name: str
+    interval: Literal["10s", "30s", "1m", "5m"]
+    candles: list[CandleOut]
+    overlays: list[OverlayOut]
+    vol_candles: list[CandleOut]
 
 
 class CandlesResponse(BaseModel):
@@ -153,7 +165,7 @@ def candle_out(c: Candle) -> CandleOut:
     )
 
 
-def overlay_out(o: OverlayPoint) -> OverlayOut:
+def overlay_out(o: OverlayPoint | ChartPoint) -> OverlayOut:
     return OverlayOut(
         t=o.minute_ts,
         ema_fast=o.ema_fast,
@@ -240,6 +252,23 @@ def _index(state: AppState, index: str) -> str:
 @router.get("/candles/{index}", response_model=CandlesResponse)
 async def candles(index: str, state: State, minutes: int = 375) -> CandlesResponse:
     return candles_response(state, _index(state, index), max(1, min(minutes, 400)))
+
+
+@router.get("/chart/{name}", response_model=ChartOut)
+async def chart(
+    name: str, state: State, interval: Literal["10s", "30s", "1m", "5m"] = "1m"
+) -> ChartOut:
+    try:
+        price, vol, lines = state.session.chart.bars(name.upper(), interval)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"no chart for {name}") from None
+    return ChartOut(
+        name=name.upper(),
+        interval=interval,
+        candles=[candle_out(c) for c in price],
+        overlays=[overlay_out(o) for o in lines],
+        vol_candles=[candle_out(c) for c in vol],
+    )
 
 
 @router.get("/bias/{index}", response_model=BiasOut | None)

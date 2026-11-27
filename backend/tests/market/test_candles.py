@@ -227,3 +227,53 @@ def test_store_roundtrip_with_and_without_sides() -> None:
     store.write_many([Candle("F", T0 + M, 1, 1, 1, 1, 10)])
     got = store.read("F", T0, T0 + 2 * M)
     assert [(c.buy_volume, c.sell_volume) for c in got] == [(60, 30), (None, None)]
+
+
+# -- other bar sizes, for the chart intervals (E27) ----------------------------------------
+
+S10 = 10_000
+
+
+def test_ten_second_bars_close_on_their_own_boundary() -> None:
+    b = CandleBuilder(bar_ms=S10)
+    b.apply(tick(T0 + 1_000, 100.0))
+    b.apply(tick(T0 + 9_000, 102.0))
+    closed = b.apply(tick(T0 + S10 + 100, 101.0))
+    assert [(c.minute_ts, c.open, c.high, c.close) for c in closed] == [(T0, 100.0, 102.0, 102.0)]
+    assert b.current("F").minute_ts == T0 + S10  # type: ignore[union-attr]
+
+
+def test_ten_second_gaps_are_carried_forward_bar_by_bar() -> None:
+    b = CandleBuilder(bar_ms=S10)
+    b.apply(tick(T0, 100.0))
+    closed = b.apply(tick(T0 + 4 * S10 + 1, 110.0))
+    assert [c.minute_ts for c in closed] == [T0, T0 + S10, T0 + 2 * S10, T0 + 3 * S10]
+    assert [c.synthetic for c in closed] == [False, True, True, True]
+
+
+def test_ten_second_flush_waits_for_the_bar_end_plus_grace() -> None:
+    b = CandleBuilder(bar_ms=S10)
+    b.apply(tick(T0 + 1_000, 100.0))
+    assert b.flush_stale(T0 + S10 + 1_000) == []
+    assert len(b.flush_stale(T0 + S10 + 2_500)) == 1
+
+
+def test_ten_second_bars_split_volume_and_sides_per_bar() -> None:
+    b = CandleBuilder(bar_ms=S10)
+    b.apply(Tick(key="F", ts=T0, ltp=100.0, volume=1_000, bid=99.5, ask=100.0))
+    b.apply(Tick(key="F", ts=T0 + 5_000, ltp=100.0, volume=1_200, bid=99.5, ask=100.0))  # buy 200
+    b.apply(Tick(key="F", ts=T0 + S10, ltp=99.5, volume=1_250, bid=99.5, ask=100.0))  # sell 50
+    b.apply(Tick(key="F", ts=T0 + 2 * S10, ltp=99.5, volume=1_250))
+    first, second = b.closed("F")
+    assert (first.volume, first.buy_volume, first.sell_volume) == (200, 200, 0)
+    assert (second.volume, second.buy_volume, second.sell_volume) == (50, 0, 50)
+
+
+@pytest.mark.parametrize("bar_ms", [M, S10, 30_000])
+def test_a_bar_size_must_divide_a_day(bar_ms: int) -> None:
+    assert CandleBuilder(bar_ms=bar_ms).bar_ms == bar_ms
+
+
+def test_a_bar_size_that_does_not_divide_a_minute_is_refused() -> None:
+    with pytest.raises(ValueError, match="bar"):
+        CandleBuilder(bar_ms=7_000)

@@ -68,6 +68,7 @@ from tradedisha.market.backfill import (
 from tradedisha.market.bullion import BullionTracker
 from tradedisha.market.candles import MINUTE_MS, Candle, CandleBuilder, CandleStore
 from tradedisha.market.chain_manager import ChainManager, SubscriptionChange
+from tradedisha.market.chart_bars import ChartBar, ChartBars
 from tradedisha.market.etfs import EtfTracker
 from tradedisha.market.flow import FlowReading, FlowTracker
 from tradedisha.market.gift import GiftNifty
@@ -262,6 +263,9 @@ class FeedSession:
         )
         self.tick_bus.subscribe(self.chains.on_tick)
         self.tick_bus.subscribe(self._apply_candles)  # after the chain (see there)
+        for index, r in self.resolved.items():
+            self.chart.add(index, r.spot.instrument_key, r.future.instrument_key)
+        self.tick_bus.subscribe(self.chart.on_tick)
         self.bias = BiasEngine(
             candles=self.candles,
             chains=self.chains.chains,
@@ -308,6 +312,9 @@ class FeedSession:
         self.bias_listeners.append(self.paper.on_bias)
         await self._backfill()
         await self._load_side_markets(today)
+        if self.settings.feed_provider != "replay":  # a replay builds its day from its ticks
+            with _chore("chart bars"):
+                self._seed_chart(today)
         self.provider = self._build_provider()
         await self.provider.connect()
         keys = [k for r in self.resolved.values() for k in r.all_keys]
@@ -509,6 +516,27 @@ class FeedSession:
         self.candle_store.write(c)
         for fn in self.candle_listeners:
             fn(c)
+        self.chart.on_minute_close(c)
+
+    def _chart_minutes(self, key: str) -> list[Candle]:
+        """A chart key's closed 1-minute candles: a metal's from its own builder."""
+        if self.bullion is not None and self.bullion.metal_of(key) is not None:
+            return self.bullion.candles.closed(key)
+        return self.candles.closed(key)
+
+    def _seed_chart(self, today: date) -> None:
+        """Today's stored ticks through the chart's 10 s and 30 s builders, so a restart
+        keeps the day's bars (E27)."""
+        keys = sorted(self.chart.keys)
+        ticks = self.tick_store.read_day(today, keys)
+        if self.bullion is not None:
+            ticks += self.bullion_tick_store.read_day(today, keys)
+            ticks.sort(key=lambda t: t.ts)
+        self.chart.seed(ticks)
+
+    def _on_chart_bar(self, bar: ChartBar) -> None:
+        for fn in self.chart_bar_listeners:
+            fn(bar)
 
     def _on_bias(self, b: BiasComputed) -> None:
         for fn in self.bias_listeners:
@@ -864,6 +892,10 @@ class FeedSession:
         self.tick_bus.subscribe(tracker.on_tick)
         # Stored keyed by the MCX key, so they survive a restart; never the shared builder.
         tracker.candles.on_close(self.candle_store.write)
+        for metal in tracker.contracts:
+            key = tracker.near_key(metal)
+            self.chart.add(metal, key, key)
+        tracker.candles.on_close(self.chart.on_minute_close)
         desk = BullionDesk(
             tracker=tracker,
             clock=self.mcx_clock,
@@ -888,6 +920,15 @@ class FeedSession:
     def us_events(self) -> tuple[UsEvent, ...]:
         """The US data releases that pause bullion (E18), read once."""
         return _load_us_events(self.settings.us_events_file)
+
+    @functools.cached_property
+    def chart(self) -> ChartBars:
+        """The chart's 10 s, 30 s and 5 m bars (E27): display only, never the bias."""
+        return ChartBars(self.params, self._chart_minutes, self._on_chart_bar)
+
+    @functools.cached_property
+    def chart_bar_listeners(self) -> list[Callable[[ChartBar], None]]:
+        return []
 
     @functools.cached_property
     def bullion_tick_store(self) -> TickStore:
@@ -994,6 +1035,8 @@ class FeedSession:
                 self.bullion_tick_store.flush()
             with _chore("candles"):
                 self.candles.flush_stale(self.clock.now_ms())
+            with _chore("chart bars"):
+                self.chart.flush_stale(self.clock.now_ms())
             if self.bullion is not None:
                 with _chore("bullion candles"):
                     self.bullion.candles.flush_stale(self.clock.now_ms())

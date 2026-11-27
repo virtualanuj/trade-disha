@@ -11,7 +11,7 @@ import type {
   ResolvedIndexOut,
   SignalOut,
 } from '../api/types'
-import { ETF_TAB, useMarketStore } from './store'
+import { ETF_TAB, chartKey, useMarketStore } from './store'
 
 const sig = (over: Partial<SignalOut>): SignalOut =>
   ({
@@ -169,5 +169,107 @@ describe('bullion in the store', () => {
     const after = { ...bank, available: 40, blocked: 60 }
     useMarketStore.getState().applyBank(after)
     expect(useMarketStore.getState().bank?.available).toBe(40)
+  })
+})
+
+describe('the chart at other intervals (E27)', () => {
+  const bar = (t: number, c = 1) => ({
+    t,
+    o: c,
+    h: c,
+    l: c,
+    c,
+    v: 0,
+    synthetic: false,
+    bv: null,
+    sv: null,
+  })
+  const line = (t: number) => ({
+    t,
+    ema_fast: 1,
+    ema_slow: null,
+    vwap: null,
+    supertrend: null,
+    supertrend_dir: 0,
+  })
+  const loaded = () => {
+    useMarketStore.getState().loadChart({
+      name: 'NIFTY',
+      interval: '10s',
+      candles: [bar(0), bar(10_000)],
+      overlays: [line(0), line(10_000)],
+      vol_candles: [bar(0)],
+    })
+  }
+  const series = () => useMarketStore.getState().chartBars[chartKey('NIFTY', '10s')]
+
+  it('ignores a bar for a chart not loaded', () => {
+    useMarketStore.setState({ chartBars: {} })
+    useMarketStore.getState().applyChartBar({
+      name: 'NIFTY',
+      interval: '10s',
+      role: 'price',
+      candle: bar(20_000),
+      overlay: line(20_000),
+    })
+    expect(series()).toBeUndefined()
+  })
+
+  it('appends price bars with their line, and volume bars apart', () => {
+    loaded()
+    const s = useMarketStore.getState()
+    s.applyChartBar({
+      name: 'NIFTY',
+      interval: '10s',
+      role: 'price',
+      candle: bar(20_000),
+      overlay: line(20_000),
+    })
+    s.applyChartBar({
+      name: 'NIFTY',
+      interval: '10s',
+      role: 'vol',
+      candle: bar(10_000),
+      overlay: null,
+    })
+    expect(series()?.candles.map((c) => c.t)).toEqual([0, 10_000, 20_000])
+    expect(series()?.overlays.map((o) => o.t)).toEqual([0, 10_000, 20_000])
+    expect(series()?.vol.map((c) => c.t)).toEqual([0, 10_000])
+  })
+
+  it('replaces a repeat of the last bar and drops an older one', () => {
+    loaded()
+    const s = useMarketStore.getState()
+    s.applyChartBar({
+      name: 'NIFTY',
+      interval: '10s',
+      role: 'price',
+      candle: bar(10_000, 5),
+      overlay: null,
+    })
+    s.applyChartBar({
+      name: 'NIFTY',
+      interval: '10s',
+      role: 'price',
+      candle: bar(0, 9),
+      overlay: null,
+    })
+    expect(series()?.candles.map((c) => [c.t, c.c])).toEqual([
+      [0, 1],
+      [10_000, 5],
+    ])
+  })
+
+  it('keeps each interval and chart apart', () => {
+    loaded()
+    useMarketStore.getState().applyChartBar({
+      name: 'NIFTY',
+      interval: '30s',
+      role: 'price',
+      candle: bar(30_000),
+      overlay: null,
+    })
+    expect(useMarketStore.getState().chartBars[chartKey('NIFTY', '30s')]).toBeUndefined()
+    expect(series()?.candles).toHaveLength(2)
   })
 })

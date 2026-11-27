@@ -48,7 +48,8 @@ milestone, is in [docs/plan.md](docs/plan.md).
   the market and feed status, the pages, the tools and Login or Logout (hover Trades, Data
   or Latency for a quick look); under it a strip of rates (NIFTY, SENSEX, gold, silver and
   their ETFs, with the day's change; a click opens the tab); DD/MM/YYYY dates; dark and
-  light themes. A banner says why the screen isn't live.
+  light themes. A banner says why the screen isn't live. The price chart can be drawn at
+  10 s, 30 s, 1 m or 5 m bars, with its lines and net volume on the same bars.
 - **Config:** every tunable value is edited in the app (a drawer with Parameters, Factors
   and Versions), saved as a numbered, tagged version you can revert to; each signal
   records the version it fired under.

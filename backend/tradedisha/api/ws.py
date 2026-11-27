@@ -1,5 +1,5 @@
 """WebSocket push: `hello` snapshot on connect, then `tick`, `chain`, `candle`, `bias`,
-`bullion`, `bullion_candle`, `health` and `parameters` frames.
+`bullion`, `bullion_candle`, `chart_bar`, `health` and `parameters` frames.
 
 Every frame carries t_src (exchange ts of the newest data in it), t_in (backend ingest of
 that data) and t_out (send time) so the browser can compute per-hop latency.
@@ -52,6 +52,7 @@ from tradedisha.events import (
 from tradedisha.feed.bus import StampedTick
 from tradedisha.market.candles import Candle
 from tradedisha.market.chain import ChainState
+from tradedisha.market.chart_bars import ChartBar
 from tradedisha.market.flow import FlowReading
 from tradedisha.market.stats import STRIP_QUOTES
 
@@ -87,6 +88,7 @@ class WsHub:
         state.session.trade_listeners.append(self._on_trade)
         state.session.flow_listeners.append(self._on_flow)
         state.session.bullion_candle_listeners.append(self._on_bullion_candle)
+        state.session.chart_bar_listeners.append(self._on_chart_bar)
         state.events.subscribe(FeedHealthChanged, self._on_health)
         state.events.subscribe(AuthChanged, self._on_health)
         state.events.subscribe(WindowChanged, self._on_window)
@@ -144,6 +146,19 @@ class WsHub:
             "overlay": overlay.model_dump(),
         }
         self._immediate.append(self._frame("bullion_candle", payload, t_src=c.minute_ts, t_in=None))
+
+    def _on_chart_bar(self, bar: ChartBar) -> None:
+        """A 10 s, 30 s or 5 m bar closed (E27): every client gets it; a page keeps it only
+        for a chart it has loaded."""
+        payload = {
+            "name": bar.name,
+            "interval": bar.interval,
+            "role": bar.role,
+            "candle": candle_out(bar.candle).model_dump(),
+            "overlay": overlay_out(bar.overlay).model_dump() if bar.overlay else None,
+        }
+        frame = self._frame("chart_bar", payload, t_src=bar.candle.minute_ts, t_in=None)
+        self._immediate.append(frame)
 
     def _gates(self) -> list[dict[str, object]]:
         return [g.model_dump() for g in gates(self._state)]

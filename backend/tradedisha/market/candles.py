@@ -14,6 +14,10 @@ at or below the bid, a sell; in between, the tick rule decides (`trade_side`). C
 and backfilled minutes come without trades). After a silence of more than `SIDE_GAP_MS`
 the first tick's volume is every trade missed, so it is counted in the volume but has no
 side (Milestone E13).
+
+Other bar sizes (E27): a builder can make bars of `bar_ms` instead of a minute, for the
+chart's 10 s and 30 s intervals only. Everything above holds per bar; `Candle.minute_ts`
+is then the bar's start.
 """
 
 from __future__ import annotations
@@ -54,7 +58,7 @@ def trade_side(
 @dataclass
 class Candle:
     key: str
-    minute_ts: int  # start of minute, epoch ms
+    minute_ts: int  # start of the minute (or of the bar, for another bar size), epoch ms
     open: float
     high: float
     low: float
@@ -108,10 +112,13 @@ CandleListener = Callable[[Candle], None]
 
 
 class CandleBuilder:
-    def __init__(self, *, max_history: int = 400) -> None:
+    def __init__(self, *, max_history: int = 400, bar_ms: int = MINUTE_MS) -> None:
+        if bar_ms <= 0 or (MINUTE_MS % bar_ms and bar_ms % MINUTE_MS):
+            raise ValueError(f"a bar of {bar_ms} ms does not fit the minute")
         self._series: dict[str, _Series] = {}
         self._listeners: list[CandleListener] = []
         self._max = max_history
+        self.bar_ms = bar_ms
 
     def on_close(self, fn: CandleListener) -> None:
         self._listeners.append(fn)
@@ -121,7 +128,7 @@ class CandleBuilder:
     def apply(self, t: Tick) -> list[Candle]:
         """Apply a tick; returns any candles closed as a result (usually 0 or 1)."""
         s = self._series.setdefault(t.key, _Series())
-        minute = t.ts // MINUTE_MS * MINUTE_MS
+        minute = t.ts // self.bar_ms * self.bar_ms
         dvol = 0
         if t.volume is not None:
             if s.last_cum_volume is not None:
@@ -157,12 +164,12 @@ class CandleBuilder:
             return []
         sides = 0 if last.buy_volume is not None else None
         out: list[Candle] = []
-        m = last.minute_ts + MINUTE_MS
+        m = last.minute_ts + self.bar_ms
         while m < minute:
             p = last.close
             gap = Candle(last.key, m, p, p, p, p, 0, True, buy_volume=sides, sell_volume=sides)
             out.append(self._close(s, gap))
-            m += MINUTE_MS
+            m += self.bar_ms
         return out
 
     @staticmethod
@@ -194,7 +201,7 @@ class CandleBuilder:
         out: list[Candle] = []
         for s in self._series.values():
             cur = s.current
-            if cur is not None and now_ms >= cur.minute_ts + MINUTE_MS + grace_ms:
+            if cur is not None and now_ms >= cur.minute_ts + self.bar_ms + grace_ms:
                 out.append(self._close(s, cur))
                 s.current = None
         return out

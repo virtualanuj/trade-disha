@@ -599,6 +599,21 @@ currency futures.
 - On each tick the candle builder runs after the chain manager (§7.2), so on a tick that
   opens a new minute the chain has closed its minute before the bias reads it.
 - VWAP is maintained on the futures stream from session open: `Σ(price×vol) / Σvol`.
+- **Chart intervals.** The chart can also be drawn at 10 s, 30 s and 5 m
+  (`market/chart_bars.py:ChartBars`). Display only: the bias, signals and paper trades
+  read the 1-minute candles alone. Each chart is a name with a price key and a volume key:
+  an index's spot and its near future, or a metal's near future for both. 10 s and 30 s
+  bars come from a `CandleBuilder` of that bar size (`bar_ms`), with gaps, flush and sides
+  as above, but per bar. They are fed from the tick bus for those keys only (never the
+  index builder), keep a full MCX day (5,400 and 1,800 bars), and are flushed with the
+  others. At start (not in replay) today's stored ticks from `ticks` and `bullion_ticks`
+  go through them without sending frames, so a restart keeps the day's bars. 5 m bars are
+  the 1-minute candles grouped (`indicators/chart.py:aggregate`; a bar is synthetic only if
+  every minute was, sides summed where all minutes have them), whole blocks only. One is
+  sent when the fifth minute closes. The lines are worked out over each interval's bars
+  with the same functions and parameters (`overlay_series`; periods count bars, so a
+  9-bar EMA is 90 s at 10 s). An index's VWAP comes from its future's bars, a metal's from
+  its own, at the latest volume bar at or before each price bar.
 - **Net volume.** Upstox does not say which side started a trade, so each
   tick's volume change is signed (`trade_side`): at or above the ask as it stood before the
   tick is a buy; at or below the bid, a sell; in between, the **tick rule** (up from the
@@ -1330,6 +1345,7 @@ only SQLite, and `GET /auth/login`; a test lists them.
 | GET | `/chain/{index}` | current `ChainState` snapshot + derived values |
 | GET | `/stats/{index}` | `IndexStats` for the details view (§7.4) |
 | GET | `/quotes` | the rates strip's market-wide quotes: SENSEX (§7.4) |
+| GET | `/chart/{name}?interval=10s\|30s\|1m\|5m` | a chart (an index or a metal) at one interval: closed bars, the lines at each, `vol_candles` for VWAP and net volume (§7.1); 404 for no such chart |
 | GET | `/candles/{index}?minutes=375` | today's spot candles with EMA/VWAP/supertrend series, and `fut_candles` (the near-month future's, whose `bv`/`sv` give net volume) |
 | GET | `/bias/{index}` | latest bias + breakdown |
 | GET | `/bias/{index}/history?day=` | per-minute bias for a day |
@@ -1390,6 +1406,7 @@ Server → client JSON frames `{type, ts, payload}`:
 | `bullion` | leading-edge throttle like `tick` | the GOLD / SILVER snapshot, with the ETFs |
 | `quotes` | leading-edge throttle like `tick`, on a SENSEX tick | the market-wide quotes (§7.4) |
 | `bullion_candle` | per closed bullion minute | `{metal, candle, overlay}` |
+| `chart_bar` | per closed 10 s, 30 s or 5 m bar of each chart | `{name, interval, role (price or vol), candle, overlay (price bars)}` (§7.1) |
 | `parameters` | on a save or revert | version, tag, created_ts, the set, effective-from minute |
 | `news` | on change (at most once per poll, §6.7) | `NewsOut`: status, error, fetched_at, headlines newest first |
 
@@ -1676,7 +1693,13 @@ NIFTY / BANK NIFTY tab               Chain minimised        MCX tab, NSE BULLION
   histogram of buy − sell volume, green above zero and red below, from the near-month
   future on index tabs and the metal's future on an MCX tab. The legend gives net, buy and
   sell for the minute under the crosshair (or the latest); minutes without side data have
-  no bar.
+  no bar. A switch above the chart (`ChartIntervals`: 10s · 30s · 1m · 5m, remembered in
+  the browser as `tradedisha.chartInterval`, one choice for every tab) sets the bar size
+  (§7.1). At 1m the chart is drawn from the frames it always had. At the others,
+  `LiveIntervalChart` loads `GET /chart/{name}` once (again after a reconnect, since
+  `hello` clears those series), then keeps it from `chart_bar` frames. Lines and net
+  volume are those of the chosen bars, the axis shows seconds below a minute, and signal
+  markers sit on the bar that holds their minute.
 - **SignalCard**: direction, symbol, the Fired and Live rows of entry/target/stop (§9.3;
   points shown on expiry day; a future shows its rupees per point), countdown, an
   open-trades block when there are open trades on that index or metal (each with

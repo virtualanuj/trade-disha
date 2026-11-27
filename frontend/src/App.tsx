@@ -19,6 +19,7 @@ import {
   HistoryPanel,
   IndexTilesPanel,
   LiveBank,
+  LiveIntervalChart,
   LiveRatesStrip,
   LiveTopBar,
   LiveTradeLog,
@@ -28,6 +29,7 @@ import {
 } from './components/Live/Live'
 import { PanelFrame } from './components/PanelFrame/PanelFrame'
 import { PriceChart } from './components/PriceChart/PriceChart'
+import { ChartIntervals } from './components/ChartIntervals/ChartIntervals'
 import { RightColumn } from './components/RightColumn/RightColumn'
 import { currentBanner } from './components/StatusBanner/banner'
 import { StatusBanner } from './components/StatusBanner/StatusBanner'
@@ -39,6 +41,7 @@ import type { PanelId, UnitId } from './lib/panels'
 import { chartSummary } from './lib/panelSummary'
 import { tabGroups, tabIds } from './lib/tabs'
 import { useNewsSeen } from './lib/useNewsSeen'
+import { asInterval } from './lib/chartIntervals'
 import { usePref } from './lib/usePref'
 import { hashFor, viewFromHash, type View } from './lib/view'
 import { ETF_TAB, METAL_TABS, useMarketStore } from './state/store'
@@ -57,6 +60,7 @@ function useDebugFlag(): [boolean, () => void] {
 }
 
 const LAYOUT_KEY = 'tradedisha.layout'
+const CHART_INTERVAL_KEY = 'tradedisha.chartInterval'
 
 function useWindowWidth(): number {
   const [width, setWidth] = useState(() => window.innerWidth)
@@ -116,6 +120,8 @@ export default function App() {
   const [layout, setLayout] = useLayout()
   const panels = usePanels()
   const [theme, toggleTheme] = useTheme()
+  /** the chart's bar size, one choice for every tab (E27) */
+  const [chartInterval, setChartInterval] = usePref(CHART_INTERVAL_KEY, asInterval)
   const [debug, toggleDebug] = useDebugFlag()
 
   const ws = useMarketStore((s) => s.ws)
@@ -290,15 +296,28 @@ export default function App() {
           keepMounted
           bodyClassName=""
         >
-          <PriceChart
-            candles={candles}
-            overlays={overlays}
-            signals={markers}
-            netVolume={netVolume}
-            dataKey={onBullion ? `bullion-${metal}` : selected}
-            theme={theme}
-            height={layout.chartHeight}
-          />
+          <div className="flex justify-end px-2 pt-1">
+            <ChartIntervals value={chartInterval} onChange={setChartInterval} />
+          </div>
+          {chartInterval === '1m' ? (
+            <PriceChart
+              candles={candles}
+              overlays={overlays}
+              signals={markers}
+              netVolume={netVolume}
+              dataKey={onBullion ? `bullion-${metal}` : selected}
+              theme={theme}
+              height={layout.chartHeight}
+            />
+          ) : (
+            <LiveIntervalChart
+              name={onBullion ? metal : selected}
+              interval={chartInterval}
+              signals={markers}
+              theme={theme}
+              height={layout.chartHeight}
+            />
+          )}
         </PanelFrame>
         {panels.minimised.chart ? null : (
           <Divider

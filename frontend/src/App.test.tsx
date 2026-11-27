@@ -119,4 +119,36 @@ describe('App', () => {
     expect(screen.queryByTestId('etf-view')).not.toBeInTheDocument()
     expect(screen.queryByRole('group', { name: 'Metal' })).not.toBeInTheDocument() // no switch
   })
+
+  it('switches the chart interval, remembers it, and a closed bar redraws only the chart (E27)', () => {
+    const bar = { t: 10_000, o: 1, h: 2, l: 1, c: 2, v: 0, synthetic: false, bv: null, sv: null }
+    act(() => {
+      useMarketStore.getState().loadChart({
+        name: 'NIFTY',
+        interval: '10s',
+        candles: [],
+        overlays: [],
+        vol_candles: [],
+      })
+    })
+    render(<App />)
+    expect(screen.getByRole('radio', { name: '1m' })).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(screen.getByRole('radio', { name: '10s' }))
+    expect(screen.getByRole('radio', { name: '10s' })).toHaveAttribute('aria-checked', 'true')
+    expect(localStorage.getItem('tradedisha.chartInterval')).toBe('"10s"')
+    expect(screen.getByTestId('price-chart')).toBeInTheDocument()
+
+    const before = chartRenders.n
+    act(() => {
+      useMarketStore.getState().applyTick(tick(7), 7)
+      useMarketStore.getState().applyChartBar({
+        name: 'NIFTY',
+        interval: '10s',
+        role: 'price',
+        candle: bar,
+        overlay: null,
+      })
+    })
+    expect(chartRenders.n).toBe(before + 1) // the chart, not the page
+  })
 })

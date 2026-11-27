@@ -1,9 +1,10 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ComponentProps } from 'react'
 
 import type {
   BullionEtfOut,
   BullionOut,
+  ChartInterval,
   NewsOut,
   PaperTradeOut,
   SignalOut,
@@ -26,7 +27,11 @@ import {
 import { useMarketNow } from '../../lib/marketClock'
 import { chainTicket } from '../../lib/ticket'
 import { useNow } from '../../lib/useNow'
-import { useMarketStore } from '../../state/store'
+import { fetchChart } from '../../api/client'
+import { INTERVAL_MS, INTERVAL_TEXT } from '../../lib/chartIntervals'
+import { chartKey, useMarketStore } from '../../state/store'
+import type { Theme } from '../../theme/useTheme'
+import { PriceChart } from '../PriceChart/PriceChart'
 import { Bank } from '../Bank/Bank'
 import { BiasMeter } from '../BiasMeter/BiasMeter'
 import { stripRates } from '../../lib/rates'
@@ -341,4 +346,78 @@ export function LiveTradeLog(props: Omit<ComponentProps<typeof TradeLog>, 'lates
   const now = useMarketNow(500)
   const trades = useMarketStore((s) => s.trades)
   return <TradeLog {...props} latest={trades} now={now} />
+}
+
+interface IntervalChartProps {
+  /** the index or metal in focus */
+  name: string
+  interval: Exclude<ChartInterval, '1m'>
+  signals: SignalOut[]
+  theme: Theme
+  height: number
+  load?: typeof fetchChart
+}
+
+/**
+ * The chart at 10 s, 30 s or 5 m (E27): loaded once when it comes on screen (and again
+ * after a reconnect clears it), then kept by the socket's `chart_bar` frames.
+ */
+export function LiveIntervalChart({
+  name,
+  interval,
+  signals,
+  theme,
+  height,
+  load = fetchChart,
+}: IntervalChartProps) {
+  const key = chartKey(name, interval)
+  const series = useMarketStore((s) => s.chartBars[key])
+  const loadChart = useMarketStore((s) => s.loadChart)
+  const loaded = series !== undefined
+  /** why this chart could not be loaded; kept per chart, so another starts clean */
+  const [failed, setFailed] = useState<{ key: string; text: string } | null>(null)
+  const error = failed?.key === key ? failed.text : null
+
+  useEffect(() => {
+    if (loaded) return
+    const ctl = new AbortController()
+    load(name, interval, ctl.signal)
+      .then(loadChart)
+      .catch((e: unknown) => {
+        if (ctl.signal.aborted) return
+        setFailed({
+          key: chartKey(name, interval),
+          text: e instanceof Error ? e.message : 'failed',
+        })
+      })
+    return () => {
+      ctl.abort()
+    }
+  }, [name, interval, loaded, load, loadChart])
+
+  if (!series) {
+    return (
+      <div
+        className="flex items-center justify-center text-fg-muted"
+        style={{ height }}
+        data-testid="interval-chart-loading"
+        role={error ? 'alert' : undefined}
+      >
+        {error ? `Could not load the ${INTERVAL_TEXT[interval]} chart: ${error}` : 'Loading…'}
+      </div>
+    )
+  }
+  return (
+    <PriceChart
+      candles={series.candles}
+      overlays={series.overlays}
+      signals={signals}
+      netVolume={series.vol}
+      dataKey={key}
+      theme={theme}
+      height={height}
+      barMs={INTERVAL_MS[interval]}
+      barText={INTERVAL_TEXT[interval]}
+    />
+  )
 }

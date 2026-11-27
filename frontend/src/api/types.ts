@@ -198,6 +198,7 @@ export type Frame =
   | FlowFrame
   | BullionFrame
   | BullionCandleFrame
+  | ChartBarFrame
   | NewsFrame
   | BankFrame
 
@@ -262,6 +263,33 @@ export interface OverlayOut {
   vwap: number | null
   supertrend: number | null
   supertrend_dir: number
+}
+
+/** The chart's intervals (E27); the bias and signals stay on 1-minute closes. */
+export type ChartInterval = '10s' | '30s' | '1m' | '5m'
+
+/** A chart at one interval: closed bars, the lines at each, and the volume bars (an
+ * index's future, or the metal itself) for VWAP and net volume. Mirrors api ChartOut. */
+export interface ChartOut {
+  /** an index or a metal */
+  name: string
+  interval: ChartInterval
+  candles: CandleOut[]
+  overlays: OverlayOut[]
+  vol_candles: CandleOut[]
+}
+
+export interface ChartBarFrame extends FrameBase {
+  type: 'chart_bar'
+  payload: {
+    name: string
+    interval: ChartInterval
+    /** price: the chart's own candles; vol: the volume bars under them */
+    role: 'price' | 'vol'
+    candle: CandleOut
+    /** the lines at this bar, on price bars only */
+    overlay: OverlayOut | null
+  }
 }
 
 export interface CandlesResponse {

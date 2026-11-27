@@ -67,6 +67,11 @@ interface Props {
   /** candles whose buy/sell split is drawn as net volume in a pane below (Milestone E8);
    * the near-month future's. Omitted: no volume pane. */
   netVolume?: CandleOut[]
+  /** the bar size, epoch ms (E27): markers sit on the bar holding their minute; below a
+   * minute the axis shows seconds */
+  barMs?: number
+  /** the empty text's bar, in words: "1-minute" */
+  barText?: string
 }
 
 const STATUS_SHAPE: Record<SignalOut['status'], string> = {
@@ -76,10 +81,10 @@ const STATUS_SHAPE: Record<SignalOut['status'], string> = {
   reversed: ' (reversed)',
 }
 
-function toMarker(s: SignalOut): SeriesMarker<Time> {
+function toMarker(s: SignalOut, barMs: number): SeriesMarker<Time> {
   const call = isLong(s.direction)
   return {
-    time: toTime(s.minute_ts),
+    time: toTime(Math.floor(s.minute_ts / barMs) * barMs),
     position: call ? 'belowBar' : 'aboveBar',
     shape: call ? 'arrowUp' : 'arrowDown',
     color: call ? cssVar('--bull') : cssVar('--bear'),
@@ -110,6 +115,8 @@ export function PriceChart({
   theme,
   height = 320,
   netVolume,
+  barMs = 60_000,
+  barText = '1-minute',
 }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
@@ -133,7 +140,11 @@ export function PriceChart({
       },
       grid: { vertLines: { color: cssVar('--border') }, horzLines: { color: cssVar('--border') } },
       rightPriceScale: { borderColor: cssVar('--border') },
-      timeScale: { borderColor: cssVar('--border'), timeVisible: true, secondsVisible: false },
+      timeScale: {
+        borderColor: cssVar('--border'),
+        timeVisible: true,
+        secondsVisible: barMs < 60_000,
+      },
       crosshair: { mode: CrosshairMode.Normal },
     })
     const bull = cssVar('--bull')
@@ -200,7 +211,7 @@ export function PriceChart({
       chart.current = null
       series.current = null
     }
-  }, [theme, withVolume])
+  }, [theme, withVolume, barMs])
 
   // data: full set on (re)mount or when history shrinks/replaces; incremental otherwise
   useEffect(() => {
@@ -241,14 +252,14 @@ export function PriceChart({
     }
     if ((reset || prev.candles === 0) && candles.length) chart.current?.timeScale().fitContent()
     lastCount.current = { candles: candles.length, overlays: overlays.length, key: dataKey }
-  }, [candles, overlays, dataKey, theme])
+  }, [candles, overlays, dataKey, theme, barMs])
 
   useEffect(() => {
     const s = series.current
     if (!s) return
     const sorted = [...signals].sort((a, b) => a.minute_ts - b.minute_ts)
-    s.markers.setMarkers(sorted.map(toMarker))
-  }, [signals, theme])
+    s.markers.setMarkers(sorted.map((x) => toMarker(x, barMs)))
+  }, [signals, theme, barMs])
 
   // net volume: a few hundred bars at most, so the whole set is simply replaced
   useEffect(() => {
@@ -262,7 +273,7 @@ export function PriceChart({
       color: b.value >= 0 ? up : down,
     }))
     s.setData(data)
-  }, [bars, theme, withVolume])
+  }, [bars, theme, withVolume, barMs])
 
   return (
     <div className="relative w-full shrink-0" style={{ height }}>
@@ -290,7 +301,9 @@ export function PriceChart({
       </div>
       {candles.length === 0 ? (
         <div className="absolute inset-0 flex items-center justify-center text-fg-muted">
-          Waiting for the first closed minute…
+          {barText === '1-minute'
+            ? 'Waiting for the first closed minute…'
+            : `Waiting for the first closed ${barText} bar…`}
         </div>
       ) : null}
     </div>
