@@ -498,20 +498,6 @@ class Bullion(BaseModel):
         le=10,
         description="Stop, as % of the future's price against the signal.",
     )
-    gold_contract: Literal["GOLD", "GOLDM"] = Field(
-        "GOLD",
-        description=(
-            "The future a GOLD signal's paper trade opens: GOLD (1 kg, ₹100 a point) or "
-            "GOLDM (100 g, ₹10 a point). The signal itself always reads GOLD."
-        ),
-    )
-    silver_contract: Literal["SILVER", "SILVERM"] = Field(
-        "SILVER",
-        description=(
-            "The future a SILVER signal's paper trade opens: SILVER (30 kg, ₹30 a point) "
-            "or SILVERM (5 kg, ₹5 a point). The signal itself always reads SILVER."
-        ),
-    )
     gold_lots: int = Field(1, ge=1, le=100, description="Default lots of a GOLD paper trade.")
     goldm_lots: int = Field(1, ge=1, le=100, description="Default lots of a GOLDM paper trade.")
     silver_lots: int = Field(1, ge=1, le=100, description="Default lots of a SILVER paper trade.")
@@ -662,12 +648,9 @@ class Bullion(BaseModel):
         ),
     )
 
-    def margin_pct(self, metal: str) -> float:
-        return self.gold_margin_pct if metal == "GOLD" else self.silver_margin_pct
-
-    def contract_for(self, metal: str) -> str:
-        """The contract a metal's signal trade opens: the full future or its mini."""
-        return self.gold_contract if metal == "GOLD" else self.silver_contract
+    def margin_pct(self, name: str) -> float:
+        """A contract's margin rate: its metal's, so GOLDM blocks at GOLD's rate."""
+        return self.silver_margin_pct if name.startswith("SILVER") else self.gold_margin_pct
 
     def lots_for(self, contract: str) -> int:
         """Default lots for a contract (GOLD, GOLDM, SILVER, SILVERM)."""
@@ -688,6 +671,10 @@ class Bullion(BaseModel):
             lots = data.pop("lots")
             for name in ("gold_lots", "goldm_lots", "silver_lots", "silverm_lots"):
                 data.setdefault(name, lots)
+        if isinstance(data, dict) and ("gold_contract" in data or "silver_contract" in data):
+            # E28 picked the contract a metal's signal traded; since E29 each contract has
+            # its own signals, so the choice is gone and a version that made it still loads
+            data = {k: v for k, v in data.items() if k not in ("gold_contract", "silver_contract")}
         return data
 
     @field_validator("first_signal_time", "last_signal_time", "square_off_time", mode="before")
@@ -774,7 +761,9 @@ FACTOR_SCOPES: dict[str, str] = {
     "NIFTY": "nifty",
     "BANKNIFTY": "banknifty",
     "GOLD": "gold",
+    "GOLDM": "goldm",
     "SILVER": "silver",
+    "SILVERM": "silverm",
 }
 
 
@@ -785,7 +774,9 @@ class Factors(BaseModel):
     nifty: NiftyFactors = Field(default_factory=NiftyFactors)
     banknifty: IndexFactors = Field(default_factory=IndexFactors)
     gold: BullionFactors = Field(default_factory=BullionFactors)
+    goldm: BullionFactors = Field(default_factory=BullionFactors)
     silver: BullionFactors = Field(default_factory=BullionFactors)
+    silverm: BullionFactors = Field(default_factory=BullionFactors)
 
     def scope_model(self, scope: str) -> BaseModel | None:
         field = FACTOR_SCOPES.get(scope)

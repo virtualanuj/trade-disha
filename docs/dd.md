@@ -66,8 +66,8 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **MCX** | Multi Commodity Exchange of India, where gold and silver futures trade. A different exchange from NSE, with its own hours and holidays. |
 | **MCX holiday calendar** | `config/mcx-holidays.txt`: `YYYY-MM-DD` for a day closed throughout, `YYYY-MM-DD HH:MM` for an evening-only day. Maintained by hand from the MCX circular. |
 | **MCX hours** | 09:00 to 23:30 IST, extended to 23:55 while the US is on standard time (roughly November to March). Settings `mcx_open` and `mcx_close`; the close is changed by hand with the season. |
-| **MCX tab** | The dashboard tab of one metal, GOLD or SILVER, under the MCX group: its future and mini, signal, market view, chart and trades, on MCX hours. |
-| **Mini / petal contracts** | Smaller gold and silver contracts (`GOLDM`, `GOLDPETAL`, `SILVERM` and others). `GOLDM` (100 g, ₹10 a point) and `SILVERM` (5 kg, ₹5 a point) are loaded as each metal's **mini**: the same quote in smaller lots, shown beside the full contract with the same figures, and a trading choice only (see **Trading contract**); never read by the bias or signals. The other small contracts are not loaded. |
+| **MCX tab** | The dashboard tab of one bullion contract, GOLD, GOLDM, SILVER or SILVERM, under the MCX group: its future, signal, market view, chart and trades, on MCX hours. |
+| **Mini / petal contracts** | Smaller gold and silver contracts (`GOLDM`, `GOLDPETAL`, `SILVERM` and others). `GOLDM` (100 g, ₹10 a point) and `SILVERM` (5 kg, ₹5 a point) are loaded as each metal's **mini**, a market of its own: its own MCX tab, candles, market view and signals, which trade it. It is quoted like its metal and blocks its metal's margin rate. The other small contracts are not loaded. |
 | **Near / next month** | The near contract is the one with the nearest expiry strictly after today; the next is the one after it. Prices and charts are for the near contract; the next contract's price is shown for the calendar spread. |
 | **NSE BULLION tab** | The third NSE tab: the two gold and silver ETFs alone, display only, on NSE hours. |
 | **Placeholder price** | A made-up price on the daily candles of a future's early days, before it trades (one gold contract showed ₹2,47,917). Recognised by zero volume and skipped. |
@@ -75,7 +75,7 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Previous close (bullion)** | Yesterday's settlement price. From the feed's `cp` field; before the first tick it is worked out from the full quote as last price − net change. |
 | **Roll** | Switching from the expiring contract to the next one. Bullion rolls on expiry day. |
 | **Silver (MCX `SILVER`)** | The 30 kg silver futures contract, quoted in ₹ per kg. |
-| **Trading contract** | What a metal's signal trade opens: the full future or its mini, set by `bullion.gold_contract` (`GOLD` or `GOLDM`) and `bullion.silver_contract` (`SILVER` or `SILVERM`). The signal itself always reads the full future; a mini trade counts as its metal's (margin rate, summary row, US-release pause). |
+| **Trading contract** | What a bullion signal's trade opens: its own contract (a GOLDM signal trades GOLDM), with that contract's default lots. Earlier, a setting chose the full future or the mini for a metal's signal; those older mini trades stay under their metal. |
 
 ---
 
@@ -182,7 +182,7 @@ ones: nothing of bullion feeds the index market view or recommendations.
 | **Open trade** | A paper trade not yet closed. Tracked tick by tick for target/stop. |
 | **Paper bank** | The fake bank account that funds paper trades, one for every market. Balance = opening balance + net of every closed trade it funded; available = balance − blocked. A trade opens only if available covers its block. The opening balance (`bank.opening_balance`, default ₹25 lakh) is the cash put in: raising it is a deposit of the difference, lowering it a withdrawal, each a row in `bank_ledger`. Nothing is deleted. |
 | **Paper trade** | A simulated trade opened by the trader: by clicking "Paper trade" on an active signal, or by hand from the option chain or a bullion card (see **Opened by hand**). Never placed with the broker. |
-| **Opened by hand (manual trade)** | A paper trade with no signal behind it: any option in the chain window, or a metal's future or its mini bought or sold, from the TradeTicket. Its `signal_id` is `manual`. Same gates as a signal trade plus the signal cut-off; target and stop are the signal rule's at the fill unless typed. Counted in its own "Opened by hand" row of the Trades summary, never in the signal stats. |
+| **Opened by hand (manual trade)** | A paper trade with no signal behind it: any option in the chain window, or a bullion contract's future (GOLD, GOLDM, SILVER, SILVERM) bought or sold, from the TradeTicket. Its `signal_id` is `manual`. Same gates as a signal trade plus the signal cut-off; target and stop are the signal rule's at the fill unless typed. Counted in its own "Opened by hand" row of the Trades summary, never in the signal stats. |
 | **Levels edited** | The target and stop of an open paper trade changed by the trader after it opened. Checked against the current price; every set of levels is kept in `paper_trade_levels`. |
 | **Quantity** | Lot size × lots (default 1 lot). For bullion, the traded contract's point value × its lots (GOLD 100, GOLDM 10, SILVER 30, SILVERM 5 per lot; default lots per contract in `bullion.<contract>_lots`). |
 | **Slippage** | Entry fill minus the signal's entry price: how far the price moved between the signal firing and the click. Recorded per trade. |

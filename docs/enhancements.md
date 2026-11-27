@@ -1019,6 +1019,33 @@ Builder's calls:
   reduced motion the dot stays still.
 - Open trades still come first under "Open now", as before.
 
+### 38. GOLDM and SILVERM with their own signals
+
+Asked for (2026-11-27): trade signals come only on SILVER and GOLD; they should consider
+SILVER, SILVERM, GOLD and GOLDM.
+
+Status: built in Milestone E29. Design in [spec.md](spec.md) §6.6 (Minis), §8.4, §9a and
+§13 (MCX tabs, BullionCards); planned in [plan.md](plan.md) Milestone E29. It supersedes
+item 28's "the minis are a trading choice" and item 32's metal-plus-mini MCX tab.
+
+Decided with the owner on 2026-11-27:
+- Each of the four contracts has its own market view and signals, from its own candles,
+  OI and order book, and its signals trade that contract. A metal and its mini can
+  disagree.
+- Each mini has its own MCX tab: `[GOLD] [GOLDM] [SILVER] [SILVERM]`, each with its card,
+  signal, market view, chart, trades and signal history.
+
+Builder's calls:
+- The peer a contract reads is the other metal's full future (GOLD and GOLDM read SILVER),
+  since the full contract trades the most. The dollar and every bullion parameter are
+  shared; the factor switches are per contract (`factors.goldm`, `factors.silverm`).
+- A mini blocks its metal's margin rate and is quoted in its metal's unit.
+- `bullion.gold_contract` and `silver_contract` are retired: a stored version that has them
+  still loads, without them.
+- History is kept as it is: a GOLDM trade a GOLD signal opened before this stays under
+  GOLD. New GOLDM signals and trades are GOLDM's own, with their own summary row.
+- The minis stay off the rates strip; the gold/silver ratio stays the two full futures'.
+
 ## Deferred
 
 ### Strike ladder (ATM ±3)

@@ -1,9 +1,11 @@
-"""BULLION: gold and silver MCX futures on their own tab. Spec §6.6, §9a.
+"""Bullion: the MCX gold and silver futures and their minis, each a market of its own.
+Spec §6.6, §9a.
 
 The tracker keeps the latest tick per contract, the day's range, the near contracts'
 1-minute candles in their own builder (the shared one drives the index bias engine) and,
 for the bullion bias, one open-interest and order-book reading per minute (Milestone E13).
-Their ticks go to `bullion_ticks`, never to `ticks`.
+GOLD, GOLDM, SILVER and SILVERM are all markets: each has its candles, book, bias and
+signals (E29). Their ticks go to `bullion_ticks`, never to `ticks`.
 """
 
 from __future__ import annotations
@@ -29,10 +31,19 @@ from tradedisha.market.candles import MINUTE_MS, Candle, CandleBuilder
 log = logging.getLogger(__name__)
 
 METALS: tuple[str, ...] = ("GOLD", "SILVER")
-# Each metal's mini (E28): the same quote in smaller lots, a trading choice only. The bias,
-# candles and signals always read the full contract.
+# Each metal's mini (E28): the same quote in smaller lots, a market of its own (E29).
 MINIS: dict[str, str] = {"GOLD": "GOLDM", "SILVER": "SILVERM"}
 CONTRACTS: tuple[str, ...] = (*METALS, *MINIS.values())  # what the MCX file is read for
+# the markets in tab order: each metal, then its mini
+MARKETS: tuple[str, ...] = ("GOLD", "GOLDM", "SILVER", "SILVERM")
+_FAMILY: dict[str, str] = {**{m: m for m in METALS}, **{v: k for k, v in MINIS.items()}}
+
+
+def family(name: str) -> str:
+    """The metal a contract is of: GOLDM is GOLD's. Its margin rate, peer and ratio follow."""
+    return _FAMILY.get(name, name)
+
+
 GOLD_PER_KG = 100  # GOLD is quoted per 10 g, SILVER per kg
 CANDLE_HISTORY = 900  # minutes: MCX runs 09:00 to 23:30
 
@@ -47,9 +58,6 @@ class BullionContract:
     quote: FullQuote | None = None  # near contract, at start
     range_high: float | None = None  # the contract's high over the last year, to yesterday
     range_low: float | None = None
-    # The metal's mini (GOLDM, SILVERM), a contract of its own with the same details; a
-    # trading choice only, never the metal's candles or bias (E28).
-    mini: BullionContract | None = None
 
 
 @dataclass(frozen=True)
@@ -88,7 +96,6 @@ class MetalSnapshot:
     calendar_spread_pct: float | None
     updated_ts: int | None
     point_value: int = 0  # rupees per point per lot (the file's qty multiplier)
-    mini: MetalSnapshot | None = None  # the metal's mini, with the same figures (E28)
 
 
 @dataclass(frozen=True)
@@ -222,38 +229,28 @@ class BullionTracker:
         self._metal_of_near = {c.near.instrument_key: m for m, c in contracts.items()}
         keys = set(self._metal_of_near)
         keys.update(c.next.instrument_key for c in contracts.values() if c.next)
-        # a mini's near key -> the mini's name: its day range only, never candles (E28)
-        self._mini_of_near = {
-            c.mini.near.instrument_key: c.mini.metal for c in contracts.values() if c.mini
-        }
-        keys.update(self._mini_of_near)
-        keys.update(
-            c.mini.next.instrument_key for c in contracts.values() if c.mini and c.mini.next
-        )
         self.keys: frozenset[str] = frozenset(keys)
         # Liveness, judged by FeedSession against MCX hours; display only.
         self.last_tick_ts: int | None = None
         self.gap_since: int | None = None  # start of an MCX outage in progress
         self.was_live = False
         for c in contracts.values():
-            for each in (c, c.mini):
-                q = each.quote if each else None
-                if each is not None and q is not None:
-                    self._day[each.metal] = (q.day_open or 0.0, q.day_high or 0.0, q.day_low or 0.0)
+            q = c.quote
+            if q is not None:
+                self._day[c.metal] = (q.day_open or 0.0, q.day_high or 0.0, q.day_low or 0.0)
         if on_candle is not None:
             self.candles.on_close(lambda cd: on_candle(self._metal_of_near[cd.key], cd))
 
     def near_key(self, metal: str) -> str:
         return self.contracts[metal].near.instrument_key
 
-    def instrument(self, metal: str, contract: str) -> Instrument | None:
-        """A metal's tradable future by contract name: the full one or its mini."""
-        c = self.contracts.get(metal)
-        if c is None:
+    def instrument(self, name: str, contract: str | None = None) -> Instrument | None:
+        """A market's tradable near future. `contract`, when given, must be the market
+        itself: a mini is its own market (E29)."""
+        c = self.contracts.get(name)
+        if c is None or (contract is not None and contract != name):
             return None
-        if contract == metal:
-            return c.near
-        return c.mini.near if c.mini is not None and contract == c.mini.metal else None
+        return c.near
 
     def metal_of(self, key: str) -> str | None:
         """The metal whose near contract this is; None for a next-month or other key."""
@@ -270,10 +267,6 @@ class BullionTracker:
         if self.last_tick_ts is None or t.ts > self.last_tick_ts:
             self.last_tick_ts = t.ts
         self._latest[t.key] = merge_tick(self._latest.get(t.key), t)
-        mini = self._mini_of_near.get(t.key)
-        if mini is not None:  # a mini: its day range, not the metal's candles or bias
-            self._day[mini] = widen_day(self._day.get(mini, (0.0, 0.0, 0.0)), t)
-            return
         metal = self._metal_of_near.get(t.key)
         if metal is None:
             return  # a next-month contract: price only
@@ -309,12 +302,7 @@ class BullionTracker:
         return metal_snapshot(c, self._latest.get(c.near.instrument_key), nxt, day)
 
     def snapshot(self) -> BullionSnapshot:
-        metals = []
-        for c in self.contracts.values():
-            snap = self._contract_snapshot(c)
-            if c.mini is not None:
-                snap = replace(snap, mini=self._contract_snapshot(c.mini))
-            metals.append(snap)
+        metals = [self._contract_snapshot(c) for c in self.contracts.values()]
         by = {s.metal: s.ltp for s in metals}
         return BullionSnapshot(metals, gold_silver_ratio(by.get("GOLD"), by.get("SILVER")))
 
@@ -335,34 +323,27 @@ async def load_contracts(
 
 
 def contracts_from(master: list[Instrument], today: date) -> dict[str, BullionContract]:
-    """Metal -> its near and next futures, and its mini's near month, in an MCX list."""
+    """Market -> its near and next futures, in tab order (GOLD, GOLDM, SILVER, SILVERM).
+    A contract with no future after today is left out, and so is a mini whose metal is."""
     out: dict[str, BullionContract] = {}
-    for metal in METALS:
-        months = resolve_commodity_months(master, metal, today)
-        if months is None:
-            log.warning("no MCX %s future after %s", metal, today)
+    for name in MARKETS:
+        if name in MINIS.values() and family(name) not in out:
             continue
-        mini_months = resolve_commodity_months(master, MINIS[metal], today)
-        if mini_months is None:
-            log.warning(
-                "no MCX %s future after %s: %s trades the full contract only",
-                MINIS[metal],
-                today,
-                metal,
-            )
-        mini = BullionContract(MINIS[metal], *mini_months) if mini_months else None
-        out[metal] = BullionContract(metal, months[0], months[1], mini=mini)
+        months = resolve_commodity_months(master, name, today)
+        if months is None:
+            log.warning("no MCX %s future after %s", name, today)
+            continue
+        out[name] = BullionContract(name, months[0], months[1])
     return out
 
 
 async def enrich(
     client: httpx.AsyncClient, token: str, contracts: dict[str, BullionContract], today: date
 ) -> dict[str, BullionContract]:
-    """Add the start-of-day quote and the one-year range, to each metal and its mini; each
-    fails soft."""
-    every = [c for m in contracts.values() for c in (m, m.mini) if c is not None]
+    """Add the start-of-day quote and the one-year range to each contract; each fails soft."""
     try:
-        quotes = await fetch_quotes(client, token, [c.near.instrument_key for c in every])
+        keys = [c.near.instrument_key for c in contracts.values()]
+        quotes = await fetch_quotes(client, token, keys)
     except Exception as exc:
         log.warning("bullion quote failed: %s", type(exc).__name__)
         quotes = {}
@@ -382,11 +363,7 @@ async def enrich(
             range_low=rng[1] if rng else None,
         )
 
-    out: dict[str, BullionContract] = {}
-    for m, c in contracts.items():
-        mini = await one(c.mini) if c.mini is not None else None
-        out[m] = replace(await one(c), mini=mini)
-    return out
+    return {m: await one(c) for m, c in contracts.items()}
 
 
 async def backfill(

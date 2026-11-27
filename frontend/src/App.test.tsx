@@ -151,4 +151,27 @@ describe('App', () => {
     })
     expect(chartRenders.n).toBe(before + 1) // the chart, not the page
   })
+
+  it('gives each mini its own MCX tab, with its own card and chart (E29)', () => {
+    const metal = (name: string) => ({ metal: name, ltp: 1 }) as unknown as BullionMetalOut
+    act(() => {
+      useMarketStore.setState({
+        instruments: [{ index: 'NIFTY', future: { expiry: null } } as unknown as ResolvedIndexOut],
+        bullion: {
+          metals: ['GOLD', 'GOLDM', 'SILVER', 'SILVERM'].map(metal),
+          ratio: null,
+          etfs: [],
+        },
+      })
+    })
+    render(<App />)
+    expect(screen.getByRole('tablist', { name: 'Market' })).toHaveTextContent(
+      'NSENIFTYMCXGOLDGOLDMSILVERSILVERM',
+    )
+    fireEvent.click(screen.getByRole('tab', { name: 'MCX GOLDM' }))
+    expect(useMarketStore.getState().selectedIndex).toBe('GOLDM')
+    expect(screen.getByTestId('bullion-GOLDM')).toBeInTheDocument()
+    expect(screen.queryByTestId('bullion-GOLD')).not.toBeInTheDocument()
+    expect(screen.getByTestId('price-chart')).toBeInTheDocument()
+  })
 })

@@ -32,10 +32,10 @@ milestone, is in [docs/plan.md](docs/plan.md).
   scored by what its option did next; an order-flow trigger runs in shadow beside the
   minute-close rule. Bullion signals pause around hand-listed US data releases.
 - **Paper trading:** one click to open from a signal, or by hand with no signal: any
-  option from the chain or a metal's future or its mini, bought or sold, from a ticket
-  with the signal rule's target and stop (or your own) and, for a future, its lots. Each
-  metal's signal trades the full future or its mini, with default lots per contract, set
-  in Config. Funded by a paper bank (an option blocks its premium, a future its margin,
+  option from the chain or a bullion future, bought or sold, from a ticket with the signal
+  rule's target and stop (or your own) and, for a future, its lots. GOLD, GOLDM, SILVER and
+  SILVERM each have their own market view and signals, which trade that contract, with
+  default lots per contract set in Config. Funded by a paper bank (an option blocks its premium, a future its margin,
   plus cost; ₹25 lakh to start, set in Config). Trades close at target, stop, the
   square-off or by hand, and the target and stop of an open trade can be changed; P&L is
   net of costs. Trades opened by hand are kept out of the signal stats. The Journal is the
@@ -44,7 +44,7 @@ milestone, is in [docs/plan.md](docs/plan.md).
   each opening to its fills, signal, outcome and evidence, headed by a summary (net,
   hit rate, profit factor, expectancy and R, best and worst, drawdown) that follows the filters.
 - **Screen:** tabs by exchange: NSE (NIFTY, BANK NIFTY, BULLION with the gold and silver
-  ETFs) and MCX (GOLD, SILVER); panels that resize, minimise and re-order; a top bar with
+  ETFs) and MCX (GOLD, GOLDM, SILVER, SILVERM); panels that resize, minimise and re-order; a top bar with
   the market and feed status, the pages, the tools and Login or Logout (hover Trades, Data
   or Latency for a quick look); under it a strip of rates (NIFTY, SENSEX, gold, silver and
   their ETFs, with the day's change; a click opens the tab); DD/MM/YYYY dates; dark and
@@ -122,7 +122,7 @@ Set `TRADEDISHA_FEED_PROVIDER` in `.env`:
 |---|---|
 | `synthetic` (default) | Random-walk prices for both indices, ticking regardless of market hours. Ticks are recorded to SQLite. `TRADEDISHA_SYNTHETIC_TREND_PER_TICK=0.02` adds an upward drift (in strike steps per spot tick) to exercise re-centring. |
 | `replay` | Replays a recorded day from SQLite, driving the app clock from tick timestamps. `TRADEDISHA_REPLAY_DATE=YYYY-MM-DD` picks the day (default: latest); `TRADEDISHA_REPLAY_SPEED=0` runs as fast as possible. `TRADEDISHA_REPLAY_DROP='["10:05:00-10:07:30"]'` withholds the ticks in those IST time ranges, to see how the app behaves through a feed outage. |
-| `upstox` | Live market data. Needs `TRADEDISHA_UPSTOX_API_KEY` / `_SECRET` in `.env` and an Upstox app whose redirect URL is `http://127.0.0.1:8000/api/auth/callback`. Press **Login** in the top bar once a day (the token ends at 03:30 IST); **Logout** ends it sooner. Set `TRADEDISHA_DB_PATH=data/live.sqlite` so live recordings stay apart from synthetic ones; replay with the same path replays a live day against that day's real instruments. The MCX tabs (gold and silver, with their minis) come from this feed; a replay shows them only with `TRADEDISHA_REPLAY_BULLION=true`, which also replays that day's recorded bullion ticks. SENSEX and the NSE ETFs are recorded with the NSE ticks, so a replay of a day recorded with them shows them. The macro ticks (currency futures, crude) are recorded with the bullion ticks, so a replay has macro evidence only with that flag too; NIFTY's GIFT Nifty gap replays either way. MCX closes at 23:30, or 23:55 while the US is on standard time: set `TRADEDISHA_MCX_CLOSE=23:55` for those months. |
+| `upstox` | Live market data. Needs `TRADEDISHA_UPSTOX_API_KEY` / `_SECRET` in `.env` and an Upstox app whose redirect URL is `http://127.0.0.1:8000/api/auth/callback`. Press **Login** in the top bar once a day (the token ends at 03:30 IST); **Logout** ends it sooner. Set `TRADEDISHA_DB_PATH=data/live.sqlite` so live recordings stay apart from synthetic ones; replay with the same path replays a live day against that day's real instruments. The MCX tabs (GOLD, GOLDM, SILVER, SILVERM) come from this feed; a replay shows them only with `TRADEDISHA_REPLAY_BULLION=true`, which also replays that day's recorded bullion ticks. SENSEX and the NSE ETFs are recorded with the NSE ticks, so a replay of a day recorded with them shows them. The macro ticks (currency futures, crude) are recorded with the bullion ticks, so a replay has macro evidence only with that flag too; NIFTY's GIFT Nifty gap replays either way. MCX closes at 23:30, or 23:55 while the US is on standard time: set `TRADEDISHA_MCX_CLOSE=23:55` for those months. |
 
 Trading holidays are read from `config/nse-holidays.txt`, and MCX's (which differ, and
 include evening-only days) from `config/mcx-holidays.txt`. US data releases (CPI, payrolls)

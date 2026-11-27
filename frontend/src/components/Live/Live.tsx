@@ -145,14 +145,12 @@ function useTicket() {
   return { ticket, setTicket, close, opened }
 }
 
-/** The live price of the contract a bullion ticket is for: the metal's future or its mini. */
+/** The live price of the contract a bullion ticket is for: each contract is its own market. */
 function ticketLtp(bullion: BullionOut | null, t: TicketTarget): number | null {
-  const m = bullion?.metals.find((x) => x.metal === t.index)
-  if (!m) return null
-  return t.contract && t.contract !== t.index ? (m.mini?.ltp ?? null) : m.ltp
+  return bullion?.metals.find((x) => x.metal === t.index)?.ltp ?? null
 }
 
-/** An MCX tab's tiles (E32): the metal's future and its mini. */
+/** An MCX tab's tiles (E32): its contract's future (GOLD, GOLDM, SILVER or SILVERM, E29). */
 export function BullionTilesPanel({ frame, metal }: { frame: FrameProps; metal: string }) {
   const bullion = useMarketStore((s) => s.bullion)
   const { ticket, setTicket, close, opened } = useTicket()

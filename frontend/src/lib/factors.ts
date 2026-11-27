@@ -28,7 +28,9 @@ export const FACTOR_SCOPES = [
   { scope: 'NIFTY', key: 'nifty', label: 'NIFTY' },
   { scope: 'BANKNIFTY', key: 'banknifty', label: 'BANK NIFTY' },
   { scope: 'GOLD', key: 'gold', label: 'GOLD' },
+  { scope: 'GOLDM', key: 'goldm', label: 'GOLDM' },
   { scope: 'SILVER', key: 'silver', label: 'SILVER' },
+  { scope: 'SILVERM', key: 'silverm', label: 'SILVERM' },
 ] as const
 
 /** factor name -> 'on' | 'off' */

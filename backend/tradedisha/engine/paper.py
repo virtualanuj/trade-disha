@@ -50,7 +50,8 @@ Warning = Literal["bias_reversed"]
 
 LevelSource = Literal["entry", "edit"]
 
-METALS: frozenset[str] = frozenset({"GOLD", "SILVER"})  # bullion trades, by `index`
+# bullion trades, by `index`: each metal and its mini (E29)
+METALS: frozenset[str] = frozenset({"GOLD", "GOLDM", "SILVER", "SILVERM"})
 
 # The `signal_id` of every trade opened by hand. Signal ids are twelve hex digits, so no
 # signal can ever have this one.

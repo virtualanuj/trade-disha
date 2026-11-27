@@ -696,7 +696,7 @@ values and highlights the ones that differ from the current config.
 | `macro.window_minutes` | 30 | minutes over which each macro move is measured |
 | `macro.max_age_seconds` | 180 | a macro price older than this is not live |
 | `macro.dollar_full_pct` / `usdinr_full_pct` / `crude_full_pct` / `gold_full_pct` | 0.15 / 0.10 / 0.80 / 0.40 | % move that counts as full strength |
-| `factors.<nifty, banknifty, gold, silver>.<factor>` | `on` | `off` leaves that factor out of that index's or metal's bias; flipped in Config → Factors, one version per flip |
+| `factors.<nifty, banknifty, gold, goldm, silver, silverm>.<factor>` | `on` | `off` leaves that factor out of that index's or metal's bias; flipped in Config → Factors, one version per flip |
 | `macro.gift_full_pct` / `gift_fade_minutes` / `gift_direction` | 0.50 / 30 / `follow` | NIFTY's GIFT Nifty gap: overnight % at full strength, minutes it fades over, follow or fade the gap |
 | `bias.entry_threshold` | 0.50 | \|bias\| to fire under `minute_close` |
 | `bias.setup_threshold` | 0.35 | \|bias\| to set up under `trigger`; must be above the neutral band and no higher than the entry threshold |
@@ -755,6 +755,12 @@ The bullion parameters are in 13.10.
 ---
 
 ## 13. Bullion signals: gold and silver
+
+Four MCX contracts are worked out, each on its own: GOLD, its mini GOLDM, SILVER and its
+mini SILVERM. Each has its own market view, from its own candles, OI and order book, and
+its own signals, which trade that contract. Everything below holds for each of the four;
+the minis differ only in size (GOLDM ₹10 a point, SILVERM ₹5) and read the other metal's
+*full* future as their peer.
 
 > **Note: terms used in this section**
 >
@@ -871,7 +877,7 @@ input is the gold or silver near-month future.
 
 | Indicator | What it measures | Score |
 |---|---|---|
-| `peer_metal` | The other metal's trend: SILVER's for GOLD, GOLD's for SILVER | the mean of its `ok` trend votes, up to the same minute. Its trend, not its bias, so neither metal reads itself. |
+| `peer_metal` | The other metal's trend, from its full future: SILVER's for GOLD and GOLDM, GOLD's for SILVER and SILVERM | the mean of its `ok` trend votes, up to the same minute. Its trend, not its bias, so neither metal reads itself. |
 
 Only candles and readings up to and including the minute being worked out are used, even
 though the evaluation runs 20 seconds into the next minute.
@@ -1044,10 +1050,10 @@ a second), so it is not traded into the release.
   US-release pause ("paused around US data: CPI 19:00"). Open trades are never touched by
   the pause: target, stop and square-off carry on. The trade fills at the future's price
   at your click, with the live target and stop at that price.
-- **Contract.** The signal reads the full future, but its trade opens the contract set
-  for the metal: `bullion.gold_contract` (GOLD or GOLDM, ₹10 a point) and
-  `silver_contract` (SILVER or SILVERM, ₹5 a point). The levels are taken at that
-  contract's fill. A trade by hand can be in either, from its card.
+- **Contract.** Each of GOLD, GOLDM (₹10 a point), SILVER and SILVERM (₹5 a point) is a
+  market of its own, with its own view and signals from its own candles, OI and book; a
+  signal trades its own contract. A metal and its mini can disagree. A mini blocks its
+  metal's margin rate. A trade by hand is in the contract of the card it comes from.
 - **Quantity** = the traded contract's point value × its lots (`bullion.gold_lots`,
   `goldm_lots`, `silver_lots`, `silverm_lots`, default 1 each; a hand ticket can change
   them).
@@ -1081,7 +1087,6 @@ All in the `bullion` section of the Config drawer's Parameters tab:
 | `bullion.first_signal_time` / `last_signal_time` | 09:15 / 22:45 | signal hours |
 | `bullion.square_off_time` | 23:00 | open bullion paper trades close |
 | `bullion.target_pct` / `stop_pct` | 0.40 / 0.20 | % of the future's price |
-| `bullion.gold_contract` / `silver_contract` | GOLD / SILVER | what a signal trade opens: the full future or its mini (GOLDM / SILVERM) |
 | `bullion.gold_lots` / `goldm_lots` / `silver_lots` / `silverm_lots` | 1 each | default lots per contract |
 | `bullion.event_pause_before_minutes` / `event_pause_after_minutes` | 15 / 15 | the pause around each US data release in `config/us-events.txt`; both 0 = no pause |
 | `bullion.event_end_waiting` | `off` | `on` ends a signal still waiting when a pause starts |

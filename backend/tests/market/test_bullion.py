@@ -550,29 +550,26 @@ def _with_minis() -> dict[str, BullionContract]:
     return contracts_from(master, TODAY)
 
 
-def test_each_metal_carries_its_mini_as_a_contract_of_its_own() -> None:
+def test_each_mini_is_a_market_of_its_own_in_tab_order() -> None:
     c = _with_minis()
     assert CONTRACTS == ("GOLD", "SILVER", "GOLDM", "SILVERM")
-    gold_mini, silver_mini = c["GOLD"].mini, c["SILVER"].mini
-    assert gold_mini is not None
-    assert silver_mini is not None
-    assert (gold_mini.metal, gold_mini.near.instrument_key) == ("GOLDM", "MCX_FO|575011")
-    assert gold_mini.next is not None
-    assert gold_mini.next.instrument_key == "MCX_FO|575012"
-    assert (silver_mini.metal, silver_mini.near.instrument_key) == ("SILVERM", "MCX_FO|483080")
-    assert silver_mini.next is None
-    # the full contracts are unchanged
-    assert c["GOLD"].near.instrument_key == "MCX_FO|495213"
+    assert list(c) == ["GOLD", "GOLDM", "SILVER", "SILVERM"]
+    assert (c["GOLDM"].metal, c["GOLDM"].near.instrument_key) == ("GOLDM", "MCX_FO|575011")
+    assert c["GOLDM"].next is not None
+    assert c["GOLDM"].next.instrument_key == "MCX_FO|575012"
+    assert (c["SILVERM"].metal, c["SILVERM"].near.instrument_key) == ("SILVERM", "MCX_FO|483080")
+    assert c["SILVERM"].next is None
+    assert c["GOLD"].near.instrument_key == "MCX_FO|495213"  # the full contracts unchanged
 
 
 def test_a_metal_without_a_mini_still_loads() -> None:
     master = parse_commodities(_records(), ["GOLD", "SILVER"])
     c = contracts_from(master, TODAY)
-    assert c["GOLD"].mini is None
+    assert list(c) == ["GOLD", "SILVER"]
     assert c["GOLD"].near.instrument_key == "MCX_FO|495213"
 
 
-def test_the_mini_has_the_metals_figures_and_never_its_candles() -> None:
+def test_the_mini_has_its_own_figures_and_candles() -> None:
     t = BullionTracker(_with_minis())
     assert {"MCX_FO|575011", "MCX_FO|575012", "MCX_FO|483080"} <= t.keys
     t.on_tick(
@@ -592,9 +589,8 @@ def test_the_mini_has_the_metals_figures_and_never_its_candles() -> None:
     )
     t.on_tick(_st("MCX_FO|575011", 6, 134_900.0))  # widens the day
     t.on_tick(_st("MCX_FO|575012", 6, 135_400.0))  # the mini's next month
-    gold = t.snapshot().metals[0]
-    assert gold.mini is not None
-    m = gold.mini
+    snap = {s.metal: s for s in t.snapshot().metals}
+    m = snap["GOLDM"]
     assert (m.metal, m.trading_symbol, m.expiry, m.point_value) == (
         "GOLDM",
         "GOLDM FUT 04 DEC 26",
@@ -609,25 +605,18 @@ def test_the_mini_has_the_metals_figures_and_never_its_candles() -> None:
         135_400.0,
         500.0,
     )
-    assert m.mini is None
-    assert gold.ltp is None  # a mini tick is not the full contract's price
-    assert (gold.day_high, t.closed_candles("GOLD"), t.minute_book("GOLD", 10**15)) == (
-        None,
-        [],
-        [],
-    )
-    assert t.instrument("GOLD", "GOLDM") == _with_minis()["GOLD"].mini.near  # type: ignore[union-attr]
-    assert t.instrument("GOLD", "GOLD") == _with_minis()["GOLD"].near
-    assert t.instrument("GOLD", "SILVERM") is None
+    assert snap["GOLD"].ltp is None  # a mini tick is not the full contract's price
+    assert [b.oi for b in t.minute_book("GOLDM", 10**15)] == [900]
+    assert t.closed_candles("GOLD") == []
+    assert t.instrument("GOLDM") == _with_minis()["GOLDM"].near
+    assert t.instrument("GOLDM", "GOLDM") == _with_minis()["GOLDM"].near
+    assert t.instrument("GOLD", "GOLDM") is None  # a mini is not its metal's contract
 
 
 def test_the_mini_before_any_tick_uses_its_start_quote() -> None:
     c = _with_minis()
-    mini = c["GOLD"].mini
-    assert mini is not None
-    c = {**c, "GOLD": replace(c["GOLD"], mini=replace(mini, quote=parse_full_quote(REAL_QUOTE)))}
-    m = BullionTracker(c).snapshot().metals[0].mini
-    assert m is not None
+    c = {**c, "GOLDM": replace(c["GOLDM"], quote=parse_full_quote(REAL_QUOTE))}
+    m = {s.metal: s for s in BullionTracker(c).snapshot().metals}["GOLDM"]
     assert (m.ltp, m.prev_close, m.change) == (134914.0, 136705.0, -1791.0)
     assert (m.day_high, m.upper_circuit) == (136055.0, 140806.0)
 
@@ -647,8 +636,7 @@ async def test_enrich_gives_the_mini_its_quote_and_year_range() -> None:
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
         got = await enrich(client, "tok", _with_minis(), TODAY)
-    mini = got["GOLD"].mini
-    assert mini is not None
+    mini = got["GOLDM"]
     assert mini.quote is not None
     assert (mini.range_high, mini.range_low) == (140000.0, 90000.0)
     assert got["GOLD"].quote is not None

@@ -27,9 +27,9 @@ const DETAILS_KEY = 'tradedisha.bullionDetailsOpen'
 const asOpen = (v: unknown): boolean => v === true
 
 /**
- * An MCX tab's tiles (E32): the metal's future and its mini (E28) side by side, then the
- * gold/silver ratio (spec §6.6, §13.2). With `metal`, only that metal; left out, every
- * metal, each column stacked. With `onTrade` (stable), each card has Buy and Sell for a
+ * An MCX tab's tiles (E32): its contract's future, then the gold/silver ratio (spec §6.6,
+ * §13.2). GOLDM and SILVERM are tabs of their own (E29). With `metal`, only that contract;
+ * left out, every contract. With `onTrade` (stable), each card has Buy and Sell for a
  * paper trade by hand (E23).
  */
 export function BullionCards({
@@ -56,17 +56,9 @@ export function BullionCards({
     <div className="flex flex-col gap-3" data-testid="bullion-view">
       <div className="grid gap-3 lg:grid-cols-2">
         {metals.map((m) => (
-          // one metal: the future and the mini side by side; every metal: a column each
-          <div key={m.metal} className={focused ? 'contents' : 'flex flex-col gap-3'}>
-            <Box>
-              <MetalCard m={m} onTrade={onTrade} />
-            </Box>
-            {m.mini ? (
-              <Box>
-                <MetalCard m={m.mini} metal={m.metal} onTrade={onTrade} />
-              </Box>
-            ) : null}
-          </div>
+          <Box key={m.metal}>
+            <MetalCard m={m} onTrade={onTrade} />
+          </Box>
         ))}
       </div>
       <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-xs">
@@ -136,27 +128,21 @@ function awayPct(price: number | null, ref: number | null): string {
 }
 
 /**
- * A metal's future, or its mini (E28) given `metal`: the same card and Details either way.
- * The mini trades as its metal (`index`) with itself as the contract.
+ * One contract's future: GOLD, GOLDM, SILVER or SILVERM, each a market of its own (E29).
+ * A mini is quoted like its metal (per 10 g, per kg) and trades as itself.
  */
 const MetalCard = memo(function MetalCard({
   m,
-  metal = m.metal,
   onTrade,
 }: {
   m: BullionMetalOut
-  /** the metal a mini belongs to; the card's own metal otherwise */
-  metal?: string
   onTrade: ((t: TicketTarget) => void) | undefined
 }) {
   const [open, onToggle] = useDetails(m.metal)
   const yearPos = rangePos(m.ltp, m.range_high, m.range_low)
-  const mini = metal !== m.metal
+  const metal = m.metal.startsWith('SILVER') ? 'SILVER' : 'GOLD'
   return (
-    <div
-      className="flex flex-col gap-3"
-      data-testid={mini ? `mini-${m.metal}` : `bullion-${m.metal}`}
-    >
+    <div className="flex flex-col gap-3" data-testid={`bullion-${m.metal}`}>
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-base font-semibold">{m.metal}</span>
         <span className="truncate text-xs text-fg-muted">
@@ -170,7 +156,7 @@ const MetalCard = memo(function MetalCard({
           {m.change == null ? '—' : fmtSigned(m.change, 2)}
           {m.change_pct == null ? '' : ` (${fmtSigned(m.change_pct, 2)}%)`}
         </span>
-        {onTrade ? <TradeButtons metal={metal} contract={m.metal} onTrade={onTrade} /> : null}
+        {onTrade ? <TradeButtons contract={m.metal} onTrade={onTrade} /> : null}
       </div>
       <DetailsToggle open={open} onToggle={onToggle} />
       {open ? <MetalDetails m={m} yearPos={yearPos} /> : null}
@@ -178,13 +164,11 @@ const MetalCard = memo(function MetalCard({
   )
 })
 
-/** Buy and Sell for a paper trade by hand in one contract: the full future or the mini. */
+/** Buy and Sell for a paper trade by hand in one contract, which is its own market. */
 function TradeButtons({
-  metal,
   contract,
   onTrade,
 }: {
-  metal: string
   contract: string
   onTrade: (t: TicketTarget) => void
 }) {
@@ -195,7 +179,7 @@ function TradeButtons({
         className="rounded border border-bull/60 px-2 py-0.5 font-medium text-bull hover:bg-bull/10"
         title={`Paper trade: buy the ${contract} future`}
         onClick={() => {
-          onTrade({ index: metal, direction: 'BUY_FUT', strike: null, contract })
+          onTrade({ index: contract, direction: 'BUY_FUT', strike: null })
         }}
       >
         Buy
@@ -205,7 +189,7 @@ function TradeButtons({
         className="rounded border border-bear/60 px-2 py-0.5 font-medium text-bear hover:bg-bear/10"
         title={`Paper trade: sell the ${contract} future`}
         onClick={() => {
-          onTrade({ index: metal, direction: 'SELL_FUT', strike: null, contract })
+          onTrade({ index: contract, direction: 'SELL_FUT', strike: null })
         }}
       >
         Sell

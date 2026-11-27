@@ -30,8 +30,9 @@ const MAX_CANDLES = 400
 const MAX_BULLION_CANDLES = 900
 /** NSE's third tab, the gold and silver ETFs (E32); not an index, so not in `instruments` */
 export const ETF_TAB = 'NSE_BULLION'
-/** MCX's tabs, one per metal (E32): what bullion trades are kept for (`engine/paper.py`) */
-export const METAL_TABS: readonly string[] = ['GOLD', 'SILVER']
+/** MCX's tabs, one per contract: each metal and its mini (E32, E29); the bullion markets of
+ * `engine/paper.py` */
+export const METAL_TABS: readonly string[] = ['GOLD', 'GOLDM', 'SILVER', 'SILVERM']
 
 /** A bullion tab whose data the snapshot does not have: a metal not loaded, or no ETFs. */
 function bullionTabGone(selected: string, bullion: BullionOut): boolean {

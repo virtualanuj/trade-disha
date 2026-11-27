@@ -52,7 +52,6 @@ class BullionMetalOut(BaseModel):
     calendar_spread_pct: float | None
     updated_ts: int | None
     point_value: int = 0  # rupees per point per lot
-    mini: BullionMetalOut | None = None  # the metal's mini, with the same figures (E28)
 
 
 class BullionEtfOut(BaseModel):

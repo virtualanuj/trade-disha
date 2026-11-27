@@ -1,4 +1,4 @@
-"""Bullion bias on the MCX GOLD/SILVER near-month future. Spec §9a.
+"""Bullion bias on each MCX near-month future: GOLD, GOLDM, SILVER, SILVERM (E29). Spec §9a.
 
 There is no option chain for bullion. The evidence is the trend group (EMA cross, VWAP
 position, supertrend on the 1-minute candles), the future's open-interest build-up, order
@@ -24,7 +24,7 @@ from tradedisha.indicators.futures import book_imbalance, futures_oi_buildup, ne
 from tradedisha.indicators.macro import peer_metal
 from tradedisha.indicators.series import vwap_series
 from tradedisha.indicators.trend import ema_cross, supertrend_vote, vwap_position
-from tradedisha.market.bullion import BullionTracker
+from tradedisha.market.bullion import METALS, BullionTracker, family
 from tradedisha.market.candles import MINUTE_MS, Candle
 from tradedisha.parameters.model import ParameterSet
 
@@ -110,7 +110,7 @@ class BullionBiasEngine:
         ]
         if self._macro is not None:
             results += self._macro(minute_ts)
-        for peer in (m for m in self._tracker.contracts if m != metal):
+        for peer in self._peers(metal):
             peer_trend = run_bullion_indicators(self._candles(peer, minute_ts), p)
             results.append(peer_metal(peer, peer_trend))
         bias = aggregate(
@@ -134,6 +134,12 @@ class BullionBiasEngine:
         if self._on_bias:
             self._on_bias(out)
         return out
+
+    def _peers(self, name: str) -> list[str]:
+        """The other metal's full future, for GOLD and GOLDM alike: it trades the most, and
+        never the market's own metal (E29)."""
+        own = family(name)
+        return [m for m in self._tracker.contracts if m in METALS and m != own]
 
     def _candles(self, metal: str, upto_minute_ts: int) -> list[Candle]:
         """Closed near-month candles up to and including the minute being worked out."""

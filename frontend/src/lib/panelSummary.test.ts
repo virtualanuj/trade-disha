@@ -46,15 +46,17 @@ describe('panel summaries', () => {
     expect(bullionSummary(null)).toBe('—')
   })
 
-  it('an MCX tab: its metal and mini, and the ratio; the ETFs on their own (E32)', () => {
+  it('an MCX tab: its contract and the ratio; the ETFs on their own (E32, E29)', () => {
     const b = {
       metals: [
-        { metal: 'GOLD', ltp: 135312, mini: { metal: 'GOLDM', ltp: 135320 } },
-        { metal: 'SILVER', ltp: 170115, mini: null },
+        { metal: 'GOLD', ltp: 135312 },
+        { metal: 'GOLDM', ltp: 135320 },
+        { metal: 'SILVER', ltp: 170115 },
       ],
       ratio: 79.51,
     } as BullionOut
-    expect(bullionSummary(b, 'GOLD')).toBe('GOLD 1,35,312.00 · GOLDM 1,35,320.00 · ratio 79.51')
+    expect(bullionSummary(b, 'GOLD')).toBe('GOLD 1,35,312.00 · ratio 79.51')
+    expect(bullionSummary(b, 'GOLDM')).toBe('GOLDM 1,35,320.00 · ratio 79.51')
     expect(bullionSummary(b, 'SILVER')).toBe('SILVER 1,70,115.00 · ratio 79.51')
     expect(
       etfSummary([

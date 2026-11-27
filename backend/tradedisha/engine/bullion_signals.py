@@ -1,4 +1,5 @@
-"""Bullion signals: buy or sell the MCX GOLD/SILVER near-month future. Spec §9a.
+"""Bullion signals: buy or sell an MCX near-month future (GOLD, GOLDM, SILVER or SILVERM,
+each a market of its own, E29). Spec §9a.
 
 The minute-close rule only: when a metal's trend bias reaches `bullion.entry_threshold`,
 a long (`BUY_FUT`) or short (`SELL_FUT`) signal fires at the future's latest price, with
@@ -126,10 +127,10 @@ class BullionSignalEngine:
     def manual_contract(
         self, index: str, direction: Direction, strike: float | None, contract: str | None = None
     ) -> ManualContract | None:
-        """A metal's near-month future to paper-trade by hand: the full one, or with
-        `contract` its mini (E28); None if there is no such contract. `strike` plays no
-        part."""
-        inst = self._tracker.instrument(index, contract or index)
+        """A market's near-month future to paper-trade by hand; None if there is no such
+        market, or `contract` names another one (a mini is its own market, E29). `strike`
+        plays no part."""
+        inst = self._tracker.instrument(index, contract)
         if inst is None or direction not in FUTURE_DIRECTIONS:
             return None
         return ManualContract(
@@ -145,10 +146,9 @@ class BullionSignalEngine:
         )
 
     def trade_contract(self, s: Signal) -> ManualContract | None:
-        """What a metal's signal trade opens: the full future or its mini, as configured
-        (`bullion.gold_contract`, `silver_contract`); None if that one is not loaded."""
-        product = self._params().bullion.contract_for(s.index)
-        return self.manual_contract(s.index, s.direction, None, product)
+        """What a signal trade opens: the signal's own contract (E29); None if it is not
+        loaded."""
+        return self.manual_contract(s.index, s.direction, None)
 
     def default_levels(self, c: ManualContract, price: float) -> tuple[float, float]:
         """The signal rule's target and stop for `c` entered at `price`."""

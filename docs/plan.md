@@ -865,6 +865,34 @@ Frontend only.
 
 **Status (2026-11-27):** built, with a unit test; `make check` green.
 
+## Milestone E29 — GOLDM and SILVERM: markets with their own signals
+
+**Goal:** the minis are markets of their own, each with its market view, signals and MCX
+tab, and its signals trade it (enhancement 38).
+
+- `market/bullion.py`: `contracts_from` returns GOLD, GOLDM, SILVER, SILVERM (`MARKETS`,
+  `family`); `BullionContract.mini` and `MetalSnapshot.mini` go; every near key gets
+  candles, book and day range; `instrument(name, contract=None)`.
+- `engine/bullion_bias.py`: per contract; the peer is the other metal's full future
+  (`_peers`). `engine/bullion_signals.py`: a signal trades its own contract.
+  `engine/paper.py`: `METALS` holds the four.
+- `parameters/model.py`: `gold_contract` / `silver_contract` retired (dropped on load);
+  `margin_pct` by family; `factors.goldm` / `factors.silverm`. `config/params.toml`.
+- Frontend: `METAL_TABS` four; `BullionCards` one card per contract (a mini quoted like its
+  metal), tickets for the contract's own index; `lib/factors.ts` scopes; the mini parts of
+  `panelSummary`, `ticketLtp` and the types removed.
+- Tests: `test_bullion_minis.py` rewritten (family, own candles and book, own bias with the
+  full peer, a GOLDM signal trading GOLDM at GOLD's margin, opposite GOLD/GOLDM signals,
+  hand tickets, old versions, factor switches, the API); `test_bullion.py` and
+  `test_bullion_contracts_params.py` for the new shape; `BullionView`, `panelSummary`, and
+  `App.test.tsx` (four MCX tabs; GOLDM shows its own card and chart).
+
+**Demo:** on the live feed (or a bullion replay) the MCX group reads `[GOLD] [GOLDM]
+[SILVER] [SILVERM]`. GOLDM's market view and signals are its own, and its signal's paper
+trade opens GOLDM with `goldm_lots`; the Trades summary lists GOLDM apart.
+
+**Status (2026-11-27):** built, with unit tests; `make check` green.
+
 ## Milestone S3 — Switch on, on evidence (planned)
 
 - After at least five live sessions recorded with S2, compare the two scorecard rows and

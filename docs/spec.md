@@ -204,7 +204,6 @@ help text.
 | Bullion | `signal_ttl_seconds`, `eval_offset_seconds` | 300, 20 |
 | Bullion | `first_signal_time`, `last_signal_time`, `square_off_time` | 09:15, 22:45, 23:00 |
 | Bullion | `target_pct`, `stop_pct` | 0.40, 0.20 (% of the future's price) |
-| Bullion | `gold_contract`, `silver_contract` | `GOLD`, `SILVER` (what a signal trade opens: the full future or its mini, `GOLDM` / `SILVERM`) |
 | Bullion | `gold_lots`, `goldm_lots`, `silver_lots`, `silverm_lots` | 1 each (default lots per contract; a hand ticket can change them) |
 | Bullion | `cost_fixed_per_lot`, `cost_pct_of_value` | ₹60, 0.012 % |
 | Bullion | `gold_margin_pct`, `silver_margin_pct` | 10, 12 (% of value a future blocks in the paper bank, §10.5) |
@@ -213,7 +212,7 @@ help text.
 | Bullion | `oi_window_minutes`, `oi_full_pct`, `oi_price_flat_pct`, `oi_unwind_factor` | 15, 0.50 %, 0.02 %, 0.5 |
 | Bullion | `flow_window_minutes`, `flow_trades_full`, `flow_book_minutes`, `flow_book_full` | 15, 0.50, 30, 0.20 |
 | News | `poll_seconds` | 180 (30–3600; display only, §6.7; applies at once, not at a minute close) |
-| Factors | `factors.nifty`, `factors.banknifty`, `factors.gold`, `factors.silver`: one value per factor | `on` (or `off`; §8.4; flipped in Config → Factors, not in the typed form) |
+| Factors | `factors.nifty`, `factors.banknifty`, `factors.gold`, `factors.goldm`, `factors.silver`, `factors.silverm`: one value per factor | `on` (or `off`; §8.4; flipped in Config → Factors, not in the typed form) |
 
 **Versions.** The database is the source of truth. Table
 `config_versions` holds every saved set: `version` (1, 2, 3, …), `tag` (typed by the
@@ -418,17 +417,17 @@ NSE instruments shown on NSE's BULLION tab ("Gold and silver ETFs" below).
   `instrument_type = FUT` and `underlying_symbol`, because `name` is `GOLD` for every gold
   contract, minis and petals included. The **near** contract is the nearest expiry strictly
   after today, so it rolls on expiry day, when the expiring one is in its delivery period.
-  The **next** contract is the one after it. Both metals' near and next contracts are
-  subscribed, and so are their minis' (below).
-- **Minis.** Each metal also carries its mini, GOLDM (100 g, ₹10 a point) and SILVERM
-  (5 kg, ₹5 a point), matched the same way (`bullion.py:MINIS`), as a contract of its own
-  (`BullionContract.mini`): near and next month, the start quote, the one-year range and the
-  day's range, so its snapshot has every figure the metal's has (`MetalSnapshot.mini`). It
-  is the same quote in smaller lots and only a trading choice (§9a, §10.1): subscribed and
-  recorded in `bullion_ticks`, but never in the metal's candles, order book, bias or
-  signals. A mini that is not in the file is logged and its metal trades the full contract
-  only.
-- **Live, from the feed** (`full` mode), for each near contract (a metal's and its mini's):
+  The **next** contract is the one after it. Every contract's near and next months are
+  subscribed, the minis' included (below).
+- **Minis.** GOLDM (100 g, ₹10 a point) and SILVERM (5 kg, ₹5 a point) are matched the same
+  way (`bullion.py:MINIS`) and are **markets of their own**, like the full futures: the
+  tracker holds four contracts in tab order, GOLD, GOLDM, SILVER, SILVERM
+  (`bullion.py:MARKETS`). Each has its near and next month, start quote, one-year and day
+  ranges, its own 1-minute candles and order-book readings, its own bias and signals
+  (§9a), and is recorded in `bullion_ticks`. `family(name)` gives the metal a contract is
+  of (GOLDM is GOLD's), for its margin rate, its quote unit and the peer it reads. A mini
+  that is not in the file, or whose metal is not, is logged and left out.
+- **Live, from the feed** (`full` mode), for each near contract:
   - last price and previous close (`cp`)
   - the day's open, high and low, from the `1d` row of `marketOHLC`; if that row is absent,
     the start quote widened by each price
@@ -441,7 +440,7 @@ NSE instruments shown on NSE's BULLION tab ("Gold and silver ETFs" below).
     and previous close shown before the first tick. Its `ohlc.close` is the live price, so
     the previous close is `last_price − net_change`; its `oi_day_high` and `oi_day_low` are
     0 for MCX and not used.
-  - each near contract's high and low (a metal's and its mini's) over a year of daily
+  - each near contract's high and low over a year of daily
     candles to yesterday, the same request
     as the 52-week range in §6.5, widened by today; days with no volume are skipped, since
     an untraded future's early days carry placeholder prices (a gold contract showed
@@ -495,7 +494,7 @@ NSE instruments shown on NSE's BULLION tab ("Gold and silver ETFs" below).
     today; each fails soft.
   - Derived as for the metals: change and change %, position in the day's range, spread.
 - **API:**
-  - `GET /api/bullion` (the snapshot: each metal with its `mini`, and the ETFs as `etfs`)
+  - `GET /api/bullion` (the snapshot: each of the four contracts, and the ETFs as `etfs`)
     and `GET /api/bullion/{metal}/candles`
   - `bullion` (status and `since_ms`) in the health response and `health` frame. On an
     MCX tab the banner follows it instead of the NSE session: no "Market closed" while
@@ -783,7 +782,8 @@ their share back when idle are an argument of `aggregate()`: macro for the indic
 
 **Factor switches.** Each factor of each index's and metal's bias can be switched off;
 every factor is on by default. The switches are parameters: `factors.nifty`,
-`factors.banknifty`, `factors.gold` and `factors.silver`, one `"on"`/`"off"` value per
+`factors.banknifty`, `factors.gold`, `factors.goldm`, `factors.silver` and
+`factors.silverm` (each bullion contract its own, E29), one `"on"`/`"off"` value per
 factor (`IndexFactors`, `NiftyFactors` with `gift_nifty`, `BullionFactors`; a test keeps
 the names equal to what the engines emit). They are flipped only in the Config drawer's
 **Factors** tab (§13.2), and each flip is saved at once as its own version tagged
@@ -1036,18 +1036,23 @@ the next evaluation; the other carries on in shadow, so the comparison never sto
 
 ### 9a. Bullion signals
 
-GOLD and SILVER MCX near-month futures, run by `engine/bullion_desk.py:BullionDesk`
-(bias -> signals -> paper trades) on the MCX clock and bullion liveness (§6.6).
+The MCX near-month futures GOLD, GOLDM, SILVER and SILVERM, each a market of its own, run
+by `engine/bullion_desk.py:BullionDesk` (bias -> signals -> paper trades) on the MCX clock
+and bullion liveness (§6.6).
 
-- **The contract traded.** A signal is always the full future's: its evidence, entry and
-  levels read GOLD or SILVER. Its paper trade opens `bullion.gold_contract` /
-  `silver_contract`, the full future or its mini (`BullionSignalEngine.trade_contract`),
-  with that contract's default lots (`bullion.<contract>_lots`), at that contract's price;
-  the live levels are taken at that fill (§9.3) and slippage is the fill against the
-  signal's entry. A configured mini that is not loaded refuses the trade (409). The trade
-  stays the metal's (`index` GOLD or SILVER): its margin %, its summary row, its US-release
-  pause. An active bullion signal carries `trade` (contract, symbol, lots, quantity) so
-  the card can say what it opens.
+- **One bias and signal per contract.** Each contract's bias reads its own candles, OI and
+  order book, so a metal and its mini can differ and even hold opposite signals. The
+  macro group's peer is the *other metal's full future* for both (GOLD and GOLDM read
+  SILVER's trend; SILVER and SILVERM read GOLD's), because the full contract trades the
+  most; a market never reads its own metal. The dollar is the same for all four.
+  Parameters (thresholds, weights, hours, levels, the US-release pause) are shared, and
+  factor switches are per contract (§8.4).
+- **The contract traded.** A signal trades its own contract
+  (`BullionSignalEngine.trade_contract`), with that contract's default lots
+  (`bullion.<contract>_lots`), at its price, as `index` GOLDM (say) with GOLD's margin
+  rate (`margin_pct` by family). An active bullion signal carries `trade` (contract,
+  symbol, lots, quantity), so the card can say what it opens. Trades stored before this
+  that a GOLD signal opened in GOLDM keep `index` GOLD.
 
 - **Evidence.** There is no option chain for bullion. The bias has four groups, all read
   from the near future up to the minute being worked out (`indicators/futures.py`,
@@ -1123,8 +1128,8 @@ POST /paper-trades {signal_id}
     `bullion.event_block_trades` is on (§9a), its feed live (else 409 with reason)
   → open at current LTP of signal.instrument_key (not signal.entry_price)
   → slippage = fill − signal.entry_price
-  → quantity = lot_size × lots (bullion: the traded contract's point value × its
-    default lots, `bullion.<contract>_lots`; a metal's signal may trade its mini, §9a)
+  → quantity = lot_size × lots (bullion: the contract's point value × its default lots,
+    `bullion.<contract>_lots`, §9a)
   → the paper bank blocks the trade's money, or refuses (409) if it cannot (§10.5)
   → status OPEN; target/stop = the signal's live levels at the fill price (§9.3), so the
     trade gets what the card's Live row showed; signal_entry keeps the fired entry
@@ -1135,14 +1140,14 @@ No cap on concurrent open paper trades per index or direction *(my call, follows
 refused with a 409, and the signal stays active.
 
 **Opened by hand.** The trader can also open a paper trade with no signal behind it: any
-option in the chain window (the chain's expiry), or a metal's near-month future or its
-mini, bought or sold. It is stored like any other trade, with `signal_id = 'manual'`
+option in the chain window (the chain's expiry), or a bullion contract's near-month future
+(GOLD, GOLDM, SILVER or SILVERM), bought or sold. It is stored like any other trade, with `signal_id = 'manual'`
 (`engine/paper.py:MANUAL_SIGNAL_ID`; a signal id is twelve hex digits, so none can clash).
 
 ```
 GET /paper-trades/ticket?index=&direction=&strike=&contract=&lots=
-  (strike for an option only; contract GOLDM or SILVERM for a metal's mini, the full
-  future by default; lots 1 to 100, the contract's default by default)
+  (strike for an option only; `index` names the bullion contract, and `contract`, if
+  sent, must be the same; lots 1 to 100, the contract's default by default)
   → the contract, its price now, lots and quantity, cost, the money the bank would
     block and the money free, the signal rule's target and stop at that price, and
     `refusal`: why an open would be refused now, if it would be. Nothing is opened.
@@ -1365,7 +1370,7 @@ only SQLite, and `GET /auth/login`; a test lists them.
 | GET | `/journal/stats?from=&to=&index=` | summary stats: overall (index options), per index, `bullion` and per metal, from signal trades; `manual` for trades opened by hand |
 | GET | `/bank` | the paper bank: balance, held, available and the ledger (§10.5) |
 | GET | `/bank/statement?from=&to=&kind=&index=` | every cash move with the bank's figures after it: deposits, withdrawals, each trade's block and settlement (§10.5) |
-| GET | `/bullion` | the GOLD / SILVER snapshot, with the minis and the ETFs (§6.6) |
+| GET | `/bullion` | the GOLD, GOLDM, SILVER and SILVERM snapshot, and the ETFs (§6.6) |
 | GET | `/bullion/{metal}/candles` | today's bullion candles with VWAP |
 | GET | `/parameters` | the config in force: version, tag, created_ts and the `ParameterSet` |
 | GET | `/parameters/schema` | one entry per editable value: path, group, kind (number, integer, choice, time), limits, choices, help |
@@ -1545,26 +1550,27 @@ NIFTY / BANK NIFTY tab               Chain minimised        MCX tab, NSE BULLION
   login and connection problems still come first.
 - **IndexTabs**: the tabs grouped by exchange, each group behind a small muted label
   with a thin rule between (`lib/tabs.ts:tabGroups`): **NSE** — NIFTY, BANKNIFTY, and
-  BULLION (the gold and silver ETFs) while there are ETFs; **MCX** — GOLD and SILVER, one
-  tab per metal loaded (§6.6). A group with no tabs is left out. Each tab is named for
+  BULLION (the gold and silver ETFs) while there are ETFs; **MCX** — GOLD, GOLDM, SILVER
+  and SILVERM, one tab per contract loaded (§6.6). A group with no tabs is left out. Each tab is named for
   assistive tech with its exchange ("MCX GOLD"). Selection drives chart, meter, signal,
   evidence and chain panel. The selected tab survives a reconnect and falls back to the
   first index when its data goes away (a metal not loaded, no ETFs).
-- **MCX tabs** (GOLD, SILVER). The main column's panels, the same units in the same
-  trader-set order with the same ↑ ↓ and minimise controls as the index tabs, for that
-  metal. The tiles unit is `BullionCards` (below) instead of the index tiles; Signal,
+- **MCX tabs** (GOLD, GOLDM, SILVER, SILVERM). The main column's panels, the same units in
+  the same trader-set order with the same ↑ ↓ and minimise controls as the index tabs, for
+  that contract. The tiles unit is `BullionCards` (below) instead of the index tiles; Signal,
   Market view (its evidence has the trend, OI, flow and macro groups, and no order-flow
-  line), Price chart, Open paper trades and Signals today show the metal (§9a). The
+  line), Price chart, Open paper trades and Signals today show that contract (§9a). The
   option-chain column and its divider are not shown. The top bar and banner follow MCX.
 - **NSE BULLION tab** (`ETF_TAB`). The ETFs have no signal, market view, chart or trades,
   so the main column is one panel, **Bullion ETFs** (`EtfTilesPanel`, the tiles unit's
   frame): `EtfCards`, the GOLDBEES and SILVERBEES cards side by side. No option chain.
   The top bar and banner follow NSE.
-- **BullionCards** (an MCX tab's tiles): the metal's card and its mini's side by side,
-  then the gold/silver ratio (still of both metals). Given no metal (or one it has no
-  data for) it shows every metal side by side, each column stacked.
-  - A card per metal, headed by the contract, expiry and lot:
-    - LTP with unit, change and change % (always shown)
+- **BullionCards** (an MCX tab's tiles): the tab's contract's card, then the gold/silver
+  ratio (of the two full futures). Given no contract (or one it has no data for) it shows
+  every contract side by side.
+  - A card per contract, headed by the contract, expiry, lot and rupees per point a lot:
+    - LTP with its metal's unit (a mini is quoted like its metal: ₹ / 10 g, ₹ / kg),
+      change and change % (always shown)
     - a **Details** toggle, like the index tile's, closed by default. Each card opens and
       closes on its own and is remembered on its own in `localStorage`
       (`tradedisha.bullionDetailsOpen.<card>`: `.GOLD`, `.GOLDM`, `.GOLDBEES`, …), apart
@@ -1574,11 +1580,7 @@ NIFTY / BANK NIFTY tab               Chain minimised        MCX tab, NSE BULLION
       ratio
     - Contract, 1 year: high and low with distance and range bar, circuit limits
     - Next month: price, spread over near
-    - Buy and Sell, opening the TradeTicket for that metal's future
-  - Beside the metal's card, its mini's (GOLDM, SILVERM): the same card, with the same
-    Details (Today, Liquidity, Contract 1 year, Next month) on its own toggle, and its own
-    Buy and Sell, opening the TradeTicket for the mini. Every card's heading also gives the
-    rupees per point a lot.
+    - Buy and Sell, opening the TradeTicket for that contract
   - The gold/silver ratio.
   - `Price`, `Group`, `Fact` and `RangeBar` are shared with IndexTiles (`components/Facts`).
 - **EtfCards** (NSE's BULLION tab): a card for each NSE ETF (GOLDBEES, SILVERBEES), side by
@@ -1623,7 +1625,7 @@ NIFTY / BANK NIFTY tab               Chain minimised        MCX tab, NSE BULLION
   owns the box and a 32 px title bar with the panel's title and one minimise / expand
   button; the panel components inside draw no box or duplicate heading of their own.
   Minimised, only the title bar is left, with a one-line summary (`lib/panelSummary.ts`:
-  spot and change, or on an MCX tab the metal's and its mini's prices and the ratio, or on
+  spot and change, or on an MCX tab the contract's price and the ratio, or on
   NSE's BULLION each ETF's price; strength and label; signal with entry and time left;
   open trades with live P&L; last close; signals today; PCR and max pain), and the panels
   below move up. Contents are not rendered while minimised, except the price chart, which

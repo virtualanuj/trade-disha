@@ -70,10 +70,7 @@ export function bullionSummary(bullion: BullionOut | null, metal?: string): stri
   const all = bullion?.metals ?? []
   const metals = metal === undefined ? all : all.filter((m) => m.metal === metal)
   if (metals.length === 0) return '—'
-  const parts = metals.flatMap((m) => [
-    `${m.metal} ${fmtPrice(m.ltp)}`,
-    ...(m.mini ? [`${m.mini.metal} ${fmtPrice(m.mini.ltp)}`] : []),
-  ])
+  const parts = metals.map((m) => `${m.metal} ${fmtPrice(m.ltp)}`)
   if (bullion?.ratio != null) parts.push(`ratio ${bullion.ratio.toFixed(2)}`)
   return parts.join(' · ')
 }

@@ -660,7 +660,8 @@ export interface TicketTarget {
   index: string
   direction: SignalDirection
   strike: number | null
-  /** a metal's contract to trade: its mini (GOLDM, SILVERM) or the full one (E28) */
+  /** the contract to trade; since E29 each contract is its own market, so this is the index
+   * or left out */
   contract?: string
   /** lots typed on the ticket; left out, the contract's default (E28) */
   lots?: number
@@ -803,8 +804,6 @@ export interface BullionMetalOut {
   updated_ts: number | null
   /** rupees per point per lot */
   point_value: number
-  /** the metal's mini (GOLDM, SILVERM) with the same figures (E28); null when not loaded */
-  mini: BullionMetalOut | null
 }
 
 /** GOLDBEES / SILVERBEES: an NSE ETF shown under its metal (E25). Display only. */

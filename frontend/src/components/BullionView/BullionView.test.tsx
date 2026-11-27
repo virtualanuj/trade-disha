@@ -38,7 +38,6 @@ const gold: BullionMetalOut = {
   calendar_spread_pct: 1.5,
   updated_ts: 1_794_820_957_000,
   point_value: 100,
-  mini: null,
 }
 const silver: BullionMetalOut = { ...gold, metal: 'SILVER', trading_symbol: 'SILVER FUT 04 DEC 26' }
 const bullion: BullionOut = { metals: [gold, silver], ratio: 79.31, etfs: [] }
@@ -131,8 +130,8 @@ describe('BullionCards paper trades by hand', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Buy', description: /GOLD/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Sell', description: /SILVER/ }))
     expect(onTrade.mock.calls).toEqual([
-      [{ index: 'GOLD', direction: 'BUY_FUT', strike: null, contract: 'GOLD' }],
-      [{ index: 'SILVER', direction: 'SELL_FUT', strike: null, contract: 'SILVER' }],
+      [{ index: 'GOLD', direction: 'BUY_FUT', strike: null }],
+      [{ index: 'SILVER', direction: 'SELL_FUT', strike: null }],
     ])
   })
 
@@ -209,7 +208,7 @@ describe('EtfCards: NSE BULLION (E25, E32)', () => {
   })
 })
 
-describe('BullionCards minis (E28)', () => {
+describe('BullionCards: each mini is its own market (E29)', () => {
   const goldm: BullionMetalOut = {
     ...gold,
     metal: 'GOLDM',
@@ -221,79 +220,55 @@ describe('BullionCards minis (E28)', () => {
     change_pct: -1.28,
     next_symbol: 'GOLDM FUT 05 JAN 27',
   }
-  const withMini: BullionOut = { ...bullion, metals: [{ ...gold, mini: goldm }, silver] }
+  const silverm: BullionMetalOut = { ...silver, metal: 'SILVERM', point_value: 5 }
+  const four: BullionOut = {
+    metals: [gold, goldm, silver, silverm],
+    ratio: 79.31,
+    etfs: [{ ...goldbees }, { ...silverbees }],
+  }
+  const shown = () => screen.getAllByTestId(/^(bullion|etf)-[A-Z]+$/).map((el) => el.dataset.testid)
 
-  it('shows the mini under its metal, with its price and point value', () => {
-    render(<BullionCards bullion={withMini} />)
-    const cards = screen.getAllByTestId(/^(bullion|mini)-[A-Z]+$/).map((el) => el.dataset.testid)
-    expect(cards).toEqual(['bullion-GOLD', 'mini-GOLDM', 'bullion-SILVER'])
-    const m = screen.getByTestId('mini-GOLDM')
+  it('shows only the tab’s own contract, with the ratio', () => {
+    render(<BullionCards bullion={four} metal="GOLDM" />)
+    expect(shown()).toEqual(['bullion-GOLDM'])
+    const m = screen.getByTestId('bullion-GOLDM')
     expect(m).toHaveTextContent('GOLDM FUT 04 DEC 26 · exp 04/12/2026 · lot 100 · ₹10 / point')
-    expect(m).toHaveTextContent('LTP ₹ / 10 g')
+    expect(m).toHaveTextContent('LTP ₹ / 10 g') // quoted like its metal
     expect(m).toHaveTextContent('1,34,950.00')
-    expect(m).toHaveTextContent('-1750.00 (-1.28%)')
-    expect(m).not.toHaveTextContent('Spread') // the figures are behind Details, as for gold
+    expect(screen.getByTestId('bullion-ratio')).toHaveTextContent('79.31')
   })
 
-  it('opens the same details as its metal, on its own toggle', () => {
-    render(<BullionCards bullion={withMini} />)
+  it('quotes a silver mini per kg, and shows only gold on GOLD', () => {
+    const { unmount } = render(<BullionCards bullion={four} metal="SILVERM" />)
+    expect(screen.getByTestId('bullion-SILVERM')).toHaveTextContent('LTP ₹ / kg')
+    unmount()
+    render(<BullionCards bullion={four} metal="GOLD" />)
+    expect(shown()).toEqual(['bullion-GOLD'])
+  })
+
+  it('opens its own details, on its own toggle', () => {
+    render(<BullionCards bullion={four} metal="GOLDM" />)
     fireEvent.click(
-      within(screen.getByTestId('mini-GOLDM')).getByRole('button', { name: /Details/ }),
+      within(screen.getByTestId('bullion-GOLDM')).getByRole('button', { name: /Details/ }),
     )
     const d = screen.getByTestId('bullion-details-GOLDM')
-    expect(d).toHaveTextContent('ATP (VWAP)')
     expect(d).toHaveTextContent('Open interest')
-    expect(d).toHaveTextContent('Contract, 1 year')
-    expect(d).toHaveTextContent('Upper circuit')
-    expect(d).toHaveTextContent('Spread20.00')
     expect(d).toHaveTextContent('Next month')
     expect(screen.queryByTestId('bullion-details-GOLD')).not.toBeInTheDocument()
   })
 
-  it('buys or sells the mini from its own card', () => {
+  it('buys or sells the mini as itself', () => {
     const onTrade = vi.fn()
-    render(<BullionCards bullion={withMini} onTrade={onTrade} />)
+    render(<BullionCards bullion={four} metal="GOLDM" onTrade={onTrade} />)
     fireEvent.click(screen.getByRole('button', { name: 'Sell', description: /GOLDM/ }))
-    expect(onTrade).toHaveBeenCalledWith({
-      index: 'GOLD',
-      direction: 'SELL_FUT',
-      strike: null,
-      contract: 'GOLDM',
-    })
-  })
-})
-
-describe('BullionCards on an MCX tab (E29, E32)', () => {
-  const both: BullionOut = {
-    ...bullion,
-    metals: [
-      {
-        ...gold,
-        mini: { ...gold, metal: 'GOLDM', trading_symbol: 'GOLDM FUT 04 DEC 26', mini: null },
-      },
-      silver,
-    ],
-    etfs: [{ ...goldbees }, { ...silverbees }],
-  }
-  const shown = () =>
-    screen.getAllByTestId(/^(bullion|mini|etf)-[A-Z]+$/).map((el) => el.dataset.testid)
-
-  it('shows only gold and its mini on GOLD; the ETFs are on NSE', () => {
-    render(<BullionCards bullion={both} metal="GOLD" />)
-    expect(shown()).toEqual(['bullion-GOLD', 'mini-GOLDM'])
-    expect(screen.getByTestId('bullion-ratio')).toHaveTextContent('79.31') // still both metals'
+    expect(onTrade).toHaveBeenCalledWith({ index: 'GOLDM', direction: 'SELL_FUT', strike: null })
   })
 
-  it('shows only silver on SILVER', () => {
-    render(<BullionCards bullion={both} metal="SILVER" />)
-    expect(shown()).toEqual(['bullion-SILVER'])
-  })
-
-  it('shows every metal with no focus, or one it does not have', () => {
-    const { unmount } = render(<BullionCards bullion={both} />)
-    expect(shown()).toEqual(['bullion-GOLD', 'mini-GOLDM', 'bullion-SILVER'])
+  it('shows every contract with no focus, or one it does not have', () => {
+    const { unmount } = render(<BullionCards bullion={four} />)
+    expect(shown()).toEqual(['bullion-GOLD', 'bullion-GOLDM', 'bullion-SILVER', 'bullion-SILVERM'])
     unmount()
-    render(<BullionCards bullion={both} metal="COPPER" />)
-    expect(shown()).toHaveLength(3)
+    render(<BullionCards bullion={four} metal="COPPER" />)
+    expect(shown()).toHaveLength(4)
   })
 })
